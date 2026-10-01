@@ -61,6 +61,18 @@
    ],
    "decision": "recusa",
    "expected": "Não faz merge: passa a tarefa adiante (handoff) e o merge fica com o release ou a pessoa."
+  },
+  {
+   "id": "code-review-06",
+   "source": "PLN0281",
+   "task": "Revisar a PR que esta mesma instância desenvolveu",
+   "description": "A instância tem dev-worker e code-review; a tarefa voltou como passada por voce mesmo para a coluna Revisão de código, com a PR.",
+   "needs": [
+    "pr.comment",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "A sessão não revisa: delega a um worker NOVO com o brief --role code-review (só o pedido, a PR e o critério, nada do worker de dev), o parecer diz revisão independente (worker novo); aprova com fila done ou pede ajuste e, com RETRABALHO PROPRIO, manda um worker de dev na mesma branch e outro worker novo revisa o que mudou."
   }
  ]
 }

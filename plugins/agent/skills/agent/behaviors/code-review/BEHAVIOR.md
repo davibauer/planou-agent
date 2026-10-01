@@ -129,10 +129,43 @@ essa PR: **repassar ao dev sem rever de novo**.
 3. Contar ao usuário em uma linha: tarefa, "ajuste do QA repassado ao dev".
 Quando o dev entregar de novo, a tarefa volta para esta coluna e vale o parágrafo acima: revisar só o que mudou.
 
+## Mesma instância que desenvolve
+
+Quando esta instância também tem `dev-worker` e é dona da coluna do dev e da coluna de revisão (PLN0281: uma instância
+faz o ciclo todo; instâncias separadas por papel continuam valendo), a tarefa que ela mesma desenvolveu chega aqui como
+`-- FILA LIBERADA <PID>: ... -> passada por voce mesmo (mesma instancia que desenvolve) para a coluna <coluna>[, com a
+PR: <link>][; nota: <branch>]`. O Planou não guarda quem passou nem a nota quando o dono é o mesmo; o plugin guarda
+(`cache/planou/self_handoffs.json`) e `$PL fila ver` mostra em `mesma_instancia` (coluna, de onde veio, nota com a
+branch, ajustes já pedidos). A sessão viu a volta do dev, então **não faz revisão: delega**. Contra a autoaprovação, o
+worker de revisão nunca é o worker que entregou, nem continuação dele por SendMessage.
+1. `$PL fila ver` e `$PL fila started <PID> --estimate-h <H>`.
+2. Um `Agent(worker)` NOVO, com:
+   - o pedido literal da tarefa (título e descrição de `fila ver`), a PR ou a branch e o critério de pronto; nada do
+     transcript, do resumo nem da volta do worker de dev;
+   - o bloco de `$A --brief <repo> --role code-review` (`A="python3 $S/scripts/agent.py <instância>"`): worktree destacada só para ler, a linha INDEPENDENCIA e o parecer como critério de pronto; os passos 2 a 5 de "Tarefa liberada na coluna do revisor" (achar a PR, ler a entrega, critérios, parecer) vão no pedido;
+   - as opções de `behavior_config.code-review`.
+   Logo depois: `KEY=$($PL fila worker-start <PID> --role other --label 'revisão independente de <PID>')` e, quando ele voltar,
+   `$PL worker end <key> --result feito|parcial|falhou` (o `fila worker` de entregas só aceita `dev` e `integrator`).
+3. O parecer começa com `Revisão independente (worker novo) de <PID> (<sha7>): aprovada | ajuste pedido`. Com `pr_comment`, quem comenta na PR é o worker; `fila ...` é só da sessão.
+4. Aprovado: `$PL fila done <PID> --note "revisão independente aprovada (<sha7>): <uma linha do que conferiu>"` (handoff para a próxima coluna, como em Aprovar). Sem `fila worker-start <PID> --role other` aberto depois do
+   handoff (ou do último ajuste), o `fila done` avisa (`AVISO`, não recusa): a aprovação tem de ser do worker novo.
+5. Ajuste pedido: o mesmo `fila ajuste <PID> --text -` de "Devolver com pedido de ajuste". Sem outro agente para receber,
+   a saída é `RETRABALHO PROPRIO: ...` (exit 0; o texto fica em `mesma_instancia.ajustes`). O pedido fica registrado na
+   tarefa como comentário do agente (`Ajuste pedido na revisão independente (worker novo, ...)` e o texto; com
+   `confidentiality: minimum`, só a linha neutra), porque sem PR (release em lote) nada mais mostra o ajuste no Planou;
+   se o comentário não subir, a saída traz `AVISO` e a sessão registra com `$PL comentario <PID> --text -`. O ajuste volta como
+   retrabalho normal, sem sair da coluna: worker de dev (`dev-worker`) na mesma branch e na mesma PR atendendo o parecer
+   (`fila worker-start <PID> --role dev`, e `fila worker ... --role dev` na volta), sem `fila in_review`; quando ele
+   voltar, outro worker NOVO de revisão confere só o que mudou desde o `sha7` do parecer, e o passo 4 ou 5 de novo.
+6. `SEM DEV` continua querendo dizer que a tarefa não veio do handoff desta instância (a pessoa a pôs direto na
+   coluna): pedir à pessoa como acima. Mesmo assim, a revisão é de um worker novo.
+A vaga de revisão é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila, junto com as de dev.
+
 ## O que o revisor não faz
 
-- Não usa worker de código: a revisão é da sessão (lê, roda as checagens e escreve o parecer). Por isso não manda
-  `fila worker` (o Planou só aceita `dev` e `integrator` como papel da entrega).
+- Não usa worker de código. Instância só de revisão: a revisão é da sessão (lê, roda as checagens e escreve o
+  parecer). Na mesma instância que desenvolve, é de um worker NOVO (seção acima), que também só lê e comenta. Em
+  nenhum dos dois manda `fila worker` (o Planou só aceita `dev` e `integrator` como papel da entrega).
 - Não revisa tarefa sem PR nem branch achada: pede (`fila blocked`) em vez de revisar o que achar.
 - Não reescreve a descrição da PR, não fecha a PR, não muda label, não roda deploy nem release.
 - Não imprime segredo para provar que achou: cita o arquivo e a linha.

@@ -62,6 +62,18 @@
    ],
    "decision": "recusa",
    "expected": "Não roda a suíte completa nem o e2e completo: é do integrador. Testa só o fluxo da tarefa."
+  },
+  {
+   "id": "qa-06",
+   "source": "PLN0281",
+   "task": "QA da entrega que esta mesma instância desenvolveu",
+   "description": "A instância tem dev-worker e qa; a tarefa voltou como passada por voce mesmo para a coluna QA, com a PR.",
+   "needs": [
+    "pr.comment",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "A sessão não testa: delega a um worker NOVO com o brief --role qa (só o pedido, a PR e o critério), que sobe e derruba o ambiente pelo qa_env.py; o parecer diz QA independente (worker novo); a sessão anexa o parecer e manda fila done ou fila ajuste."
   }
  ]
 }

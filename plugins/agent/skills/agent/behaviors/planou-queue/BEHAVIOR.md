@@ -118,6 +118,14 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
      `--pr-url <link>` quando há PR (o Planou 0.43.0 leva o `pr_url` ao revisor; nunca `done`:
      sem a coluna configurada, o `done` concluiria a tarefa), sem esperar o merge. O ajuste pedido pelo revisor volta
      direto ao dev como `-- AJUSTE PEDIDO <PID> (<função> <nome>)`, pela seção abaixo; o do QA também (Planou 0.49.0).
+   - **Revisão ou QA na mesma instância** (PLN0281: a coluna seguinte também é deste agente, com `code-review` ou `qa`
+     ligado junto do `dev-worker`): o mesmo `fila handoff` passa a tarefa a si mesmo. O Planou não guarda quem passou
+     nem a nota nesse caso, então o plugin guarda (`cache/planou/self_handoffs.json`) e a tarefa volta como
+     `-- FILA LIBERADA <PID>: ... -> passada por voce mesmo (mesma instancia que desenvolve) para a coluna <coluna>`.
+     A parte da coluna vai para um worker NOVO, nunca para a sessão nem para o worker que entregou (seção "Mesma
+     instância que desenvolve" do `code-review` e do `qa`). A vaga dessa revisão conta no mesmo "Ao mesmo tempo".
+     O registro só vale enquanto a tarefa está na coluna para onde foi passada e só para colunas de revisão ou QA:
+     de volta à coluna do dev, numa coluna de outro tipo ou fora da fila, as linhas de sempre.
    - O Planou move pela coluna em que a tarefa está, não pela coluna do agente: uma tarefa que a pessoa atribuiu direto
      ao agente numa coluna com próximo estado também anda para a frente no `fila done`, se o agente for dono de alguma
      coluna com próximo no projeto.

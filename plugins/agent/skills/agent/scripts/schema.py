@@ -457,6 +457,12 @@ def validate(c, behavior_file=None, adapter_exists=None):
                     if why: err.append(f'"behavior_config.qa.{k}": {why}')
                 if name == 'qa' and opts.get('env_url') and opts.get('url'):
                     warn.append('"behavior_config.qa": "env_url" e "url" juntos; vale o "env_url" (o "url" fica sem efeito)')
+    same = [x for x in ('code-review', 'qa') if isinstance(b, list) and x in b and 'dev-worker' in b]
+    if same:
+        warn.append(f'"behaviors": "dev-worker" junto de {" e ".join(chr(34) + x + chr(34) for x in same)}: modo mesma instancia '
+                    '(PLN0281). A revisao/QA da tarefa que esta instancia desenvolveu roda num worker NOVO, de contexto limpo '
+                    '(nunca o worker que entregou nem continuacao dele), e o ajuste volta como retrabalho; as vagas de '
+                    'revisao/QA contam no mesmo "Ao mesmo tempo" da aba Fila. Com instancias separadas por papel, tire-os daqui')
     if isinstance(b, list) and 'qa' in b and not ((bc if isinstance(bc, dict) else {}).get('qa') or {}).get('env_up'):
         warn.append('"behavior_config.qa.env_up" vazio: o qa nao sobe ambiente de teste (scripts/qa_env.py recusa)')
     for old, new in sorted((c.get('_renamed_behaviors') or {}).items()):

@@ -120,6 +120,14 @@ Handoff (Planou 0.27.0, owners of columns): when the agent owns a column with a 
 (GET /agent/projects/{key}/states, `owner.is_me` and `next_state`, read fresh), `fila done` sends `handoff` instead: the
 task goes to the next column and to its owner (`PASSOU: ...`), and a 409 no_next_state falls back to done. `fila handoff`
 asks for it explicitly, without the fallback.
+One instance, the whole cycle (PLN0281): when the next column is this same agent's (dev, then review or QA), Planou
+queues the task to it again without `handed_off_by` nor the note; progress() keeps a local record of that handoff
+(cache/planou/self_handoffs.json), the queue line says `passada por voce mesmo ...` and sends the review or QA to a NEW
+worker (never the one that delivered), `fila ver` shows `mesma_instancia`, and the 409 no_previous_owner of `fila
+ajuste` on such a task prints `RETRABALHO PROPRIO: ...` (rework in the same column, then a new review worker) and leaves
+the ask on the task as the agent's comment (POST /agent/tasks/{id}/comments; under "minimum" a neutral line), since
+without a PR nothing else shows it in Planou. `fila done` of such a task warns (stderr, not a refusal) when no worker
+of role other (`fila worker-start --role other`) was opened for it after the handoff or the last ask.
 The Prazo (`deadline`) goes in the sync when the source states one (watch_core.deadlines): absent keeps Planou's.
 Worker deliveries (Planou "Entregas", PLN0045): `fila worker <PID> --role dev|integrator --tokens N --steps N
 --duration-ms N --result feito|parcial|falhou [--model M]` reports a worker (subagent) that came back, with the usage the
@@ -166,6 +174,8 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
       pergunta --title "Quer que eu ...?" [--option "A=..." --option "B=..." --recommended A] [--auto] [--task a12] [--context ...] [--ref ...] |
       cancel CODE [--reason ...] | result CODE executed|failed [--reason ...] |
       comentario PID --text - [--reply-to COMMENT_ID] | comentario PID --ver |
+      retro dados|ver|contribuir|votar|ata MEETING | refino ver|sugerir|lista MEETING |
+      daily ver MEETING | daily explicar MEETING --text - [--cost-usd N] [--tokens N] |
       tools | anexo CODE SOURCE_KEY FILE [--name NAME] | attach TASK FILE [--name NAME] |
       sugestao --title "..." --what "..." --expected "..." --example "..." [--subject "..."] [--priority P1..P4]
 
@@ -1011,8 +1021,9 @@ OPT_IN = {'task_queue': 'task_queue', 'task_release': 'task_queue'}
 # Capabilities only an agent of the agent plugin declares: the retro behavior (behaviors/retro) lives there. Planou
 # (PLN0208) invites to a ceremony only the agents that declare `ceremony`; a runner that does not handle the events
 # would ack and drop them, and the round, the vote and the minutes would wait until due for it. The same for
-# `task_comment` (PLN0240): how to answer a comment with @ is in the agent plugin's SKILL.md.
-AGENT_ONLY = ('ceremony', 'task_comment')
+# `task_comment` (PLN0240): how to answer a comment with @ is in the agent plugin's SKILL.md, and for `ceremony_daily`
+# (PLN0127/PLN0283): the daily calls only the agents that declare it, the rest show "sem explicação do agente".
+AGENT_ONLY = ('ceremony', 'ceremony_daily', 'task_comment')
 
 
 def _opted_in(key):
@@ -1117,6 +1128,9 @@ EVENTS = {
     # its suggestions (estimate, split, agent_can_do); ceremony_refine_facilitate brings them all to the facilitator
     'ceremony_refine': {'wake': True, 'capability': 'ceremony'},
     'ceremony_refine_facilitate': {'wake': True, 'capability': 'ceremony'},
+    # the project daily (Planou PLN0127): the minutes come from the data, the agent is called only to explain its tasks
+    # in Impedida, one line each (`daily explicar`); its own capability, so an older runner is never called for it
+    'ceremony_daily_explain': {'wake': True, 'capability': 'ceremony_daily'},
     # a person called this agent with @name in a task comment (Planou PLN0240): delivered like a message, acknowledged
     # only after the session saw it (Planou calls only agents with `task_comment`, so a mention is never dropped unread);
     # the session answers by comment (`comentario PID --text -`), which is not taking the task
@@ -1144,15 +1158,21 @@ MESSAGE_PREFIX = '-- MENSAGEM do usuario pelo Planou'
 QUEUE_PREFIX = '-- FILA'
 CHANGES_EVENT = 'task_changes_requested'
 CHANGES_PREFIX = '-- AJUSTE PEDIDO'
-CEREMONY_EVENTS = ('ceremony_started', 'ceremony_facilitate', 'ceremony_vote', 'ceremony_refine', 'ceremony_refine_facilitate')
+DAILY_EVENT = 'ceremony_daily_explain'
+CEREMONY_EVENTS = ('ceremony_started', 'ceremony_facilitate', 'ceremony_vote', 'ceremony_refine', 'ceremony_refine_facilitate',
+                   DAILY_EVENT)
 CEREMONY_KEYS = {'ceremony_started': 'started', 'ceremony_facilitate': 'facilitate', 'ceremony_vote': 'vote',
-                 'ceremony_refine': 'started', 'ceremony_refine_facilitate': 'facilitate'}
+                 'ceremony_refine': 'started', 'ceremony_refine_facilitate': 'facilitate', DAILY_EVENT: 'started'}
 CEREMONY_PREFIX = '-- CERIMONIA'
 COMMENT_EVENT = 'task_comment_mentioned'
 COMMENT_PREFIX = '-- COMENTARIO'
 COMMENT_TEXT_MAX = 10000
 CEREMONY_GUIDE = 'behaviors/retro/BEHAVIOR.md do plugin agent'
 REFINE_GUIDE = 'behaviors/refinement/BEHAVIOR.md do plugin agent'
+DAILY_GUIDE = 'behaviors/daily/BEHAVIOR.md do plugin agent'
+DAILY_TEXT_MAX = 300
+DAILY_LINES = 12          # blocked tasks listed under the -- CERIMONIA daily line; the rest with `daily ver`
+TOKENS_MAX = 100_000_000
 CEREMONIES_KEPT = 20
 
 
@@ -1300,6 +1320,161 @@ def handoff_line(p, pr=None):
             + ' `fila in_review`)')
 
 
+# ---------------------------------------------------------------- one instance does the whole cycle (PLN0281)
+# The same agent may own the dev column and the review or QA column after it. Planou then hands the task to itself: the
+# entry is queued again with `queued_by: "state"` and the next column, but without `handed_off_by` and without the note
+# (only the PR goes on), and request-changes answers 409 no_previous_owner (there is no other agent to send it back to).
+# The plugin keeps its own record of that handoff (cache/planou/self_handoffs.json), so the queue line tells the column's
+# part from new work and the review or QA goes to a NEW worker, never the one that delivered (no self-approval). The
+# record has no expiry: it goes only when the task leaves the agent (done or handoff to someone else, dequeued), and it
+# counts only while the task is in the column it was handed to, so a review that waits long is still a review.
+INDEPENDENT_ROLES = {'code-review': 'revisao', 'qa': 'QA'}
+
+
+def column_role(name):
+    """The behavior a column calls for, by its name: 'qa' (QA, teste, homologacao, qualidade), 'code-review' (revisao,
+    review), 'batch-release' (release, publicacao, deploy), or None when the name says none of them."""
+    n = state_key(name)
+    if not n: return None
+    if re.search(r'\bqa\b|\btest|homolog|qualidade|quality', n): return 'qa'
+    if 'revis' in n or 'review' in n: return 'code-review'
+    if 'release' in n or 'publica' in n or 'deploy' in n: return 'batch-release'
+    return None
+
+
+def _self_handoffs():
+    d = _load('self_handoffs.json', {})
+    tasks = d.get('tasks') if isinstance(d, dict) and isinstance(d.get('tasks'), dict) else {}
+    return {k: v for k, v in tasks.items() if isinstance(v, dict)}
+
+
+def _handed_to_me(entry, res, now=None):
+    """True when the handoff answer gives the task back to this same agent: the assignee is the owner marked `is_me` in
+    the project's states, or the new column is one this agent owns."""
+    who = res.get('assignee') if isinstance(res.get('assignee'), dict) else {}
+    if who.get('kind') != 'agent': return False
+    data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
+    col = state_key(res.get('project_state'))
+    for s in (data or {}).get('states') or []:
+        o = (s.get('owner') or {}) if isinstance(s, dict) else {}
+        if o.get('is_me') is not True: continue
+        if (who.get('id') and o.get('id') == who.get('id')) or (col and state_key(s.get('name')) == col): return True
+    return False
+
+
+def _column_before(entry, res, now=None):
+    """The column of this agent whose "Ao terminar, vai para" is the new one (where the handoff came from), or None."""
+    data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
+    col = state_key(res.get('project_state'))
+    for s in (data or {}).get('states') or []:
+        if isinstance(s, dict) and ((s.get('owner') or {}).get('is_me') is True) and col and state_key(s.get('next_state')) == col:
+            return one_line(s.get('name'), 60) or None
+    return None
+
+
+def note_self_handoff(tid, res, note=None, entry=None, now=None):
+    """Keeps the record of a handoff to this same agent (see above): column, PR, the note (the branch, without a PR) and
+    the column it came from."""
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    before = one_line((entry or {}).get('project_state'), 60) or _column_before(entry, res, now)   # no lock over HTTP
+    with _locked('self_handoffs.json'):
+        tasks = _self_handoffs()
+        prev = tasks.get(str(tid)) or {}
+        tasks[str(tid)] = {'pid': res.get('pid') or (entry or {}).get('pid'), 'column': one_line(res.get('project_state'), 60) or None,
+                           'from': prev.get('column') or before, 'pr_url': res.get('pr_url') or (entry or {}).get('pr_url'),
+                           'note': one_line(note, 300) or prev.get('note'), 'at': stamp, 'asks': []}
+        _save('self_handoffs.json', {'tasks': tasks})
+
+
+def forget_self_handoff(tid, pid=None):
+    with _locked('self_handoffs.json'):
+        tasks = _self_handoffs()
+        drop = [k for k, v in tasks.items() if k == str(tid) or (pid and v.get('pid') == pid)]
+        if drop:
+            for k in drop: tasks.pop(k)
+            _save('self_handoffs.json', {'tasks': tasks})
+
+
+def self_handoff(p, now=None):
+    """The record of a handoff of this task to this same agent (by task_id, else by PID), or None. Only while the task
+    is in the column it was handed to (`project_state` of the payload or of the queue entry): a task the person moved
+    back to the dev column, or sent elsewhere, is not the column's part any more."""
+    tasks = _self_handoffs()
+    tid, pid = str(p.get('task_id') or ''), one_line(p.get('pid'), 20).upper()
+    rec = tasks.get(tid) or next((v for v in tasks.values() if pid and str(v.get('pid') or '').upper() == pid), None)
+    if not rec or state_key(p.get('project_state')) != state_key(rec.get('column')): return None
+    return rec
+
+
+def self_handoff_line(p, pr=None):
+    """The tail of a released task that this same agent handed to itself (another column of its own), or ''."""
+    rec = self_handoff(p)
+    if not rec: return ''
+    column = one_line(p.get('project_state') or rec.get('column'), 60)
+    note = one_line(rec.get('note'), 300)
+    role = column_role(column)
+    head = ('passada por voce mesmo (mesma instancia que desenvolve)' + (f' para a coluna {column}' if column else '')
+            + (f', com a PR: {pr}' if pr else '') + (f'; nota: {note}' if note else ''))
+    if role in INDEPENDENT_ROLES:
+        what = INDEPENDENT_ROLES[role]
+        return (f'{head} -> nao e tarefa nova: `fila ver`, `fila started` e delegar a {what} a um worker NOVO ({role}, '
+                f'`--brief --role {role}`; contexto limpo: so o pedido, a PR ou a branch e o criterio; nunca o worker que '
+                f'entregou nem SendMessage a ele; a sessao nao faz a {what}); o parecer registra "{what} independente '
+                '(worker novo)"; ajuste pedido: `fila ajuste` responde RETRABALHO PROPRIO')
+    if role == 'batch-release':
+        return (f'{head} -> nao e tarefa nova e nao pede worker de codigo: `fila ver` e seguir o batch-release '
+                '(`--release-queue add <branch> <PID>` e `fila in_review`)')
+    return ''          # any other own column (an analysis before A fazer, the dev's own): the usual lines, it is work
+
+
+def note_self_rework(tid, rec, text, now=None):
+    """Keeps the ask of an own review or QA with the record (the rework brief), the text cut like request-changes'."""
+    with _locked('self_handoffs.json'):
+        tasks = _self_handoffs()
+        key = str(tid) if str(tid) in tasks else next((k for k, v in tasks.items() if v.get('pid') == rec.get('pid')), None)
+        if key is None: return
+        tasks[key].setdefault('asks', []).append({'text': clean_text(text or '', CHANGES_TEXT_MAX),
+                                                  'at': (now or datetime.now(timezone.utc)).isoformat()})
+        _save('self_handoffs.json', {'tasks': tasks})
+
+
+def self_rework_comment(rec, text):
+    """The comment that leaves the ask of an own review or QA on the task (PLN0281): without another agent there is no
+    request-changes, and without a PR (batch release) nothing else shows it in Planou. Under "minimum" only a neutral
+    line goes up (the text stays in the session and in self_handoffs.json)."""
+    what = INDEPENDENT_ROLES.get(column_role(rec.get('column')), 'revisao')
+    head = f'Ajuste pedido na {what} independente (worker novo, mesma instancia que desenvolve)'
+    if _S['confidentiality'] == 'minimum':
+        return f'{head}: o parecer esta ' + ('na PR.' if rec.get('pr_url') else 'com o agente.')
+    return f'{head}; volta como retrabalho na mesma branch' + (' e PR' if rec.get('pr_url') else '') + f'.\n\n{str(text or "").strip()}'
+
+
+def review_worker_after(ref, rec):
+    """True when a worker of role other was opened for this task (`fila worker-start --role other`) after the handoff
+    to the own review or QA column, or after its last ask for changes: the independent worker that `fila done` stands for."""
+    since = max([rec.get('at') or ''] + [a.get('at') or '' for a in rec.get('asks') or []])
+    refs = {_norm_ref(x) for x in ref if x}
+    for v in _workers()['workers'].values():
+        if (isinstance(v, dict) and v.get('role') == 'other' and (v.get('started_at') or '') >= since
+                and refs & {_norm_ref(t) for t in v.get('tasks') or []}):
+            return True
+    return False
+
+
+def self_rework_text(pid, rec, text):
+    """What to do when a review or QA of this same agent asks for changes (request-changes has no one to send back to)."""
+    column, came = one_line(rec.get('column'), 60), one_line(rec.get('from'), 60)
+    role = column_role(column)
+    what = INDEPENDENT_ROLES.get(role, 'revisao')
+    pr = one_line(rec.get('pr_url'), 300)
+    return (f'RETRABALHO PROPRIO: {pid} pediu ajuste na {what} independente desta mesma instancia (o Planou nao devolve '
+            f'ao proprio agente; a tarefa fica na coluna {column or "atual"}, com o agente). Retrabalho normal: worker de dev '
+            f'na mesma branch e na mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste (`fila worker-start {pid} --role dev`), '
+            f'sem `fila in_review`; quando ele voltar, um worker NOVO de {role or "code-review"} confere so o que mudou desde o '
+            f'commit do parecer; aprovado: `fila done {pid}`. Ajuste: {one_line(text, 300)}'
+            + (f' (veio de {came})' if came else ''))
+
+
 def _author(a):
     """The name of a comment's author ({kind, id, name, display_name?}): the name given, else the canonical one."""
     a = a if isinstance(a, dict) else {}
@@ -1344,7 +1519,7 @@ def line(ev):
         pr = one_line(p.get('pr_url'), 300)
         if not released(p):
             return f'{head} -> NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA)' + (f'; PR: {pr}' if pr else '')
-        handed = handoff_line(p, pr)
+        handed = handoff_line(p, pr) or self_handoff_line(p, pr)
         if handed:
             return f'{head} -> {handed}'
         if pr:
@@ -1748,6 +1923,7 @@ def queue_note(ev, now=None):
     else:
         q['tasks'][tid] = {'pid': p.get('pid'), 'title': p.get('title'), 'left': p.get('reason') or 'dequeued', 'seq': seq, 'at': stamp}
         _stop_marker(p.get('pid'), now)          # the turns after this are no longer this task's
+        forget_self_handoff(tid, p.get('pid'))   # out of the agent: an own review that was waiting is gone too
     cut = ((now or datetime.now(timezone.utc)) - timedelta(days=SEEN_DAYS)).isoformat()
     q['tasks'] = {k: v for k, v in q['tasks'].items() if not v.get('left') or (v.get('at') or '') >= cut}
     _save('queue.json', q)
@@ -2175,6 +2351,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     _wait_changes(tid, entry, ref)
     # the note is free text the server shows as it came: under "minimum" it stays in the session (Planou then shows its
     # neutral "O agente parou e precisa de você para seguir."); the PR link goes up like any origin URL
+    local_note = note                   # the branch of a handoff to itself stays here (self_handoffs.json)
     if _S['confidentiality'] == 'minimum': note = None
     files = []
     if note: note, files = without_paths(note)       # a file the note cites goes as an attachment (PLN0052)
@@ -2241,6 +2418,9 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
             for k, v in (('estimate_h', estimate_h), ('remaining_h', remaining_h)):
                 if v is not None: q['tasks'][tid][k] = v
         _save('queue.json', q)
+    if sent in ('done', 'handoff'):
+        if res.get('state') == 'handoff' and _handed_to_me(entry, res, now): note_self_handoff(tid, res, local_note, entry, now)
+        else: forget_self_handoff(tid, pid)          # concluded, or passed to someone else: out of the own cycle
     if state == 'started' and pid: current_task(pid, now=now)
     elif state != 'started': _stop_marker(pid, now)
     if files:
@@ -3756,7 +3936,13 @@ def queue_view():
                                 'pedido_por': requested_by(last.get('by'), last.get('by_kind'), last.get('by_role'),
                                                            last.get('in'))}
     rows = list(tasks.values())
-    for v in rows: v['status'] = 'liberada' if released(v) else 'na fila'
+    for v in rows:
+        v['status'] = 'liberada' if released(v) else 'na fila'
+        own = self_handoff(v)
+        if own:
+            # handed to itself (PLN0281): the column's part goes to a new worker; the branch of the note stays here
+            v['mesma_instancia'] = {'coluna': own.get('column'), 'veio_de': own.get('from'), 'papel': column_role(own.get('column')),
+                                    'nota': own.get('note'), 'ajustes': [x.get('text') for x in own.get('asks') or []]}
     if out['source'] == 'cache': rows.sort(key=lambda v: (not released(v), int(v.get('seq') or 0)))
     out['tasks'] = rows
     pause = paused()
@@ -3836,7 +4022,8 @@ def _fila(a, ap):
         if len(a.arg) < 2 or not a.text: ap.error('use: fila ajuste PID --text "o que ajustar" (ou --text -) [--pr-url URL] [--to author|previous]')
         if a.to is not None and a.to not in CHANGES_TO: ap.error(f'fila ajuste --to: {" ou ".join(CHANGES_TO)}')
         try:
-            res = request_changes(_text_arg(a.text), a.arg[1], a.pr_url, to=a.to)
+            text = _text_arg(a.text)
+            res = request_changes(text, a.arg[1], a.pr_url, to=a.to)
         except PlanouError as e:
             if e.code == 'not_in_queue':
                 print(f'PARE: a tarefa nao esta mais com o agente ({e.message}). Nada foi devolvido.')
@@ -3845,6 +4032,21 @@ def _fila(a, ap):
                 print(f'ESPERE: a tarefa ainda nao foi liberada ({e.message}). Revise so quando vier -- FILA LIBERADA.')
                 return 4
             if e.code == 'no_previous_owner':
+                tid, entry = _queue_entry(a.arg[1])
+                rec = self_handoff({'task_id': tid, 'pid': (entry or {}).get('pid') or a.arg[1],
+                                    'project_state': (entry or {}).get('project_state')})
+                if rec:
+                    note_self_rework(tid, rec, text)
+                    pid = (entry or {}).get('pid') or a.arg[1]
+                    try:
+                        post_comment(pid, self_rework_comment(rec, text))
+                        kept = ' O pedido ficou registrado na tarefa (comentario).'
+                    except PlanouError as ce:
+                        kept = ''
+                        print(f'AVISO (planou): o pedido de ajuste nao subiu como comentario da tarefa ({ce.message}); '
+                              f'registre a mao: `comentario {pid} --text -`', file=sys.stderr)
+                    print(self_rework_text(pid, rec, text) + kept)
+                    return 0
                 print(f'SEM DEV: a tarefa nao chegou pelo handoff de outro agente ({e.message}); nao ha a quem devolver. '
                       f'Peca a pessoa: printf \'%s\' "<ajuste>" | fila blocked {a.arg[1]} --note -')
                 return 5
@@ -3871,6 +4073,17 @@ def _fila(a, ap):
             return PAUSED_EXIT
     note = _text_arg(a.note) if a.note else None
     if sub == 'blocked' and not note and paused(): note = PAUSE_NOTE
+    if sub == 'done':
+        try: tid, entry = _queue_entry(ref)
+        except PlanouError: tid, entry = None, None
+        own = self_handoff({'task_id': tid, 'pid': (entry or {}).get('pid') or ref,
+                            'project_state': (entry or {}).get('project_state')}) if tid else None
+        role = column_role((own or {}).get('column'))
+        if own and role in INDEPENDENT_ROLES and not review_worker_after((tid, (entry or {}).get('pid'), ref), own):
+            what = INDEPENDENT_ROLES[role]
+            print(f'AVISO (planou): {(entry or {}).get("pid") or ref} esta na {what} desta mesma instancia e nenhum worker '
+                  f'NOVO de {what} foi aberto depois do handoff (`fila worker-start <PID> --role other`). A {what} e de um '
+                  'worker novo, nunca da sessao nem do worker que entregou', file=sys.stderr)
     try:
         if sub == 'tempo':
             res = update_time(ref, a.remaining_h, a.estimate_h)
@@ -3949,6 +4162,8 @@ def ceremony_line(kind, p):
     name = one_line(p.get('ceremony') or 'retro', 20)
     head = f'{name} #{p.get("number")} de {one_line((p.get("project") or {}).get("key"), 12)}'
     mid, due = one_line(p.get('meeting_id'), 40), _when({'at': p.get('due_at')})
+    if kind == DAILY_EVENT:
+        return daily_lines(head, mid, due, p)
     if kind == 'ceremony_refine':
         fac = _who(p.get('facilitator'))
         total = p.get('backlog_total')
@@ -3982,6 +4197,38 @@ def ceremony_line(kind, p):
             f'contribuicoes' + (' e os votos (mais votados primeiro)' if voted else '') + f', agrupar, no maximo '
             f'{(p.get("rules") or {}).get("max_actions") or 3} acoes com casos, marcar repeticao, e '
             f'`retro ata {mid} --text -`; guia: {CEREMONY_GUIDE}')
+
+
+def _blocked_hours(h):
+    try: h = float(h)
+    except (TypeError, ValueError): return '?'
+    return f'{h:.0f} h' if h >= 10 else f'{h:.1f} h'.replace('.0 h', ' h')
+
+
+def daily_lines(head, mid, due, p):
+    """The `-- CERIMONIA daily` block: the header with the command, then one indented line per blocked task of this agent
+    (pid, title, hours blocked, the blocking note, the open ask, the pids it waits on), so the session writes the
+    explanations from the block alone. Under "minimum" the titles and notes stay out (the session sees them with `daily
+    ver`) and the text asked for is neutral."""
+    blocked = [b for b in p.get('blocked') or [] if isinstance(b, dict) and b.get('pid')]
+    n, mx = len(blocked), p.get('text_max') or DAILY_TEXT_MAX
+    minimum = _S['confidentiality'] == 'minimum'
+    out = [f'{CEREMONY_PREFIX} {head}: explicar {n} tarefa{"" if n == 1 else "s"} Impedida{"" if n == 1 else "s"} ate {due} '
+           f'-> uma linha por tarefa (ate {mx} caracteres) a partir da nota do bloqueio e do pedido aberto, sem worker, '
+           f'e `daily explicar {mid} --text -` com {{"explanations": [{{"pid", "text"}}], "cost_usd", "tokens"}}'
+           + ('; confidencialidade minimum: texto neutro, sem nome, assunto ou dado de cliente' if minimum else '')
+           + f'; guia: {DAILY_GUIDE}']
+    for b in blocked[:DAILY_LINES]:
+        bits = [_blocked_hours(b.get('hours'))]
+        if not minimum:
+            if b.get('reason'): bits.append(f'nota: {one_line(b.get("reason"), 160)}')
+        if b.get('ask_code'): bits.append(f'pedido {one_line(b.get("ask_code"), 20)}')
+        waits = [one_line(x, 20) for x in b.get('blocked_by') or [] if x]
+        if waits: bits.append('bloqueada por ' + ', '.join(waits))
+        title = '' if minimum else f' {one_line(b.get("title"), 80)}'
+        out.append(f'    {one_line(b.get("pid"), 20)}{title} ({"; ".join(bits)})')
+    if n > DAILY_LINES: out.append(f'    ... mais {n - DAILY_LINES}: `daily ver {mid}`')
+    return '\n'.join(out)
 
 
 def _in_period(at, start, end):
@@ -4086,7 +4333,7 @@ def _retro(a, ap):
         if sub == 'contribuir':
             body = _json_arg(a.text, ap, 'retro contribuir <meeting_id> --text \'{"items": [...], "cost_usd": 0.1}\'')
             _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions',
-                           {k: body[k] for k in ('items', 'cost_usd') if k in body})
+                           {k: body[k] for k in ('items', 'cost_usd', 'tokens') if k in body})
             print(json.dumps(res, ensure_ascii=False))
             print(f'ENVIADA: contribuicao {"atualizada" if res.get("result") == "updated" else "registrada"} '
                   f'(reuniao {res.get("status")}).')
@@ -4124,7 +4371,7 @@ def _refino(a, ap):
             body = _json_arg(a.text, ap, 'refino sugerir <meeting_id> --text \'{"suggestions": [...], "cost_usd": 0.1}\'')
             if not isinstance(body.get('suggestions'), list): ap.error('use: refino sugerir: "suggestions" e uma lista ([] = nada a sugerir)')
             _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions',
-                           {k: body[k] for k in ('suggestions', 'cost_usd') if k in body})
+                           {k: body[k] for k in ('suggestions', 'cost_usd', 'tokens') if k in body})
             print(json.dumps(res, ensure_ascii=False))
             print(f'ENVIADAS: {len(body["suggestions"])} sugest{"ao" if len(body["suggestions"]) == 1 else "oes"} '
                   f'({"atualizadas" if res.get("result") == "updated" else "registradas"}; reuniao {res.get("status")}).')
@@ -4139,6 +4386,85 @@ def _refino(a, ap):
     except PlanouError as e:
         # a field the Planou refused (estimate out of range, split with one part) is the agent's to fix, like a case
         msg = CEREMONY_REFUSALS.get(e.code) or ('RECUSADA: {m}' if e.code == 'validation' else None)
+        if msg:
+            print(msg.replace('{m}', e.message) + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''))
+            return 3
+        print(f'AVISO (planou): {e.message}' + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''), file=sys.stderr)
+        return 1
+
+
+DAILY_REFUSALS = {
+    'unknown_case': 'RECUSADA: {m} Explique so os PIDs da linha -- CERIMONIA daily (`daily ver`).',
+    'validation': 'RECUSADA: {m}',
+}
+
+
+def daily_explanations(meeting_id, body, cost_usd=None, tokens=None):
+    """The body of `daily explicar`, checked here before anything goes up: `explanations` is a list of {pid, text}, one
+    per pid, each text one line (line breaks become spaces) of 1 to text_max characters; with the event cached, only the
+    pids it brought. --cost-usd and --tokens fill what the JSON left out. Returns (body, warnings); raises PlanouError
+    (code 'validation') on what Planou would refuse anyway."""
+    ev = ceremony(meeting_id).get('started') or {}
+    mx = int(ev.get('text_max') or DAILY_TEXT_MAX)
+    known = [str(b.get('pid')) for b in ev.get('blocked') or [] if isinstance(b, dict) and b.get('pid')]
+    rows = body.get('explanations')
+    if not isinstance(rows, list) or not rows:
+        raise PlanouError(0, 'validation', '"explanations" e uma lista com um {"pid", "text"} por tarefa Impedida')
+    out, seen = [], set()
+    for i, r in enumerate(rows):
+        pid = str((r or {}).get('pid') or '').strip() if isinstance(r, dict) else ''
+        text = ' '.join(str((r or {}).get('text') or '').split()) if isinstance(r, dict) else ''
+        if not pid: raise PlanouError(0, 'validation', f'explanations[{i}]: falta o "pid"')
+        if pid in seen: raise PlanouError(0, 'validation', f'{pid} aparece duas vezes: uma linha por tarefa')
+        if known and pid not in known:
+            raise PlanouError(0, 'validation', f'{pid} nao veio neste evento (so {", ".join(known)})')
+        if not 1 <= len(text) <= mx:
+            raise PlanouError(0, 'validation', f'{pid}: a explicacao tem de 1 a {mx} caracteres ({len(text)})')
+        seen.add(pid); out.append({'pid': pid, 'text': text})
+    res = {'explanations': out}
+    cost = body.get('cost_usd', cost_usd)
+    if cost is not None:
+        try: cost = float(cost)
+        except (TypeError, ValueError): raise PlanouError(0, 'validation', '"cost_usd" e um numero em USD') from None
+        if cost < 0: raise PlanouError(0, 'validation', '"cost_usd" nao pode ser negativo')
+        res['cost_usd'] = cost
+    tok = body.get('tokens', tokens)
+    if tok is not None:
+        try: res['tokens'] = _count('tokens', tok, TOKENS_MAX)
+        except PlanouError as e: raise PlanouError(0, 'validation', e.message) from None
+    missing = [x for x in known if x not in seen]
+    warnings = [f'sem explicacao para {", ".join(missing)}: fica "sem explicacao do agente" na ata'] if missing else []
+    return res, warnings
+
+
+def _daily(a, ap):
+    """daily ver|explicar <meeting_id>: the agent's part in the project daily (Planou PLN0127). `ver` shows the meeting
+    and the cached event (the blocked tasks); `explicar` sends one line per blocked task in ONE call, with the cost and
+    the tokens of the turn (a resend replaces; the last agent called closes the daily, so never one pid per call)."""
+    sub, mid = (a.arg + ['', ''])[:2]
+    if sub not in ('ver', 'explicar') or not mid:
+        ap.error('use: daily ver <meeting_id>; daily explicar <meeting_id> --text <json> (ou --text - do stdin) '
+                 '[--cost-usd N] [--tokens N]')
+    try:
+        if sub == 'ver':
+            _, res = _call('GET', f'/agent/ceremonies/{urllib.parse.quote(mid)}')
+            print(json.dumps({**res, 'cached': ceremony(mid)}, ensure_ascii=False, indent=1))
+            return 0
+        use = ('daily explicar <meeting_id> --text \'{"explanations": [{"pid": "ABC0001", "text": "..."}], '
+               '"cost_usd": 0.01, "tokens": 1800}\'')
+        try:
+            body, warnings = daily_explanations(mid, _json_arg(a.text, ap, use), a.cost_usd, a.tokens)
+        except PlanouError as e:
+            ap.error(f'{e.message} (use: {use})')
+        for w in warnings: print(f'AVISO (planou): {w}', file=sys.stderr)
+        _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions', body)
+        print(json.dumps(res, ensure_ascii=False))
+        n = len(body['explanations'])
+        print(f'ENVIADAS: {n} explicac{"ao" if n == 1 else "oes"} '
+              f'({"atualizadas" if res.get("result") == "updated" else "registradas"}; reuniao {res.get("status")}).')
+        return 0
+    except PlanouError as e:
+        msg = DAILY_REFUSALS.get(e.code) or CEREMONY_REFUSALS.get(e.code)
         if msg:
             print(msg.replace('{m}', e.message) + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''))
             return 3
@@ -4274,7 +4600,7 @@ def main(argv=None):
     ap.add_argument('cmd', choices=['key', 'status', 'active', 'heartbeat', 'poll', 'cursor-commit', 'ack-delivered', 'ack',
                                     'events', 'draft', 'approval', 'decision', 'pergunta', 'alert', 'cancel', 'result', 'tarefa',
                                     'fila', 'tools', 'anexo', 'attach', 'pronta', 'autonomia', 'sugestao',
-                                    'retro', 'refino', 'worker', 'comentario'])
+                                    'retro', 'refino', 'daily', 'worker', 'comentario'])
     ap.add_argument('arg', nargs='*')
     ap.add_argument('--next-heavy', help='epoch of the next heavy tick (poll, heartbeat)')
     ap.add_argument('--poll-s', type=int, help='light loop interval, sent with the poll')
@@ -4303,7 +4629,7 @@ def main(argv=None):
     ap.add_argument('--estimate-h', help='fila: estimate in hours (with started, or fila tempo)')
     ap.add_argument('--remaining-h', help='fila: hours left (every step; done without it sends 0)')
     ap.add_argument('--role', help='fila worker: dev or integrator; fila worker-start: also other')
-    ap.add_argument('--tokens', help='fila worker: the subagent tokens')
+    ap.add_argument('--tokens', help='fila worker: the subagent tokens; daily explicar: the tokens of the turn')
     ap.add_argument('--steps', help='fila worker: tool uses of the worker')
     ap.add_argument('--duration-ms', help='fila worker: how long the worker ran, in ms')
     ap.add_argument('--result', help='fila worker, worker end: feito, parcial or falhou')
@@ -4318,7 +4644,7 @@ def main(argv=None):
     ap.add_argument('--priority', help='sugestao: suggested priority, P1 (urgent) to P4 (low); default P3')
     ap.add_argument('--reply-to', help='comentario: the comment_id it answers (from the -- COMENTARIO line)')
     ap.add_argument('--ver', action='store_true', help='comentario: list the task comments instead of posting')
-    ap.add_argument('--cost-usd', type=float, help='retro votar: the cost of the vote, in USD (optional)')
+    ap.add_argument('--cost-usd', type=float, help='retro votar, daily explicar: the cost, in USD (optional)')
     a = ap.parse_args(argv)
     if a.cmd == 'sugestao':
         from . import suggestions
@@ -4374,6 +4700,8 @@ def main(argv=None):
         return _retro(a, ap)
     if a.cmd == 'refino':
         return _refino(a, ap)
+    if a.cmd == 'daily':
+        return _daily(a, ap)
     if a.cmd == 'autonomia':
         print(autonomy() or 'desconhecida (sem projeto, Planou desligado ou antigo): vale semi_autonomous')
         return 0

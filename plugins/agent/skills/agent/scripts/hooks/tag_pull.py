@@ -7,9 +7,12 @@ the agents run from. On every heavy tick this hook fetches the repository's tags
 versions file (`versoes[<plugin>]`, the file publish-plugin keeps) and prints `== TAG NOVA (n)`, which wakes the session
 to tell the person which runners need a relaunch (the hook never relaunches anything).
 
-Config: {"type": "tag_pull", "path": "<copy in use>", "branch": "main", "pattern": "*--v*",
-         "versions_file": "~/.config/publish-plugin.json", "remote": "origin"}
-path is required (~ expanded). The first read only records the tags that exist (nothing old is announced). The copy is
+Config: {"type": "tag_pull", "path": "<copy in use>", "branch": "main", "pattern": ["*--v*", "v[0-9]*"],
+         "versions_file": "~/.config/publish-plugin.json", "remote": "origin", "plugin": "agent", "url": null}
+path is required (~ expanded). A bare tag vX.Y.Z (the public repository davibauer/planou-agent, PLN0290) is a version of
+`plugin`. `url`, when set, is where the copy must come from: a remote pointing elsewhere (the old private repository) is
+moved to it, and when the new remote has another history the clean copy follows it (a checkout of its branch); with
+changes of its own it waits like any other copy. The first read only records the tags that exist (nothing old is announced). The copy is
 never forced: on another branch, with tracked changes or without a fast-forward, nothing changes, the tick prints
 `== TAG NOVA: copia em uso NAO atualizada` once per reason and tries again on the next tick. A tag whose commit is not
 in the branch after the pull waits the same way. Dry ticks do nothing (fetch and pull leave the instance).
@@ -20,7 +23,8 @@ import paths
 from adapters import Gancho as Base
 from watch_core import fileio
 
-TAG_RE = re.compile(r'^(?P<plugin>.+)--v(?P<version>\d+\.\d+\.\d+)$')
+TAG_RE = re.compile(r'^(?:(?P<plugin>.+)--)?v(?P<version>\d+\.\d+\.\d+)$')
+PATTERNS = ['*--v*', 'v[0-9]*']
 
 
 def _ver(v):
@@ -28,8 +32,9 @@ def _ver(v):
     except (AttributeError, ValueError): return None
 
 
-def update_versions(path, tags):
-    """versoes[plugin] = version for each release tag, never going back; other keys stay. Returns what changed."""
+def update_versions(path, tags, plugin='agent'):
+    """versoes[plugin] = version for each release tag (a bare vX.Y.Z is `plugin`), never going back; other keys stay.
+    Returns what changed."""
     try:
         with open(path, encoding='utf-8') as f: data = json.load(f)
         if not isinstance(data, dict): data = {}
@@ -40,7 +45,7 @@ def update_versions(path, tags):
     for t in tags:
         m = TAG_RE.match(t)
         if not m: continue
-        p, v = m.group('plugin'), m.group('version')
+        p, v = m.group('plugin') or plugin, m.group('version')
         if _ver(vers.get(p)) is None or _ver(v) > _ver(vers.get(p)):
             vers[p] = changed[p] = v
     if not changed: return {}
@@ -58,8 +63,12 @@ class Gancho(Base):
         p = self.cfg.get('path')
         self.repo = paths.expand(p) if isinstance(p, str) and p.strip() else None
         self.branch = self.cfg.get('branch') or 'main'
-        self.pattern = self.cfg.get('pattern') or '*--v*'
+        pat = self.cfg.get('pattern') or PATTERNS
+        self.patterns = [pat] if isinstance(pat, str) else [p for p in pat if isinstance(p, str)]
         self.remote = self.cfg.get('remote') or 'origin'
+        self.plugin = self.cfg.get('plugin') or 'agent'
+        u = self.cfg.get('url')
+        self.url = u.strip() if isinstance(u, str) and u.strip() else None
         vf = self.cfg.get('versions_file')
         self.versions = paths.expand(vf) if isinstance(vf, str) and vf.strip() else None
         self.timeout = int(self.cfg.get('timeout_s') or 120)
@@ -79,16 +88,30 @@ class Gancho(Base):
         if cur != self.branch: raise RuntimeError(f'copia na branch {cur}, nao em {self.branch}')
         if self.git('status', '--porcelain', '--untracked-files=no'): raise RuntimeError('copia com mudancas sem commit')
         old = self.git('rev-parse', '--short', 'HEAD')
-        self.git('merge', '--ff-only', '-q', f'{self.remote}/{self.branch}')
+        up = f'{self.remote}/{self.branch}'
+        if self.url and subprocess.run(['git', '-C', self.repo, 'merge-base', 'HEAD', up], capture_output=True).returncode:
+            self.git('checkout', '-q', '-B', self.branch, up)   # moved to `url`: another history, nothing local lost
+        else:
+            self.git('merge', '--ff-only', '-q', up)
         return old, self.git('rev-parse', '--short', 'HEAD')
+
+    def follow_url(self):
+        """With `url`, a remote pointing elsewhere moves to it (the copy of the old private repository, PLN0290)."""
+        if not self.url: return
+        try: cur = self.git('remote', 'get-url', self.remote)
+        except RuntimeError: cur = None
+        if cur == self.url: return
+        if cur is None: self.git('remote', 'add', self.remote, self.url)
+        else: self.git('remote', 'set-url', self.remote, self.url)
 
     def run(self, ctx):
         if ctx.dry: return None
         st = ctx.s.setdefault('tag_pull', {}).setdefault(self.repo or '?', {})
         try:
             if not self.repo: raise RuntimeError('o gancho tag_pull precisa de "path" no config')
+            self.follow_url()
             self.git('fetch', '-q', '--tags', self.remote)
-            tags = sorted(t for t in self.git('tag', '-l', self.pattern).split() if t)
+            tags = sorted(t for t in self.git('tag', '-l', *self.patterns).split() if t)
         except Exception as e:
             return self.fail(st, [], f'{type(e).__name__}: {e}')
         if 'seen' not in st:                                     # first read: remember what exists, announce nothing
@@ -108,7 +131,7 @@ class Gancho(Base):
         st.pop('err', None)
         versions = {}
         if done and self.versions:
-            try: versions = update_versions(self.versions, done)
+            try: versions = update_versions(self.versions, done, self.plugin)
             except OSError as e: versions = {'erro': str(e)[:200]}
         if not done: return self.fail(st, waiting, f'tag fora da {self.branch} depois do pull')
         return {'kind': 'new', 'tags': done, 'from': old, 'to': head, 'versions': versions, 'waiting': waiting,

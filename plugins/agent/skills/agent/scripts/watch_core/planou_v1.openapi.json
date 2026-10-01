@@ -159,6 +159,30 @@
                     },
                     "default": null,
                     "nullable": true
+                  },
+                  "explanations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "pid": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "text": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "default": null,
+                    "nullable": true
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "format": "int64",
+                    "default": null,
+                    "nullable": true
                   }
                 }
               }
@@ -4302,6 +4326,7 @@
               "agent_resumed",
               "alert_acknowledged",
               "approved",
+              "ceremony_daily_explain",
               "ceremony_facilitate",
               "ceremony_refine",
               "ceremony_refine_facilitate",
@@ -5213,6 +5238,30 @@
             },
             "default": null,
             "nullable": true
+          },
+          "explanations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pid": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "text": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            },
+            "default": null,
+            "nullable": true
+          },
+          "tokens": {
+            "type": "integer",
+            "format": "int64",
+            "default": null,
+            "nullable": true
           }
         }
       },
@@ -5233,6 +5282,123 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "CeremonyDailyExplainEventPayload": {
+        "required": [
+          "meeting_id",
+          "ceremony",
+          "number",
+          "project",
+          "round",
+          "started_at",
+          "due_at",
+          "blocked",
+          "text_max",
+          "cost_cap_usd"
+        ],
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ceremony": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "project": {
+            "required": [
+              "id",
+              "key",
+              "name"
+            ],
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "round": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "required": [
+                "task_id",
+                "pid",
+                "title",
+                "since",
+                "hours",
+                "reason",
+                "blocked_by",
+                "ask_code"
+              ],
+              "type": "object",
+              "properties": {
+                "task_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "pid": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "reason": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "blocked_by": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "ask_code": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "nullable": true
+            }
+          },
+          "text_max": {
+            "type": "integer"
+          },
+          "cost_cap_usd": {
+            "type": "number",
+            "nullable": true
           }
         }
       },
@@ -6796,6 +6962,19 @@
           "decided": {
             "type": "string",
             "default": null,
+            "nullable": true
+          }
+        }
+      },
+      "DailyExplanationIn": {
+        "type": "object",
+        "properties": {
+          "pid": {
+            "type": "string",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
             "nullable": true
           }
         }
@@ -11692,6 +11871,9 @@
     },
     "approved": {
       "$ref": "#/components/schemas/AskAnsweredEventPayload"
+    },
+    "ceremony_daily_explain": {
+      "$ref": "#/components/schemas/CeremonyDailyExplainEventPayload"
     },
     "ceremony_facilitate": {
       "$ref": "#/components/schemas/CeremonyFacilitateEventPayload"

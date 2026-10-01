@@ -21,12 +21,33 @@ waiting; `fragments` of the repo says where its changelog text goes.
 PLN0260: MAPA points at the repo's short map (`map`, relative to path; without it, `docs/MAP.md` when the repo has
 one), ARQUIVOS PROVAVEIS and MODELO are filled by the session (`--files`, `--model sonnet|default`; without them, a
 placeholder the session replaces) and ECONOMIA tells the worker to batch commands and never read a large file whole.
+
+PLN0281: `--role code-review` or `--role qa` is the brief of an independent review or QA worker (one instance that does
+the whole cycle): a read-only worktree, no RELEASE line, the verdict as the done criterion and an INDEPENDENCIA line
+(a new worker, not the one that delivered; the session sends `fila done` or `fila ajuste`, never the worker).
 """
 import os, re, subprocess
 
 import permissions, schema
 
 RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
+# the independent review and QA workers (PLN0281): their worktree, their done criterion and the independence rule
+REVIEW_ROLES = {
+    'code-review': {
+        'worktree': '{wt}/review-<pid>, destacada da branch da entrega (git worktree add --detach), so para ler e rodar um '
+                    'teste filtrado; remover no fim; nunca direto em {path}',
+        'done': 'o parecer do code-review (Revisao de <PID> (<sha7>): aprovada | ajuste pedido, com os criterios do '
+                'BEHAVIOR), comentado na PR quando pr_comment; sem commit, sem push, sem merge',
+        'what': 'revisao'},
+    'qa': {
+        'worktree': 'a do qa_env.py (<worktrees>/qa-<pid>, destacada da branch), que ele cria e remove; nunca direto em {path}',
+        'done': 'o parecer do qa (qa-<pid>.md: casos, axe, larguras) com as capturas, comentado na PR quando pr_comment; '
+                'ambiente derrubado (qa_env.py down); sem commit, sem push',
+        'what': 'QA'},
+}
+INDEPENDENT = ('{what} independente: este worker e NOVO, nao e o que entregou nem continuacao dele, e nao recebe o '
+               'transcript nem o resumo de quem desenvolveu (so o pedido, a PR ou a branch e o criterio); o parecer diz '
+               '"{what} independente (worker novo)"; quem manda fila done ou fila ajuste e a sessao, nunca o worker')
 MODELS = ('sonnet', 'default')
 MAP_DEFAULT = 'docs/MAP.md'
 FILES_TODO = '(a sessao preenche: arquivos e funcoes que a mudanca toca, do mapa ou de uma busca)'
@@ -101,8 +122,10 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
     rel = bc.get('batch-release') if isinstance(bc.get('batch-release'), dict) else {}
     path, base, mode = repo['path'], repo.get('base') or 'main', release_mode(repo, rel)
     wt = repo.get('worktrees') or os.path.join(os.path.dirname(os.path.normpath(path)) or '.', 'wt')
+    review = REVIEW_ROLES.get((perms or {}).get('role'))
     out = [f'REPOSITORIO: {schema.repo_name(repo)} ({path})',
-           f'WORKTREE: {wt}/<nome-curto>, branch propria a partir de origin/{base}; nunca direto em {path}']
+           'WORKTREE: ' + (review['worktree'].format(wt=wt, path=path) if review
+                           else f'{wt}/<nome-curto>, branch propria a partir de origin/{base}; nunca direto em {path}')]
     gh = [t for t in cfg.get('tools') or [] if isinstance(t, dict) and t.get('kind') == 'cli' and t.get('name') == 'gh']
     if repo.get('gh_account'):
         env = ' '.join(f'{k}={v}' for k, v in sorted(((gh[0].get('env') or {}) if gh else {}).items()))
@@ -121,8 +144,9 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
         out.append('PUBLICO: sim; nenhum nome de cliente ou de pessoa, id real ou captura com dado real (o code-review reprova)')
     tests = repo.get('tests') or {}
     out.append('TESTES FILTRADOS (so o que a mudanca afeta): ' + (tests.get('filtered') or 'os do arquivo de regras'))
-    out.append(f'RELEASE: {mode}, {RELEASE_TEXT[mode]}' if mode in RELEASE_TEXT
-               else 'RELEASE: (nao definido no config: ver o instructions.md da instancia)')
+    if review: out.append('INDEPENDENCIA: ' + INDEPENDENT.format(what=review['what']))
+    elif mode in RELEASE_TEXT: out.append(f'RELEASE: {mode}, {RELEASE_TEXT[mode]}')
+    else: out.append('RELEASE: (nao definido no config: ver o instructions.md da instancia)')
     allowed = (lambda a: a in perms['actions']) if perms else (lambda a: True)
     if mode == 'batch' and (allowed('test.full') or allowed('deploy')):
         lock = rel.get('test_lock')
@@ -136,8 +160,8 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
             out.append('DEPLOY (so o integrador): ' + (f'flock -o {lk} {cmd}' if cmd and lk else cmd if cmd
                                                       else f'o do arquivo de regras, sob flock -o {lk}')
                        + (f'; uma linha por deploy em {rel["deploy_log"]}' if rel.get('deploy_log') else ''))
-    out.append('CRITERIO DE PRONTO: ' + (repo.get('done') or default_done(repo, rel))
-               + ' (o instructions.md da instancia vale sobre este, quando diz outra coisa)')
+    out.append('CRITERIO DE PRONTO: ' + (review['done'] if review else (repo.get('done') or default_done(repo, rel))
+                                          + ' (o instructions.md da instancia vale sobre este, quando diz outra coisa)'))
     a = cfg.get('autonomy') if isinstance(cfg.get('autonomy'), dict) else {}
     can, other = list(a.get('can') or []), []
     if perms:
@@ -151,7 +175,7 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
         if v: out.append(f'{label}: ' + '; '.join(v))
     if other: out.append(f'NAO E DESTE PAPEL ({perms["role"]}), nao fazer: ' + '; '.join(other))
     out.append('AUTONOMIA DA TAREFA: a mais restrita entre a de cima e a da tarefa do Planou')
-    out.append('VOLTA: ' + RETURN)
+    out.append('VOLTA: ' + RETURN + ('; no RESULTADO, o veredito (aprovada | ajuste pedido) e o sha7 revisado' if review else ''))
     return out
 
 

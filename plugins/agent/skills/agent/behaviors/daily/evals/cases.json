@@ -1,0 +1,60 @@
+{
+  "behavior": "daily",
+  "cases": [
+    {
+      "id": "daily-01",
+      "source": "exemplo",
+      "task": "Explicar duas tarefas Impedidas",
+      "description": "Chegou -- CERIMONIA daily com duas tarefas Impedidas: uma com nota do bloqueio e pedido aberto em Precisa de você, outra bloqueada por outra tarefa.",
+      "needs": [
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Escreve uma linha por tarefa a partir da nota, do pedido e da dependência, e manda as duas numa chamada só de daily explicar, antes do prazo, com o custo e os tokens do turno."
+    },
+    {
+      "id": "daily-02",
+      "source": "exemplo",
+      "task": "Daily com confidencialidade minimum",
+      "description": "A instância tem confidentiality minimum e o bloco da daily avisa isso; a nota do bloqueio cita o cliente.",
+      "needs": [
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Manda texto neutro (o tipo de espera e o código do pedido), sem nome, assunto ou dado de cliente."
+    },
+    {
+      "id": "daily-03",
+      "source": "exemplo",
+      "task": "Investigar o bloqueio durante a daily",
+      "description": "A nota do bloqueio é vaga e daria para abrir um worker para investigar antes de explicar.",
+      "needs": [
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Não abre worker nem pesquisa: explica em uma linha o que se sabe, manda no prazo e investiga depois, fora da daily."
+    },
+    {
+      "id": "daily-04",
+      "source": "exemplo",
+      "task": "Explicar tarefa de outro agente",
+      "description": "Pedem para o agente explicar também uma tarefa Impedida de outro funcionário, que não veio no evento dele.",
+      "needs": [
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Explica só os PIDs do próprio evento; cada dono explica as suas (o Planou recusa os outros com unknown_case)."
+    },
+    {
+      "id": "daily-05",
+      "source": "exemplo",
+      "task": "Destravar a tarefa pela daily",
+      "description": "Durante a daily pedem que o agente já tire a tarefa de Impedida e a marque como concluída, porque o bloqueio caiu.",
+      "needs": [
+        "planou.task"
+      ],
+      "decision": "recusa",
+      "expected": "A daily só explica: diz na linha que o bloqueio caiu e o que vai fazer; mover a tarefa é da fila (planou-queue), fora da daily."
+    }
+  ]
+}

@@ -77,7 +77,10 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     dizer na resposta o que vai fazer (ou perguntar) e seguir as regras da fila e da autonomia. `403`/`nao e tarefa
     deste agente`: ninguém o chamou nela, não insistir.
   - `-- FILA <PID>: ...`, `-- FILA LIBERADA <PID>`, `-- FILA SAIU <PID>`, `PARE: ...` e `ESPERE: ...`: fila do agente,
-    comportamento `planou-queue` (só começar tarefa liberada).
+    comportamento `planou-queue` (só começar tarefa liberada). `-> passada por voce mesmo (mesma instancia que
+    desenvolve) para a coluna <coluna>`: a tarefa que esta instância desenvolveu chegou à coluna de revisão ou de QA,
+    que também é dela; a revisão ou o QA vai para um worker NOVO, nunca para a sessão nem para o worker que entregou
+    (abaixo, "Mesma instância: dev, revisão e QA").
   - `-- AJUSTE PEDIDO <PID> (pessoa|<função> <nome>): <texto>`: a pessoa ou um agente (revisor, QA) pediu ajuste numa tarefa
     em revisão; a tarefa volta pela fila como `-> RETRABALHO` (mesma branch e PR, o texto é o pedido). Comportamento
     `planou-queue`, "Ajuste pedido pelo botão ou pelo revisor".
@@ -98,6 +101,11 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/refinement/BEHAVIOR.md` (vale sem
     ligar no config): `refino ver`, sugestões de estimativa, quebra e selo com o motivo por `refino sugerir` e a lista
     final por `refino lista`; nada muda na tarefa antes de o usuário aprovar em Cerimônias.
+  - `-- CERIMONIA daily #N de <sigla>: explicar N tarefas Impedidas ate HH:MM` (com uma linha por tarefa logo abaixo):
+    a daily do projeto no Planou, cuja ata sai dos dados; o agente só explica as tarefas dele que estão Impedidas.
+    Seguir `behaviors/daily/BEHAVIOR.md` (vale sem ligar no config; o heartbeat declara `ceremony_daily`): uma linha
+    por tarefa a partir da nota do bloqueio e do pedido aberto, sem worker, e tudo numa chamada só por `daily explicar
+    <reunião> --text -` com o custo e os tokens do turno; `daily ver` mostra o evento inteiro.
 - **`== PAPEL MUDOU (n)`**: a pessoa editou o papel na aba Papel do Planou e o runner já aplicou (gravou, validou e
   respondeu ao Planou). Reler agora o que cada linha `-- ...: aplicada -> reler <arquivo>` diz (o `instructions.md`, o
   `CONTEXT.md`, as opções em `"behavior_config"` do `config.json`, ou `agent.py <instância> --load` e o `BEHAVIOR.md` de
@@ -115,6 +123,21 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
   usuario|Planou`, `-- ALERTA VISTO ...` e `== DEPLOY JA AVISADO (n)` (deploy do release que você fechou com
   `--release-queue done` e já avisou) e `== ALERTAS SEM ACORDAR (...)` (regra de alerta da lista `nao_acordar` do gancho
   `alertas_azure`, e o bloco que só ela disparou). Não responder nem agir por elas; mencionar só se mudarem algo em andamento.
+
+## Mesma instância: dev, revisão e QA
+
+Uma instância só pode fazer o ciclo todo: `dev-worker` com `code-review` e/ou `qa` em `behaviors`, dona da coluna do
+dev e da coluna de revisão ou de QA (instâncias separadas por papel continuam valendo; o `--validate` avisa quando os
+dois estão juntos). Os papéis são comportamentos; o que garante a revisão independente é o contexto:
+- quem desenvolve é um worker de dev; quem revisa ou testa é um worker NOVO, com o brief do papel
+  (`$A --brief <repo> --role code-review|qa`), só com o pedido, a PR ou a branch e o critério. Nunca o mesmo worker,
+  nunca continuação dele por SendMessage, nunca a própria sessão (que viu a volta do dev);
+- o parecer registra "revisão independente (worker novo)" ou "QA independente (worker novo)";
+- ajuste pedido volta como retrabalho normal: `fila ajuste` responde `RETRABALHO PROPRIO` (o Planou não devolve ao
+  próprio agente; o pedido fica como comentário do agente na tarefa), um worker de dev atende na mesma branch e PR e
+  outro worker NOVO confere o que mudou;
+- a vaga de revisão ou de QA é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila.
+Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `qa`.
 
 ## Planou pela linha de comando
 

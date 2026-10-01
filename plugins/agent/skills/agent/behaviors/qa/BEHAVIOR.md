@@ -117,13 +117,47 @@ configuração do projeto; avisar o usuário.
 Quando a entrega volta depois do ajuste, a tarefa chega de novo pela fila com a PR: subir o ambiente no commit novo,
 rodar primeiro os casos que falharam (o `run.cjs` da `<pasta>` continua lá) e depois o roteiro inteiro, que é curto.
 
+## Mesma instância que desenvolve
+
+Quando esta instância também tem `dev-worker` e é dona da coluna do dev e da coluna de QA (PLN0281: uma instância
+faz o ciclo todo; instâncias separadas por papel continuam valendo), a tarefa que ela mesma desenvolveu chega aqui como
+`-- FILA LIBERADA <PID>: ... -> passada por voce mesmo (mesma instancia que desenvolve) para a coluna <coluna>[, com a
+PR: <link>][; nota: <branch>]`. O Planou não guarda quem passou nem a nota quando o dono é o mesmo; o plugin guarda
+(`cache/planou/self_handoffs.json`) e `$PL fila ver` mostra em `mesma_instancia` (coluna, de onde veio, nota com a
+branch, ajustes já pedidos). A sessão viu a volta do dev, então **não faz QA: delega**. Contra a autoaprovação, o
+worker de QA nunca é o worker que entregou, nem continuação dele por SendMessage.
+1. `$PL fila ver` e `$PL fila started <PID> --estimate-h <H>`.
+2. Um `Agent(worker)` NOVO, com:
+   - o pedido literal da tarefa (título e descrição de `fila ver`), a PR ou a branch e o critério de pronto; nada do
+     transcript, do resumo nem da volta do worker de dev;
+   - o bloco de `$A --brief <repo> --role qa` (`A="python3 $S/scripts/agent.py <instância>"`): a worktree do `qa_env.py`, a linha INDEPENDENCIA e o parecer como critério de pronto; os passos 2 a 9 de "Tarefa liberada na coluna do QA" (PR e branch, roteiro, ambiente, script efêmero, capturas, veredito, registro, derrubar) vão no pedido, com a pasta `<scratchpad do worker>/qa-<pid>/`;
+   - as opções de `behavior_config.qa`.
+   Logo depois: `KEY=$($PL fila worker-start <PID> --role other --label 'QA independente de <PID>')` e, quando ele voltar,
+   `$PL worker end <key> --result feito|parcial|falhou` (o `fila worker` de entregas só aceita `dev` e `integrator`).
+3. O parecer começa com `QA independente (worker novo) de <PID> (<sha7>): aprovado | ajuste pedido`. Com `pr_comment`, quem comenta na PR é o worker; `fila ...` e o `$PL attach` do
+   parecer e das capturas (os caminhos vêm na volta do worker) são só da sessão.
+4. Aprovado: `$PL fila done <PID> --note "QA independente aprovado (<sha7>): N casos, axe ok, <widths> [ver anexo: qa-<pid>.md]"` (handoff para a próxima coluna, como em Aprovar). Sem `fila worker-start <PID> --role other` aberto depois do
+   handoff (ou do último ajuste), o `fila done` avisa (`AVISO`, não recusa): a aprovação tem de ser do worker novo.
+5. Ajuste pedido: o mesmo `fila ajuste <PID> --text -` de "Devolver com pedido de ajuste". Sem outro agente para receber,
+   a saída é `RETRABALHO PROPRIO: ...` (exit 0; o texto fica em `mesma_instancia.ajustes`). O pedido fica registrado na
+   tarefa como comentário do agente (`Ajuste pedido na QA independente (worker novo, ...)` e o texto; com
+   `confidentiality: minimum`, só a linha neutra), porque sem PR (release em lote) nada mais mostra o ajuste no Planou;
+   se o comentário não subir, a saída traz `AVISO` e a sessão registra com `$PL comentario <PID> --text -`. O ajuste volta como
+   retrabalho normal, sem sair da coluna: worker de dev (`dev-worker`) na mesma branch e na mesma PR atendendo o parecer
+   (`fila worker-start <PID> --role dev`, e `fila worker ... --role dev` na volta), sem `fila in_review`; quando ele
+   voltar, outro worker NOVO de QA confere só o que mudou desde o `sha7` do parecer, e o passo 4 ou 5 de novo.
+6. `SEM DEV` continua querendo dizer que a tarefa não veio do handoff desta instância (a pessoa a pôs direto na
+   coluna): pedir à pessoa como acima. Mesmo assim, a QA é de um worker novo.
+A vaga de QA é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila, junto com as de dev.
+
 ## O que o QA não faz
 
 - Não escreve nem edita arquivo do repositório: a worktree é só para rodar; o script e as capturas ficam fora dele.
 - Não roda a suíte completa, o e2e completo nem os specs do repositório (isso é do dev e do integrador); roda só o
   próprio script, numa largura por vez.
-- Não usa worker de código: o teste é da sessão. Por isso não manda `fila worker` (o Planou só aceita `dev` e
-  `integrator` como papel da entrega).
+- Não usa worker de código. Instância só de QA: o teste é da sessão. Na mesma instância que desenvolve, é de um
+  worker NOVO (seção acima), que também não escreve código. Em nenhum dos dois manda `fila worker` (o Planou só aceita
+  `dev` e `integrator` como papel da entrega).
 - Não entra com a conta do usuário, não abre o navegador do usuário, não testa contra o app servido.
 - Não faz merge, deploy nem release, não fecha nem edita a PR.
 
