@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "live": false,
+  "language": "pt-BR",
+  "tz_hours": -3,
+  "business_hours": [8, 22],
+  "interval_s": 600,
+  "session": {"cwd": "~", "aliases": ["radar de produto"], "rotate": true},
+  "sources": [
+    {"type": "product_feeds",
+     "feeds": [
+       {"name": "linear", "group": "tarefas", "url": "https://linear.app/rss/changelog.xml"},
+       {"name": "asana-release-notes", "group": "tarefas", "url": "https://forum.asana.com/c/forum-en/news/release-notes/58.rss"},
+       {"name": "asana-product-updates", "group": "tarefas", "url": "https://forum.asana.com/c/forum-en/news/product-updates/60.rss"},
+       {"name": "clickup", "group": "tarefas", "url": "https://feedback.clickup.com/api/changelog/feed.rss"},
+       {"name": "devin", "group": "agentes", "url": "https://docs.devin.ai/release-notes/overview/rss.xml"},
+       {"name": "factory", "group": "agentes", "url": "https://docs.factory.com/changelog/rss.xml"},
+       {"name": "crewai", "group": "agentes", "url": "https://github.com/crewAIInc/crewAI/releases.atom"},
+       {"name": "openhands", "group": "agentes", "url": "https://github.com/OpenHands/OpenHands/releases.atom"},
+       {"name": "github-copilot", "group": "agentes", "url": "https://github.blog/changelog/label/copilot/feed/"},
+       {"name": "cursor", "group": "agentes", "url": "https://cursor.com/changelog/rss.xml"},
+       {"name": "taskade", "group": "agentes", "url": "https://www.taskade.com/changelog/feed.xml"},
+       {"name": "product-hunt", "group": "descoberta", "url": "https://www.producthunt.com/feed?category=productivity", "require_match": true},
+       {"name": "show-hn", "group": "descoberta", "url": "https://hnrss.org/show", "require_match": true}
+     ],
+     "no_feed": [
+       {"name": "Todoist", "why": "novidades só em páginas da central de ajuda, sem RSS nem Atom (conferido em 30/09/2026)"},
+       {"name": "Things", "why": "notas de versão só na página de suporte, sem feed"},
+       {"name": "TickTick", "why": "changelog sem feed; o RSS do blog parou em 2021"},
+       {"name": "Height", "why": "o site não respondeu; o produto foi descontinuado"},
+       {"name": "Motion", "why": "sem changelog público com feed"},
+       {"name": "Lindy", "why": "changelog sem RSS nem Atom"},
+       {"name": "Relevance AI", "why": "changelog sem RSS nem Atom"}
+     ]},
+    {"type": "product_github", "topics": ["ai-agents", "multi-agent", "task-management", "todo-app"], "min_stars": 50, "per_topic": 5}
+  ],
+  "hooks": [
+    {"type": "fila_parada", "after_min": 20}
+  ],
+  "behaviors": ["planou-queue", "product-radar"],
+  "behavior_config": {
+    "product-radar": {
+      "project": "PLN",
+      "max_ideas": 3,
+      "terms": ["task|tasks|to-do|todo|tarefa", "agent|agents|agente", "kanban|backlog", "project management|gestão de projetos",
+                "productivity|produtividade", "workflow|orchestration|orquestração"],
+      "weekday": 0,
+      "hour": 9,
+      "window_days": 7,
+      "planou_repo": "~/src/planou",
+      "known_days": 180
+    }
+  },
+  "tools": [],
+  "autonomy": {
+    "can": ["ler feeds públicos de changelog, Product Hunt, Show HN e a busca pública do GitHub",
+            "ler o README e o CHANGELOG do produto e as tarefas do projeto pela /v1",
+            "criar até 3 ideias por semana no Backlog do projeto"],
+    "ask_first": ["trocar ou acrescentar uma fonte"],
+    "never": ["escrever código", "abrir branch ou PR", "copiar marca, texto, visual ou código de outro produto",
+              "pôr nome de cliente, caminho de repositório ou texto de tarefa numa busca externa",
+              "criar conta ou entrar logado num serviço", "mandar mensagem a pessoas", "mais de 3 ideias por semana"]
+  },
+  "planou": {"project": "PLN", "confidentiality": "detail", "task_queue": true, "conversation": true}
+}

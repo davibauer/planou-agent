@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "live": false,
+  "language": "pt-BR",
+  "tz_hours": -3,
+  "business_hours": [8, 22],
+  "interval_s": 600,
+  "session": {"cwd": "~", "aliases": ["seguranca"], "rotate": true},
+  "sources": [],
+  "hooks": [
+    {
+      "type": "security",
+      "after": 1,
+      "max_tasks_day": 5,
+      "reopen_h": 24,
+      "timeout_s": 300,
+      "task_note": "Aberta pelo agente de seguranca. Nada foi corrigido nem girado: a decisao e de quem cuida do repositorio.",
+      "checks": [
+        {"id": "deps-meu-projeto", "kind": "deps", "label": "dependencias de meu-projeto", "path": "~/src/meu-projeto",
+         "min_severity": "high", "ignore": [], "skip": []},
+        {"id": "secrets-meu-projeto", "kind": "secrets", "label": "segredos em meu-projeto", "repo": "~/src/meu-projeto",
+         "ignore": ["tests/*", "*/tests/*", "*/fixtures/*"]},
+        {"id": "secrets-logs", "kind": "secrets", "label": "segredos nos logs dos agentes",
+         "logs": ["~/.config/agent/*/cache/runner/*.log", "~/.config/agent/*/cache/runner/*.err",
+                  "~/.config/agent/*/cache/runner/tick.out"]},
+        {"id": "perms-secrets", "kind": "perms", "label": "permissao das pastas de segredo",
+         "paths": ["~/.config/*/secrets", "~/.config/agent/*/secrets"]},
+        {"id": "agents", "kind": "agents", "label": "autonomia dos agentes",
+         "configs": ["~/.config/agent/*/config/config.json"]}
+      ]
+    }
+  ],
+  "behaviors": ["security"],
+  "tools": [
+    {"kind": "cli", "name": "npm", "label": "npm audit (so leitura, --package-lock-only)"},
+    {"kind": "cli", "name": "dotnet", "label": "dotnet list package --vulnerable (so leitura)"},
+    {"kind": "cli", "name": "git", "label": "git ls-files e git log (so leitura)"}
+  ],
+  "autonomy": {
+    "can": [
+      "ler os repositorios, os logs e as configs dos agentes (so leitura)",
+      "consultar npm audit, dotnet list package --vulnerable e pip-audit (so leitura, sem instalar nada)",
+      "abrir tarefa no backlog com a evidencia (gancho security) e anotar o fim na mesma tarefa",
+      "alerta no Planou ($PL alert) para segredo versionado em repositorio publico",
+      "relatorio curto na conversa do Planou"
+    ],
+    "ask_first": [
+      "incluir um repositorio ou um log novo nas varreduras",
+      "aceitar um risco (ignore de um alerta de dependencia)"
+    ],
+    "never": [
+      "corrigir: atualizar pacote, chmod, editar config, abrir branch ou PR",
+      "girar, revogar ou apagar chave, token ou senha",
+      "ler ou imprimir o conteudo de secrets/, *.env, cookie ou token",
+      "docker inspect, docker compose config, docker exec, env",
+      "subir, parar ou relancar runner ou container de outro agente",
+      "mandar mensagem a pessoas (Slack, Teams, e-mail)",
+      "por achado, caminho ou nome de pacote num repositorio publico ou numa busca externa",
+      "atribuicao ao Claude em qualquer coisa"
+    ]
+  },
+  "repos": [],
+  "planou": {"project": "PLN", "confidentiality": "detail", "task_queue": false, "conversation": true}
+}

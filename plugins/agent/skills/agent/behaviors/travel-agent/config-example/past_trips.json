@@ -1,0 +1,42 @@
+{
+ "trips": [
+  {
+   "id": "exemplo-2025",
+   "name": "Lisboa nov/2025",
+   "destinations": [
+    "LIS"
+   ],
+   "keywords": [
+    "Lisboa"
+   ],
+   "start": "2025-11-08",
+   "end": "2025-11-22",
+   "nights": 14,
+   "seats": 2,
+   "notes": "",
+   "items": [
+    {
+     "category": "voo",
+     "label": "ida e volta, 2 pessoas",
+     "amount": 0,
+     "currency": "BRL"
+    },
+    {
+     "category": "hotel",
+     "label": "",
+     "amount": 0,
+     "currency": "EUR",
+     "nights": 14
+    },
+    {
+     "category": "restaurantes",
+     "label": "",
+     "amount": null,
+     "currency": "EUR",
+     "days": 14
+    }
+   ],
+   "fx_rate": null
+  }
+ ]
+}

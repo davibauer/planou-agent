@@ -1,0 +1,118 @@
+{
+ "currency": "BRL",
+ "pause_seconds": 2,
+ "min_drop_pct": 3,
+ "rise_warn_pct": 15,
+ "points": {
+  "balance": 0,
+  "award_taxes_estimate": 700,
+  "cash_value": 0,
+  "programs": {
+   "smiles": {
+    "ratio": 1.0
+   },
+   "latam-pass": {
+    "ratio": 1.0
+   },
+   "azul-fidelidade": {
+    "ratio": 1.0
+   }
+  }
+ },
+ "gmail": {
+  "senders": [
+   "news@melhoresdestinos.com.br"
+  ]
+ },
+ "trips": [
+  {
+   "id": "exemplo",
+   "name": "Lisboa em novembro",
+   "status": "watching",
+   "origins": [
+    "GRU"
+   ],
+   "destinations": [
+    "LIS"
+   ],
+   "keywords": [
+    "Lisboa",
+    "Portugal",
+    "Europa"
+   ],
+   "depart": [
+    "2026-11-08..2026-11-10"
+   ],
+   "return": [
+    "2026-11-22..2026-11-24"
+   ],
+   "min_nights": null,
+   "max_nights": null,
+   "adults": 2,
+   "children": 0,
+   "child_factor": 1.0,
+   "max_stops": 1,
+   "extra_stops_min_saving_pct": 25,
+   "reference": {
+    "total": null,
+    "label": ""
+   },
+   "target_total": null,
+   "children_ages": [],
+   "plan": {
+    "out": "2026-11-10",
+    "ret": "2026-11-24",
+    "label": "10→24/11"
+   },
+   "itinerary": [
+    {
+     "date": "2026-11-10",
+     "text": "Chegada em Lisboa",
+     "where": "Hotel"
+    }
+   ],
+   "hotels": [
+    {
+     "id": "hotel1",
+     "name": "Nome do hotel",
+     "checkin": "2026-11-10",
+     "checkout": "2026-11-24",
+     "sources": [
+      "expedia",
+      "booking"
+     ]
+    }
+   ],
+   "deadlines": [
+    {
+     "date": "2026-10-15",
+     "title": "Conferir validade dos passaportes",
+     "notes": ""
+    }
+   ]
+  }
+ ],
+ "fx": {
+  "currency": "USD",
+  "home": "BRL",
+  "budget": 0,
+  "target": null
+ },
+ "expedia_flights": false,
+ "calendar": false,
+ "dashboard": {
+  "urls": {}
+ },
+ "remind_days": [
+  14,
+  3,
+  1,
+  0
+ ],
+ "miles_search_bonus": 50,
+ "steps_hours": 24,
+ "sheet": {
+  "id": "",
+  "every_hours": 6
+ }
+}

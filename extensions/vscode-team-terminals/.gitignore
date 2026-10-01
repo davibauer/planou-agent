@@ -1,0 +1,4 @@
+node_modules/
+*.vsix
+!dist/team-terminals.vsix
+.vscode-test/

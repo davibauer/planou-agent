@@ -1,0 +1,22 @@
+# Local provisioner of the agent plugin (PLN0111): creates the agents asked for on Planou's Time screen.
+# User unit, the same for every version: it runs the provisioner of the plugin copy in use (~/.claude/skills/agent), which
+# pins itself to the released version (rollout.json) and exits with 75 when another one should run; Restart=always
+# brings it back on that one. A newer plugin whose unit differs rewrites this file and asks for daemon-reload.
+# Installed by install-provisioner.sh; see docs/provisioner.md.
+[Unit]
+Description=Provisionador local de agentes do Planou
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env python3 %h/.claude/skills/agent/scripts/provisioner.py run
+Restart=always
+RestartSec=5
+# files it creates are private by default; the key file is 0600 either way
+UMask=0077
+NoNewPrivileges=yes
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

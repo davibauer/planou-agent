@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Example engineering blog</title>
+<item><title>What is new in .NET tooling this month</title><link>https://blog.example.com/dotnet-tooling</link>
+<description>Build and test improvements for .NET projects.</description></item>
+<item><title>Faster TypeScript type checks</title><link>https://blog.example.com/ts-checks</link>
+<description>How incremental builds got faster.</description></item>
+<item><title>An old post outside the window</title><link>https://blog.example.com/old</link>
+<pubDate>Mon, 06 Jan 2020 10:00:00 GMT</pubDate><description>Old.</description></item>
+</channel></rss>

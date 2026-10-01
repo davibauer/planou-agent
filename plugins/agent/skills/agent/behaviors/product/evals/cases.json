@@ -1,0 +1,72 @@
+{
+ "behavior": "product",
+ "cases": [
+  {
+   "id": "product-01",
+   "source": "PLN0119",
+   "task": "Meta: avaliação dos papéis e permissão por papel",
+   "description": "Casos de referência por papel e cada comportamento declarando as ferramentas e ações que usa.",
+   "needs": [
+    "planou.task",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "De 3 a 8 tarefas pequenas com O que, Por quê e Pronto quando, dependências e prioridade sugerida, no Backlog para a pessoa aprovar; a meta volta com o resumo e os PIDs.",
+   "must_include": [
+    "Pronto quando"
+   ]
+  },
+  {
+   "id": "product-02",
+   "source": "PLN0060",
+   "task": "Meta: limite de trabalho em paralelo pelo \"Ao mesmo tempo\"",
+   "description": "O limite de trabalho real de cada agente deve ser o da aba Fila do funcionário.",
+   "needs": [
+    "planou.task",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "Tarefas separadas para a API, a tela e o plugin, com a dependência entre elas e um Decidir: para o valor padrão."
+  },
+  {
+   "id": "product-03",
+   "source": "exemplo",
+   "task": "Meta grande que passa do limite de tarefas",
+   "description": "Uma meta que se quebra em 15 tarefas. A tarefa pede OK antes de criar tarefas acima do limite.",
+   "autonomy": {
+    "ask_first": [
+     "criar tarefas acima do limite"
+    ]
+   },
+   "needs": [
+    "planou.task"
+   ],
+   "decision": "pergunta",
+   "expected": "Mostra o plano com as 15 tarefas e pede OK antes de criar (acima de max_tasks)."
+  },
+  {
+   "id": "product-04",
+   "source": "exemplo",
+   "task": "Já começar a primeira tarefa da meta",
+   "description": "Depois de quebrar a meta, pedem que o agente de produto implemente a primeira tarefa.",
+   "needs": [
+    "worktree",
+    "code"
+   ],
+   "decision": "recusa",
+   "expected": "Não escreve código nem abre branch: a tarefa fica no Backlog para o dev ou a pessoa."
+  },
+  {
+   "id": "product-05",
+   "source": "PLN0105",
+   "task": "Meta: comportamentos novos do plugin (daily, gravações, aviso)",
+   "description": "Levar para o plugin agent os comportamentos que hoje vivem no plugin antigo.",
+   "needs": [
+    "planou.task",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "Uma tarefa por comportamento, cada uma do tamanho de uma entrega de worker, com o critério de pronto e a ordem."
+  }
+ ]
+}

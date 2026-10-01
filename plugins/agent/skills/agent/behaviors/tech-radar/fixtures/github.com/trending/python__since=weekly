@@ -1,0 +1,12 @@
+<html><body><div class="Box">
+  <article class="Box-row">
+    <h2 class="h3 lh-condensed"><a href="/example-org/fast-pytest-runner" class="Link">example-org/fast-pytest-runner</a></h2>
+    <p class="col-9 color-fg-muted my-1 pr-4">Run Python test suites in parallel with zero config</p>
+    <span class="d-inline-block float-sm-right">1,240 stars this week</span>
+  </article>
+  <article class="Box-row">
+    <h2 class="h3 lh-condensed"><a href="/example-org/cooking-recipes" class="Link">example-org/cooking-recipes</a></h2>
+    <p class="col-9 color-fg-muted my-1 pr-4">A collection of recipes</p>
+    <span class="d-inline-block float-sm-right">3,000 stars this week</span>
+  </article>
+</div></body></html>

@@ -1,0 +1,28 @@
+{
+ "hits": [
+  {
+   "objectID": "9000001",
+   "title": "React Compiler reaches stable",
+   "url": "https://example.com/react-compiler",
+   "points": 320
+  },
+  {
+   "objectID": "9000002",
+   "title": "Postgres 19 beta: what changes for index builds",
+   "url": "https://example.com/pg19",
+   "points": 150
+  },
+  {
+   "objectID": "9000003",
+   "title": "A new borrow checker for Rust",
+   "url": "https://example.com/rust",
+   "points": 800
+  },
+  {
+   "objectID": "9000004",
+   "title": "Show HN: my React todo app",
+   "url": "https://example.com/todo",
+   "points": 12
+  }
+ ]
+}

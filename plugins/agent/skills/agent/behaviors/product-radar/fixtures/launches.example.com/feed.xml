@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Lançamentos de exemplo</title>
+<entry><title>Agent board: hire AI agents as teammates for your task list</title><link rel="alternate" href="https://launches.example.com/agent-board"/></entry>
+<entry><title>A camera app with film filters</title><link rel="alternate" href="https://launches.example.com/film-camera"/></entry>
+</feed>

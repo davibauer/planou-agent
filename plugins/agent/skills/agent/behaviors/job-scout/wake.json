@@ -1,0 +1,8 @@
+{
+ "_note": "PLN0247: jobs that passed the filter, the nags about them and the Gmail reminder wait for the next wake (scripts/wake.py); a TOP APPLICANT, anything else in the tick, a message or a Planou event wakes at once",
+ "hold": ["^== (VAGAS|MERCADO|RECOMENDADAS)\\b", "^== (REPUTACAO|PROCESSO SELETIVO) \\("],
+ "latest": ["^== GMAIL ATRASADO$", "^\\(notion: [0-9]+ linhas? sincronizadas\\)$"],
+ "urgent": ["TOP APPLICANT"],
+ "hold_max_min": 180,
+ "broken_repeat_min": 0
+}

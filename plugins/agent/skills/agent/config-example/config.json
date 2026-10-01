@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "live": false,
+  "language": "pt-BR",
+  "tz_hours": -3,
+  "business_hours": [8, 22],
+  "interval_s": 600,
+  "session": {"cwd": "~/src/exemplo", "aliases": ["exemplo"], "rotate": true},
+  "sources": [],
+  "hooks": [],
+  "behaviors": ["planou-queue", "dev-worker"],
+  "tools": [
+    {"kind": "subagent", "name": "worker"},
+    {"kind": "cli", "name": "gh", "env": {"GH_CONFIG_DIR": "~/.config/gh-exemplo"}}
+  ],
+  "autonomy": {
+    "can": ["branch e worktree", "testes filtrados", "push de branch", "abrir PR"],
+    "ask_first": ["migration destrutiva", "dependencia nova"],
+    "never": ["mandar mensagem a pessoas", "criar conta em servico", "apagar backup"]
+  },
+  "repos": [{"path": "~/src/exemplo", "worktrees": "~/wt", "rules": "CLAUDE.md", "gh_account": "exemplo"}],
+  "planou": {"project": "EXE", "confidentiality": "detail", "task_queue": true, "conversation": true}
+}

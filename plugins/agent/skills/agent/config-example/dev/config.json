@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "live": false,
+  "language": "pt-BR",
+  "tz_hours": -3,
+  "business_hours": [8, 22],
+  "interval_s": 600,
+  "session": {"cwd": "~/src/meu-projeto", "aliases": ["meu-projeto"], "rotate": true},
+  "sources": [],
+  "hooks": [
+    {"type": "release_due", "ready_file": "data/release_queue.json", "min_branches": 2, "max_wait_min": 30},
+    {"type": "deploy_log", "path": "~/.config/meu-projeto/deploys.log"},
+    {"type": "fila_parada", "after_min": 20}
+  ],
+  "behaviors": ["planou-queue", "dev-worker", "batch-release"],
+  "behavior_config": {
+    "batch-release": {
+      "repo": "~/src/meu-projeto",
+      "test_lock": "~/.config/meu-projeto/test.lock",
+      "deploy_lock": "~/.config/meu-projeto/deploy.lock",
+      "deploy_cmd": "scripts/deploy.sh",
+      "e2e_marker": "~/.config/meu-projeto/e2e-full.last",
+      "e2e_every_h": 24,
+      "fragments": "docs/changelog.d",
+      "deploy_log": "~/.config/meu-projeto/deploys.log",
+      "check_url": "https://meu-projeto.exemplo.com (Sobre > Novidades)"
+    }
+  },
+  "tools": [
+    {"kind": "subagent", "name": "worker"},
+    {"kind": "cli", "name": "gh", "env": {"GH_CONFIG_DIR": "~/.config/gh-exemplo"}}
+  ],
+  "autonomy": {
+    "can": ["branch e worktree", "testes filtrados", "push de branch",
+            "release em lote pelo integrador (fast-forward na main, tag, push)",
+            "deploy com trava e linha no log de deploys"],
+    "ask_first": ["migration destrutiva ou que apaga dado", "dependencia nova"],
+    "never": ["mandar mensagem a pessoas", "atribuicao ao Claude em commit, PR ou codigo", "deploy sem trava",
+              "criar conta em servico", "apagar backup"]
+  },
+  "repos": [
+    {
+      "path": "~/src/meu-projeto",
+      "name": "meu-projeto",
+      "worktrees": "~/wt",
+      "base": "main",
+      "rules": "CLAUDE.md",
+      "shared_rules": [],
+      "gh_account": "exemplo",
+      "tests": {"filtered": "make test ONLY=<arquivo ou classe>", "full": "make test"},
+      "release": "batch"
+    }
+  ],
+  "planou": {"project": "MPJ", "confidentiality": "detail", "task_queue": true, "conversation": true}
+}

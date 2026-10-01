@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<rss version="2.0"><channel><title>App de tarefas de exemplo: changelog</title>
+<item><title>Recurring tasks can now skip weekends</title><link>https://changelog.example.com/skip-weekends</link><description>A new option on recurring tasks.</description></item>
+<item><title>Location reminders</title><link>https://changelog.example.com/location-reminders</link><description>Get reminded when you arrive somewhere.</description></item>
+</channel></rss>

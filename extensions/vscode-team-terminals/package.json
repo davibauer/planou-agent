@@ -1,0 +1,84 @@
+{
+  "name": "team-terminals",
+  "displayName": "Team Terminals",
+  "description": "Abre um terminal por agente do time (team <agente>) ao abrir o VS Code, a partir de ~/.config/team/agents.json.",
+  "version": "0.3.0",
+  "publisher": "team-agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davibauer/planou-agent",
+    "directory": "extensions/vscode-team-terminals"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "extensionKind": ["workspace"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "teamTerminals.openAll", "title": "Team: abrir terminais" },
+      { "command": "teamTerminals.openOne", "title": "Team: abrir terminal de um agente" },
+      { "command": "teamTerminals.generate", "title": "Team: gerar agents.json" }
+    ],
+    "configuration": {
+      "title": "Team Terminals",
+      "properties": {
+        "teamTerminals.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Abre os terminais dos agentes habilitados ao abrir o VS Code e acompanha as mudanças do agents.json (abre os novos, fecha os desabilitados ou removidos)."
+        },
+        "teamTerminals.pollSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "Além do watcher, confere a data e o tamanho do agents.json a cada tantos segundos e reconcilia quando mudam (o watcher de uma pasta fora do workspace perde eventos). 0 desliga. Vale só com autoOpen ligado."
+        },
+        "teamTerminals.delaySeconds": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Segundos entre a abertura de um terminal e a do próximo, para não subir todas as sessões ao mesmo tempo."
+        },
+        "teamTerminals.startupDelaySeconds": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "description": "Espera antes da primeira conferência ao abrir o VS Code, para os terminais restaurados aparecerem antes."
+        },
+        "teamTerminals.command": {
+          "type": "string",
+          "default": "team ${agent}",
+          "description": "Comando digitado no terminal de cada agente; ${agent} vira o nome do agente."
+        },
+        "teamTerminals.reviveIdle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Terminal de agente restaurado com o shell parado (sem processo filho, como depois de reiniciar o PC): roda o comando nele em vez de deixar parado. Só ao abrir o VS Code e no comando Team: abrir terminais."
+        },
+        "teamTerminals.autoUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ao abrir o VS Code e a cada 30 min, compara a versão do pacote na cópia do repositório (teamTerminals.updateSource) com a instalada; se for maior, instala e oferece recarregar a janela."
+        },
+        "teamTerminals.updateSource": {
+          "type": "string",
+          "default": "",
+          "description": "Pasta raiz da cópia do repositório claude-plugins de onde vem a atualização (usa extensions/vscode-team-terminals/dist/team-terminals.vsix). Vazio = a cópia para onde aponta o link ~/.claude/skills/agent."
+        },
+        "teamTerminals.agentRunner": {
+          "type": "string",
+          "default": "",
+          "description": "Caminho do runner.sh do plugin agent usado no stop. Vazio = ~/.claude/skills/agent/scripts/runner.sh."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "package": "mkdir -p dist && npx -y @vscode/vsce@4 package --no-dependencies -o dist/team-terminals.vsix"
+  }
+}

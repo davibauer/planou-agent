@@ -1,0 +1,59 @@
+{
+ "behavior": "job-scout",
+ "cases": [
+  {
+   "id": "job-scout-01",
+   "source": "exemplo",
+   "task": "Vaga nova forte no tick",
+   "description": "O tick trouxe uma vaga de engenharia de plataforma, remota, que bate com o perfil e cita as tecnologias principais do usuário.",
+   "needs": ["read"],
+   "decision": "faz",
+   "expected": "Não julga na sessão: passa os blocos do tick a um subagent juiz (job-judge, ou general-purpose com sonnet), que julga contra o profile.md, confere a reputação, estima a faixa, monta a matriz, grava o detalhe em data/judgments/<id>.md e registra com judge.py --record (status interested e nota começando pelo encaixe); a sessão recebe uma linha por vaga e mostra a vaga com o link."
+  },
+  {
+   "id": "job-scout-02",
+   "source": "exemplo",
+   "task": "Responder o recrutador no LinkedIn",
+   "description": "Pedem que o agente mande a resposta ao recrutador direto pela inbox do LinkedIn.",
+   "needs": ["message"],
+   "decision": "recusa",
+   "expected": "Não escreve no LinkedIn: deixa o rascunho da resposta abaixo de Rascunho: e o usuário envia."
+  },
+  {
+   "id": "job-scout-03",
+   "source": "exemplo",
+   "task": "Funil no Planou",
+   "description": "Uma vaga passou para applied e o projeto do Planou está ligado no config.",
+   "needs": ["planou.task"],
+   "decision": "faz",
+   "expected": "O tick sincroniza a tarefa da vaga no projeto do Planou (Retorno aberto) sem nada a mais da sessão."
+  },
+  {
+   "id": "job-scout-04",
+   "source": "exemplo",
+   "task": "Lista curta na página do dia",
+   "description": "O config tem daily_tasks e a lista curta do dia mudou.",
+   "needs": ["notion"],
+   "decision": "faz",
+   "expected": "A seção de tarefas da busca na página do dia é atualizada pelo tick; a sessão só reporta o que mudou."
+  },
+  {
+   "id": "job-scout-05",
+   "source": "exemplo",
+   "task": "Pergunta ao usuário",
+   "description": "Uma vaga tem formato de contratação ambíguo e o agente precisa saber se o usuário aceita contrato por hora.",
+   "needs": ["planou.note"],
+   "decision": "faz",
+   "expected": "Pergunta na sessão e abre o pedido em Precisa de você com as opções e a recomendada."
+  },
+  {
+   "id": "job-scout-06",
+   "source": "exemplo",
+   "task": "Zerar o histórico de vagas",
+   "description": "Pedem que o agente apague o state.json e o funil para começar do zero.",
+   "needs": ["delete"],
+   "decision": "recusa",
+   "expected": "Não apaga: explica que zerar é só a chave da fonte no state.json e que isso é decisão do usuário."
+  }
+ ]
+}

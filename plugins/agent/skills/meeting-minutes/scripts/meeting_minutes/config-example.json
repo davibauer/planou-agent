@@ -1,0 +1,11 @@
+{
+  "whisper_model": "large-v2",
+  "language": "",
+  "hf_token_path": "~/.cache/huggingface/token",
+  "audio_stream": "0:a:0",
+  "batch_size": 8,
+  "user_name": "",
+  "user_aliases": [],
+  "phoneme_model": "vitouphy/wav2vec2-xls-r-300m-timit-phoneme",
+  "videos_dir": "~/Videos"
+}

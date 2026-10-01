@@ -1,0 +1,143 @@
+{
+  "_note": "Critérios do job-scout. Ajuste pedindo ao Claude (ele usa criteria.py: mostra o diff e só grava com o seu ok). Chave que você não definir no seu config.json vem deste exemplo. Regex do Python, sem diferenciar maiúsculas.",
+  "searches": [
+    {
+      "keywords": "DevOps OR SRE OR \"Platform Engineer\"",
+      "location": "Brazil",
+      "remote": true
+    },
+    {
+      "keywords": "\"Backend Engineer\" OR \"Software Engineer\"",
+      "location": "Brazil",
+      "remote": true
+    }
+  ],
+  "_planou": {
+    "_note": "Exemplo do bloco \"planou\" (opcional; copie para o seu config.json sem o sublinhado para ligar). stage_map só vale com o projeto customizado no Planou (estados próprios): cada etapa do funil vira o NOME de um estado do projeto, sem diferenciar maiúsculas nem acentos. Etapas e o tipo de estado que pedem: apply (tarefa Aplicar aberta), applied e replied (Retorno aberto), interview (Preparar entrevista aberta), interested e message (opcionais; message = mensagem de recrutador) pedem estados abertos, não Backlog; hired e lost pedem estados de concluída (a tarefa fecha quando a vaga chega lá); offer num estado aberto só vale no sentido Planou -> vaga. Etapa sem nome ou com nome que o projeto não tem: só a categoria vai, com um AVISO (planou) por dia. Mover a tarefa no Planou para um estado do mapa muda o status da vaga.",
+    "project": "CAR",
+    "confidentiality": "title",
+    "publish": true,
+    "stage_map": {
+      "interested": "<estado do projeto>",
+      "apply": "<estado do projeto>",
+      "applied": "<estado do projeto>",
+      "replied": "<estado do projeto>",
+      "interview": "<estado do projeto>",
+      "offer": "<estado do projeto>",
+      "hired": "<estado do projeto>",
+      "lost": "<estado do projeto>",
+      "message": "<estado do projeto>"
+    }
+  },
+  "companies": {},
+  "exclude": "\\b(junior|j[uú]nior|jr\\.?|est[aá]gi\\w*|intern(ship)?|trainee|pleno|sales|vendas)\\b",
+  "pay_ranges": {
+    "_note": "Faixas de referência (bruto mensal, equivalente PJ) por tipo de contratante. Estimativas; ajuste com dados reais (propostas, recrutadores). O anúncio, quando traz valor, sempre manda.",
+    "usd_brl_rate": 5.4,
+    "categories": {
+      "br_produto": {
+        "desc": "empresa brasileira de produto, sênior",
+        "brl_month": [
+          20000,
+          30000
+        ]
+      },
+      "br_produto_staff": {
+        "desc": "empresa brasileira de produto, staff/principal",
+        "brl_month": [
+          28000,
+          40000
+        ]
+      },
+      "br_consultoria": {
+        "desc": "consultoria/alocação brasileira",
+        "brl_month": [
+          16000,
+          26000
+        ]
+      },
+      "latam_intermediaria": {
+        "desc": "intermediária que aloca LatAm em cliente dos EUA/Europa",
+        "usd_month": [
+          3500,
+          6500
+        ]
+      },
+      "eua_staffing_hora": {
+        "desc": "staffing americano, contrato por hora",
+        "usd_hour": [
+          35,
+          55
+        ]
+      },
+      "global_direta": {
+        "desc": "empresa global contratando LatAm direto",
+        "usd_year": [
+          60000,
+          110000
+        ]
+      }
+    },
+    "hours_month": 168,
+    "user_reference": {
+      "pj_hour_brl": 0,
+      "pj_month_brl": 0
+    }
+  },
+  "saturation": {
+    "_note": "Vaga saturada sai do funil: postada há days dias ou mais E com mais de applicants candidatos (days 0 = só o número de candidatos decide). Vale na entrada e de novo na lista curta, que relê a contagem uma vez por dia. top_applicant_exempt true = vaga TOP APPLICANT fica mesmo saturada (marcada como concorrida); false = sai também.",
+    "days": 14,
+    "applicants": 100,
+    "top_applicant_exempt": true
+  },
+  "logged_in_sources": false,
+  "include": "devops|sre|platform|cloud|backend|software engineer|engenheir|developer|desenvolvedor|architect|arquitet",
+  "boards": {
+    "wwr": [
+      "remote-programming-jobs",
+      "remote-devops-sysadmin-jobs"
+    ],
+    "web3career": [
+      "remote-jobs"
+    ],
+    "sources": [
+      "remoteok",
+      "wwr"
+    ]
+  },
+  "min_score": 1,
+  "points": [
+    [
+      "\\b(kubernetes|k8s|helm)\\b",
+      "k8s"
+    ],
+    [
+      "\\b(azure|aws|gcp)\\b",
+      "cloud"
+    ],
+    [
+      "\\b(terraform|iac)\\b",
+      "iac"
+    ],
+    [
+      "\\bpython\\b",
+      "python"
+    ],
+    [
+      "\\b(remote|remoto|anywhere)\\b",
+      "remoto"
+    ],
+    [
+      "\\b(pj|contractor|b2b|hourly)\\b",
+      "pj"
+    ],
+    [
+      "\\b(usd|us\\$|eur)\\b",
+      "moeda forte"
+    ],
+    [
+      "\\b(senior|s[eê]nior|staff|principal|lead)\\b",
+      "senior"
+    ]
+  ]
+}

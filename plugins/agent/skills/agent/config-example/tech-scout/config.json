@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "live": false,
+  "language": "pt-BR",
+  "tz_hours": -3,
+  "business_hours": [8, 22],
+  "interval_s": 600,
+  "session": {"cwd": "~", "aliases": ["radar"], "rotate": true},
+  "sources": [
+    {"type": "radar_deps", "client_repos": [], "skip": [], "include_patch": false},
+    {"type": "radar_feeds",
+     "feeds": [{"name": "blog-exemplo", "url": "https://blog.example.com/feed.xml"}],
+     "youtube": []},
+    {"type": "radar_hn", "min_points": 100},
+    {"type": "radar_trending", "languages": ["python", "typescript"]}
+  ],
+  "hooks": [
+    {"type": "fila_parada", "after_min": 20}
+  ],
+  "behaviors": ["planou-queue", "tech-radar"],
+  "behavior_config": {
+    "tech-radar": {
+      "stacks": ["Python", "TypeScript", "React", "Vite", "Postgres|PostgreSQL", ".NET|dotnet|C#"],
+      "project": "RADAR",
+      "column": "Radar técnico",
+      "per_task": 3,
+      "max_hours": 24,
+      "max_tasks": 8,
+      "weekday": 0,
+      "hour": 9,
+      "window_days": 7
+    }
+  },
+  "tools": [],
+  "autonomy": {
+    "can": ["ler os arquivos de dependência dos repositórios do config", "ler feeds públicos, Hacker News e GitHub Trending",
+            "criar sugestões no Backlog do projeto do radar", "anotar até 3 sugestões numa tarefa da coluna do radar"],
+    "ask_first": ["ler um repositório de cliente", "mais sugestões que max_tasks numa semana"],
+    "never": ["escrever código", "abrir branch ou PR", "pôr nome de cliente, caminho de repositório ou texto de tarefa numa busca externa",
+              "mandar mensagem a pessoas", "criar o projeto ou a coluna no Planou"]
+  },
+  "repos": [
+    {"path": "~/src/meu-projeto", "name": "meu-projeto"}
+  ],
+  "_client_repos": "repositórios de cliente só em radar_deps.client_repos, e só quando a pessoa listar",
+  "_youtube": "ids dos canais (UC...) em radar_feeds.youtube: a pessoa escolhe",
+  "planou": {"project": "RADAR", "confidentiality": "detail", "task_queue": true, "conversation": true}
+}

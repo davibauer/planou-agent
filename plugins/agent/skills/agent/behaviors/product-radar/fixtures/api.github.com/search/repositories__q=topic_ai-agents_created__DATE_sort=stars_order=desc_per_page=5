@@ -1,0 +1,4 @@
+{"total_count": 2, "items": [
+ {"full_name": "example-org/agent-kanban", "html_url": "https://github.com/example-org/agent-kanban", "description": "A kanban board where AI agents pick up tasks", "stargazers_count": 420},
+ {"full_name": "example-org/tiny-agent", "html_url": "https://github.com/example-org/tiny-agent", "description": "Toy agent", "stargazers_count": 3}
+]}

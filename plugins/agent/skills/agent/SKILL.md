@@ -1,0 +1,229 @@
+---
+name: agent
+description: "agent do time, uma instância por agent (planou-dev, work-watch-<empresa>...): `/agent <instância>` carrega as instruções e os comportamentos da instância, liga o runner em background e trata o que ele traz (tick das fontes, fila e conversa do Planou). Use quando o usuário invocar /agent <instância> ou quando o runner de uma instância do plugin agent acordar a sessão."
+---
+
+# agent
+
+Um plugin, uma instância por agent. O nome da instância é o nome do agent (chave no Planou, na sessão fixa do `team`,
+nas lições). O que muda de um agent para outro está na configuração da instância: fontes, ganchos, comportamentos,
+ferramentas e autonomia. `S` = a pasta desta skill (a que tem este SKILL.md).
+
+## Onde fica
+
+`~/.config/agent/<instância>/` (se não existir, a pasta antiga do agent: `~/.config/work-watch/<x>/` ou `~/.config/<nome>/`):
+
+- `config/config.json` o que o usuário decide (chaves em `scripts/schema.py`); `config/instructions.md` as regras dele;
+- `data/` estado; `secrets/` chaves (`planou.env`, 0600); `cache/runner/` saída do runner; `cache/planou/` Planou;
+- `behaviors/<nome>/BEHAVIOR.md` e `adapters/<tipo>.py`, opcionais: comportamento e fonte só desta instância.
+
+## Ao ser chamado com uma instância
+
+1. `python3 $S/scripts/agent.py <instância> --validate`. Erro: mostrar ao usuário e parar.
+2. `python3 $S/scripts/agent.py <instância> --load` lista o papel por camada, na ordem de precedência (a primeira
+   linha diz a regra: **Regras > Instruções > Habilidades; a Memória informa, não manda**; em conflito vale a camada de
+   cima):
+   1. **Regras** (`== 1. REGRAS`): este SKILL.md (já lido) e a autonomia do config (`autonomia pode sozinho / pede OK
+      antes / nunca`). Nada abaixo passa por cima delas.
+   2. **Instruções** (`== 2. INSTRUCOES`): o `instructions.md` e o `CONTEXT.md` (quando há workspace). Ler com Read.
+   3. **Habilidades** (`== 3. HABILIDADES`): `comportamento <nome>: <arquivo>` é de sempre: ler agora, com Read, na
+      ordem. `sob demanda <nome>: <arquivo>  (<título>; ler quando: ...)` é um procedimento: **não** ler agora; ler o
+      arquivo inteiro quando a situação descrita acontecer, antes de agir. Só os ligados entram.
+   4. **Memória** (`== 4. MEMORIA`): `passagem: <instância>/data/handoff.md` aparece quando a sessão anterior deixou um
+      resumo de passagem gravado nas últimas 36 h (rotação diária ou `team <agente> new`): ler por último e retomar dele
+      (candidaturas, pedidos e combinados em andamento), sem refazer o que ele diz que já foi feito. É informação, não
+      regra: se contradiz uma camada de cima, vale a de cima. Resumo mais velho não aparece.
+3. Ligar o runner (abaixo) e dizer em uma linha que a instância está de pé.
+
+Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâncias; perguntar qual.
+
+## Runner
+
+- Subir: `bash $S/scripts/runner.sh <instância>` com `run_in_background`. Ele roda o tick pesado sem o modelo e só
+  termina quando há algo para a sessão; o fim do processo acorda a sessão com a saída.
+- Depois de tratar o que acordou: relançar com `FIRST_NOW=0 bash $S/scripts/runner.sh <instância>` (o tick pesado
+  guarda o horário em `next_heavy`; uma acordada do Planou não o empurra).
+- Parar: `bash $S/scripts/runner.sh <instância> stop`. Relançar depois de mudar config ou plugin: `stop` e subir.
+- **Versão nova (canário, [docs/rollout.md](../../../../docs/rollout.md)):** `== RELANCAR (...)` na saída = versão nova para este agente com instruções novas (quando só os scripts mudam, o runner se relança sozinho e avisa numa linha do `== SEM ACAO`): relançar como sempre (stop e start), nada mais. `== VERSAO RECUSADA (...)` = este é o canário e a versão nova falhou no teste (o alerta já foi para o Planou): avisar o usuário com o motivo e relançar como sempre (volta para a última versão liberada).
+- **`== RUNNER CICLO (relancar sem tratar)`** na saída = o runner saiu sozinho antes do limite de tempo das tasks em background do Claude Code (`RUNNER_MAX_S`, padrão 25 min, desde PLN0144) e não trouxe nada: só relançar com `FIRST_NOW=0 bash $S/scripts/runner.sh <instância>`, com resposta de no máximo uma linha e mais nada (não é tick: não ler o `tick.out`, não rodar tick, não avisar ninguém). O estado (`next_heavy`, cursores do Planou) fica guardado.
+- O runner recusa instância em modo teste e config inválido. Nunca contornar: dizer ao usuário o que falta.
+- A saída da última acordada fica em `cache/runner/tick.out`; `agent.py <instância> --status` mostra o estado.
+- **Blocos agrupados** (PLN0247, `wake.json` do comportamento ou `"wake"` do config): blocos que não acordam sozinhos
+  esperam a próxima acordada e vêm no topo da saída, às vezes sob `== AGRUPADAS (n blocos desde HH:MM, ...)`: são
+  conteúdo deste tick, tratar como os outros blocos (nunca como `== SEM ACAO`).
+
+## O que o runner traz
+
+- **Saída vazia e exit 0** não acontece (o runner não acorda à toa). `== RUNNER CICLO` sozinho não é conteúdo: só relançar (seção Runner). Exit 2 = `FONTE QUEBRADA (<fonte>): <causa>`:
+  dizer a causa e o conserto em uma linha; as outras fontes continuam valendo. `FONTE RECUPERADA` fecha o assunto.
+- **Blocos das fontes e dos ganchos** (`== ...`): tratar conforme os comportamentos e o `instructions.md`.
+- **`== NOTION x PLANOU (n)`** (gancho `notion_compare`, só leitura): a página do dia e o Planou discordam; mostrar as
+  linhas ao usuário e investigar a causa (sync com falha, tarefa que sumiu da lista). **`== NOTION PODE DESLIGAR`**:
+  avisar e perguntar; desligar (tirar os ganchos `daily` e `tarefas` do config) é decisão do usuário, nunca sua.
+- **`== PLANOU (n)`**, o que a pessoa fez no Planou:
+  - `-- MENSAGEM do usuario pelo Planou (HH:MM): <texto>`: é o usuário falando, como se tivesse digitado aqui. Responder
+    e agir do mesmo jeito. A resposta volta ao Planou sozinha (a conversa da sessão sobe).
+  - `-- DECISAO <código> ...`: a resposta de uma pergunta ou de um bloqueio. Seguir com ela.
+  - `-- COMENTARIO <PID> de <autor> (HH:MM[, editado]): <texto>`: a pessoa chamou este agente com @ num comentário da
+    tarefa (dele ou de qualquer outra do workspace). Ler a conversa se precisar (`$PL comentario <PID> --ver`) e
+    responder pelo próprio comentário, com o comando da linha de baixo, a resposta num heredoc entre aspas (markdown
+    com crase, `$` ou aspas passa sem o shell mexer):
+    `cat <<'FIM' | $PL comentario <PID> --text - --reply-to <comment_id>`, depois o texto e `FIM` sozinho na última
+    linha. Responder é permitido sem rascunho (foi a pessoa que chamou o agente ali), mas segue as regras de sempre: o
+    comentário é visível a quem abre a tarefa, então nada de dado de cliente onde não deve, segredo ou atribuição; vale
+    o `planou.confidentiality` da instância (com `minimum`, só situação e próximo passo, sem conteúdo das fontes do
+    cliente). O comentário sozinho não começa nem pega tarefa: na tarefa de outro, ou fora da fila, nada de `fila`
+    nem progresso; a tarefa que já está na fila do agente segue a fila normal. Se o comentário pede trabalho novo,
+    dizer na resposta o que vai fazer (ou perguntar) e seguir as regras da fila e da autonomia. `403`/`nao e tarefa
+    deste agente`: ninguém o chamou nela, não insistir.
+  - `-- FILA <PID>: ...`, `-- FILA LIBERADA <PID>`, `-- FILA SAIU <PID>`, `PARE: ...` e `ESPERE: ...`: fila do agente,
+    comportamento `planou-queue` (só começar tarefa liberada).
+  - `-- AJUSTE PEDIDO <PID> (pessoa|<função> <nome>): <texto>`: a pessoa ou um agente (revisor, QA) pediu ajuste numa tarefa
+    em revisão; a tarefa volta pela fila como `-> RETRABALHO` (mesma branch e PR, o texto é o pedido). Comportamento
+    `planou-queue`, "Ajuste pedido pelo botão ou pelo revisor".
+  - `== PAUSADO (teto de custo) ...`: o funcionário chegou a 100% do teto e está pausado; não pegar trabalho novo,
+    terminar o que está `EM ANDAMENTO` (ou `fila blocked` com a nota). `== DESPAUSADO (...)`: pode seguir; `RETOMAR
+    <PID>` volta com `fila started`. Comportamento `planou-queue`, "Pausado no teto de custo". Também vem fora do
+    bloco, no tick pesado, quando o runner liga com a pausa em vigor.
+  - `-- PROPOSTA ap-N APLICADA|RECUSADA|FALHOU|DESFEITA: ...` (Planou 0.53.0): o resultado de uma proposta de parâmetro
+    ou de papel que este agente fez; o `-- APROVADO ap-N ... -> proposta` da mesma não pede nada (quem aplica é o
+    Planou). Comportamento `process-coach`, passo 4.
+  - `PLANOU: <PID> concluida|reaberta pelo usuario`: só registro; mencionar se mudar algo em andamento.
+  - `-- CERIMONIA retro #N de <sigla>: contribuicao ate HH:MM` (convidado), `-- CERIMONIA VOTO ...` (convidado, só
+    na retro com votação) e `-- CERIMONIA ATA ...` (facilitador): a retro do projeto no Planou. Seguir
+    `behaviors/retro/BEHAVIOR.md` (vale sem ligar no config): contribuição a partir dos próprios dados com `retro
+    dados`/`retro contribuir`, voto com `retro ver`/`retro votar <reunião> <item_id> ...`, ata com `retro ver`/`retro
+    ata`, sempre citando PIDs reais.
+  - `-- CERIMONIA refinement #N de <sigla>: sugestoes ate HH:MM` (convidado) e `-- CERIMONIA LISTA refinement ...`
+    (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/refinement/BEHAVIOR.md` (vale sem
+    ligar no config): `refino ver`, sugestões de estimativa, quebra e selo com o motivo por `refino sugerir` e a lista
+    final por `refino lista`; nada muda na tarefa antes de o usuário aprovar em Cerimônias.
+- **`== PAPEL MUDOU (n)`**: a pessoa editou o papel na aba Papel do Planou e o runner já aplicou (gravou, validou e
+  respondeu ao Planou). Reler agora o que cada linha `-- ...: aplicada -> reler <arquivo>` diz (o `instructions.md`, o
+  `CONTEXT.md`, as opções em `"behavior_config"` do `config.json`, ou `agent.py <instância> --load` e o `BEHAVIOR.md` de
+  cada comportamento ligado quando a lista mudou) e
+  seguir com as regras novas, sem editar o arquivo de volta. As opções de comando e de caminho (tipos `command` e
+  `path` no esquema, "(só no computador)" no catálogo) e as de um comportamento local da instância (`behaviors/<nome>/`)
+  nunca mudam pelo Planou: a edição que mexe nelas vem em `== PAPEL RECUSADO` com "opção de comando: edite no
+  computador", "opção de caminho: edite no computador" ou "comportamento local: edite no computador"; mudar uma delas é
+  pedido do usuário, feito no `config.json`. Não precisa de stop/start (não é `== RELANCAR`): relançar
+  como depois de qualquer acordada (`FIRST_NOW=0`). **`== PAPEL RECUSADO (n)`**: a
+  edição não foi aplicada e o arquivo ficou como estava; dizer ao usuário o motivo da linha em uma frase (o Planou já
+  mostra "Recusado: motivo").
+- **`== SEM ACAO (n linhas adiadas: so leitura, nada a fazer)`**, no fim do tick (PLN0155): linhas que não acordam a
+  sessão sozinhas e esperaram por este tick, cada uma com a hora em que chegou: `PLANOU: <PID> alterada pelo
+  usuario|Planou`, `-- ALERTA VISTO ...` e `== DEPLOY JA AVISADO (n)` (deploy do release que você fechou com
+  `--release-queue done` e já avisou) e `== ALERTAS SEM ACORDAR (...)` (regra de alerta da lista `nao_acordar` do gancho
+  `alertas_azure`, e o bloco que só ela disparou). Não responder nem agir por elas; mencionar só se mudarem algo em andamento.
+
+## Planou pela linha de comando
+
+`PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou --agent <instância>"`
+
+- `$PL status`: chave, projeto, saúde, tarefa atual. `FONTE QUEBRADA (planou)` costuma ser chave ou Planou fora do ar.
+- `$PL pergunta ...`: pergunta ao usuário com botões; `--auto` registra a decisão que o agente já tomou pela
+  recomendada (seções abaixo).
+- `$PL alert --title "<o que houve>" --severity low|medium|high`: aviso sem pergunta.
+- `$PL sugestao ...`: sugestão de melhoria do Planou ou dos plugins (seção abaixo).
+- `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `planou-queue`). `$PL fila worker <PID>
+  --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou --phases-from <output_file>`:
+  o uso de cada worker que volta e o tempo por fase, medido no registro dele (o `output_file` que o `Agent` devolveu).
+- **Workers em andamento** (aba Fila do Planou, "Workers agora"): logo depois de cada `Agent(worker)`, registrar o início
+  com `$PL fila worker-start <PID> [--task <PID2> ...] --role dev|integrator|other --label '<o que ele faz, uma linha>'`
+  (sem tarefa: `$PL worker start --role other --label '...'`). A saída é só a key: guardar na conversa. Quando ele
+  volta, a entrega (`$PL fila worker <PID> ... --key <key>`) fecha o worker; sem `--key`, vale a key aberta aqui para
+  aquela tarefa e papel. Worker sem tarefa ou de papel `other` fecha com `$PL worker end <key> --result
+  feito|parcial|falhou`. Worker longo: `$PL worker ping <key> [--label '...']` a cada etapa (sem sinal há 2 h o Planou
+  mostra "sem notícia"). Retrabalho: o mesmo worker ainda em andamento (continuado por mensagem) reusa a key; um
+  worker novo depois da entrega abre outra com `worker-start`. `$PL worker ver` lista os guardados aqui.
+  `AVISO (planou): ...` no início não impede nada: a key sai assim mesmo, seguir o trabalho.
+  `-- WORKER INTERROMPIDO <key> (<PID>): ...` no tick: a sessão anterior acabou sem fechar esse worker e o runner o
+  fechou no Planou; se a tarefa ainda está com o agente, delegar de novo (com `worker-start` novo).
+- `$PL comentario <PID> --ver`: os comentários da tarefa; `$PL comentario <PID> --text - [--reply-to <comment_id>]`
+  (lê do stdin): responde a um `-- COMENTARIO` (seção acima). Só na tarefa do agente ou em que a pessoa o chamou com @.
+- Chave nova: `$PL key set` (lê do stdin; grava `secrets/planou.env` com 0600). Nunca imprimir a chave.
+
+## Decisão com recomendada: seguir sem esperar
+
+Pedido do usuário (30/09): pergunta com resposta recomendada não trava o trabalho. Quando a decisão tem uma opção
+recomendada e ela cabe na autonomia (o `can` do config e o da tarefa, valendo a mais restrita), o agente **segue a
+recomendada sem abrir pedido pendente**, avisa em uma linha na sessão o que decidiu e deixa o rastro no Planou:
+
+`$PL pergunta --auto --title "<a pergunta, uma linha>" --option "A=<opção>" --option "B=<opção>" --recommended <letra>
+[--task <PID ou código>] [--context "<por quê>"]`
+
+- `--auto` não abre decisão: registra a já tomada como alerta baixo "Decidi: <pergunta> -> <opção>" (o `/v1` não deixa
+  o agente responder o próprio pedido). A confidencialidade vale como no pedido. Sem `--option`, `--recommended S|N`.
+- Sem recomendada: formar a própria (a mais reversível e mais barata de desfazer) e seguir do mesmo jeito.
+- Falhou ao registrar (Planou fora, `policy_denied`): a decisão continua valendo; dizer na sessão, sem virar pergunta.
+- **Continua pedindo OK** (pedido com opções, abaixo, e esperar): o que está em `ask_first` ou `never` da autonomia,
+  como mensagem a pessoas (vira rascunho), merge onde não está aprovado, produção, apagar dado ou segredo, criar conta e
+  abrir o navegador; e o que depende de uma ação pessoal do usuário (login, código, pagamento, assinatura).
+- Pergunta ao usuário só em último caso: sem como formar uma recomendada que caiba na autonomia.
+
+## Pergunta ao usuário vira pedido com opções
+
+Quando a decisão precisa mesmo do usuário (seção acima: fora da autonomia, ação pessoal dele ou sem recomendada possível),
+além do texto na sessão, abrir o pedido no Planou, para os botões aparecerem na Conversa e em Precisa de você:
+
+`$PL pergunta --title "<a pergunta, uma linha>" --option "A=<opção>" --option "B=<opção>" [--option "C=..."]
+--recommended <letra> [--task <PID ou código da tarefa>] [--context "<por quê>"]`
+
+- Opções curtas e acionáveis, a recomendada marcada com `--recommended` (e dita no texto da sessão). Exemplo: "Quer que
+  eu faça agora a proposta de horas do item 123?" com `A=Faça agora` (recomendada), `B=Deixa para amanhã`,
+  `C=Não precisa`. Sem `--option` vira Sim/Não. Resposta livre sempre aceita.
+- `--task` liga o pedido à tarefa quando a pergunta é sobre uma (o PID do Planou ou o código da pendência).
+- O código do pedido sai no stderr. A resposta volta como `-- DECISAO <código> ... (pergunta da sessao)`: seguir como se
+  ele tivesse respondido aqui. **Respondeu no terminal antes:** `$PL cancel <código> --reason "respondida no terminal"`.
+- A mesma pergunta no mesmo dia não abre outro pedido. Bloqueio de tarefa da fila continua sendo `fila blocked`.
+
+## Sugestões para o Planou e os plugins
+
+Esbarrou num limite ou defeito do Planou ou dos plugins do time (falta um campo, uma rota recusa, um comando confunde):
+registrar uma sugestão. O planou-dev a transforma em tarefa no backlog do projeto Planou, reportada por esta instância.
+
+`$PL sugestao --title "<o que falta, uma linha>" --subject "<área: planou pedidos, plugin agent runner...>"
+--what "<o que aconteceu>" --expected "<o que esperava>" --example "<exemplo sem dado de cliente>" --priority P1..P4`
+
+- **Nada de dado de cliente**: sem nome de empresa, pessoa, e-mail, link de conversa, id de card ou texto de mensagem.
+  Generalize ("um card do quadro do cliente", "uma pergunta sobre horas"). O comando recusa o que reconhece.
+- No máximo 3 por dia por instância; a mesma (mesmo título e assunto) vinda de outro agent vira um "+1" na existente.
+- **Toda tarefa nova de agente nasce sob um épico** (PLN0250). Na sugestão, o `--subject` diz a área e escolhe o
+  épico: o planou-dev põe a tarefa no épico aberto do projeto que casa com a área e, se nenhum serve, cria um épico
+  novo da área ("Plugins: <área>", "Planou: <área>"). Sem `epics` no config do gancho, nenhum épico é criado: a tarefa
+  nasce sem épico e a saída avisa. Escreva o assunto como área ("plugin agent runner", "planou: pedidos"), nunca
+  vazio.
+- Uma linha ao usuário dizendo o que foi sugerido. Não precisa de chave do projeto Planou.
+
+## Rascunhos e o que nunca fazer sozinho
+
+- Mensagem para uma pessoa (Slack, Teams, e-mail, comentário): o agent nunca envia. Exceção: a resposta a um
+  `-- COMENTARIO` do Planou (a pessoa chamou o agente com @ na tarefa) vai direto, com `$PL comentario`. Escrever a resposta abaixo de uma
+  linha `Rascunho:` em texto puro e, com o Planou ligado, subir também:
+  `printf '%s' "<texto>" | $PL draft --channel slack|teams|email|chat --to "<quem>" --title "<uma linha>" --text -`.
+- **Autonomia**: o `autonomy` do config diz o que a instância pode sozinha (`can`), o que pergunta antes (`ask_first`)
+  e o que nunca faz (`never`). Uma tarefa do Planou traz a sua própria `autonomy`; quando as duas divergem, vale a mais
+  restrita. Algo fora de `can`: perguntar (`$PL pergunta` ou `fila blocked`) e esperar.
+- Nada de gravar credencial em log, em commit ou no Planou.
+
+## Modo teste
+
+Config sem `"live": true` = modo teste (toda instância nova nasce assim): o tick é sempre dry, nada sobe para o Planou,
+ganchos com efeito fora da pasta recusam e o runner não sobe. Serve para montar o config e conferir alguns ticks
+(`python3 $S/scripts/agent.py <instância>`). Ligar é decisão do usuário: `"live": true` no config.
+
+## Outros comandos
+
+```bash
+python3 $S/scripts/agent.py <instância> --dry           # tick sem gravar nada
+python3 $S/scripts/agent.py <instância> --since 4h      # janela fixa nas fontes; nunca grava
+python3 $S/scripts/agent.py <instância> --pending       # fila de pendências das fontes
+python3 $S/scripts/agent.py <instância> --resolve pN    # tira um item da fila
+python3 $S/scripts/agent.py <instância> --top <SIGLA>-N ... # Top do dia (até 3, na ordem; instância com code); --top - limpa
+python3 $S/scripts/agent.py <instância> --migrate --dry # instância antiga (work-watch-<x>, job-scout, travel-agent) para ~/.config/agent; --undo volta
+```
+
+## Sessão reiniciada
+
+Rodar os passos de "Ao ser chamado" de novo (validar, ler, subir o runner). Com a fila ligada, `$PL fila ver` mostra o
+que ainda está com o agente; retomar do passo em que parou.

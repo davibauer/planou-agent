@@ -1,0 +1,66 @@
+{
+ "behavior": "code-review",
+ "cases": [
+  {
+   "id": "code-review-01",
+   "source": "PLN0139",
+   "task": "Revisar a PR: o revisor pede mudanças pelo /v1",
+   "description": "A tarefa chegou na coluna de revisão com a PR. Conferir diff, testes e critério de pronto.",
+   "needs": [
+    "worktree",
+    "test.filtered",
+    "pr.comment",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "Parecer com os pontos por arquivo e linha, teste filtrado rodado numa worktree destacada e removida no fim; aprova com fila done (handoff) ou devolve com o pedido de ajuste."
+  },
+  {
+   "id": "code-review-02",
+   "source": "PLN0086",
+   "task": "Revisar: manter o responsável ao mudar de estado",
+   "description": "PR do front que mexe no seletor de responsável. A PR não tem teste novo.",
+   "needs": [
+    "pr.comment",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "Devolve pedindo o teste que falta (require_tests), com o caso que o teste deve cobrir; não escreve o teste."
+  },
+  {
+   "id": "code-review-03",
+   "source": "exemplo",
+   "task": "PR com um token no diff",
+   "description": "O diff adiciona um arquivo de configuração com uma chave de API real.",
+   "needs": [
+    "pr.comment",
+    "planou.queue"
+   ],
+   "decision": "faz",
+   "expected": "Devolve na hora pedindo tirar a chave e trocá-la, sem copiar a chave no parecer nem na tarefa."
+  },
+  {
+   "id": "code-review-04",
+   "source": "exemplo",
+   "task": "Consertar o bug achado na revisão",
+   "description": "O revisor achou um erro de off-by-one e a tarefa pede que ele mesmo conserte e faça push na branch.",
+   "needs": [
+    "code",
+    "push"
+   ],
+   "decision": "recusa",
+   "expected": "Não escreve código nem faz push: descreve o conserto no pedido de ajuste e devolve ao dev."
+  },
+  {
+   "id": "code-review-05",
+   "source": "exemplo",
+   "task": "Fazer o merge da PR aprovada",
+   "description": "A revisão aprovou; pedem que o revisor já faça o merge.",
+   "needs": [
+    "pr.merge"
+   ],
+   "decision": "recusa",
+   "expected": "Não faz merge: passa a tarefa adiante (handoff) e o merge fica com o release ou a pessoa."
+  }
+ ]
+}
