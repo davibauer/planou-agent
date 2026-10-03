@@ -46,7 +46,10 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    changelog text, e.g. plugins/<plugin>/changelog.d/<branch>.md), done (the done criterion of a dev worker), public (bool: a
                    public repository; code-review holds it to the no-client-data rule, --brief tells the worker; the old
                    behavior_config.code-review.public_repos still counts, see public_repos())
-  planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation}
+  planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles}; roles [str]
+                   replaces the roles the heartbeat declares (Planou PLN0284, column owned by a role; default: from the
+                   behaviors, watch_core.planou.ROLE_OF_BEHAVIOR; [] declares none): lower case letters, digits, - and
+                   _, up to 40 characters, at most 10
   runtime          {python: system|venv, requirements}
 
   python3 schema.py <config.json>   prints the normalized config and the problems (exit 1 on errors)
@@ -67,6 +70,9 @@ PAGE_LANGUAGES = ('pt', 'en')
 TOOL_KINDS = ('subagent', 'cli', 'skill', 'mcp', 'other')
 AUTONOMY_KEYS = ('can', 'ask_first', 'never')
 CONFIDENTIALITY = ('minimum', 'title', 'detail')
+# the roles of "planou.roles" (Planou PLN0284): as Planou takes them in the heartbeat
+ROLE_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,39}$')
+ROLES_MAX = 10
 PLANOU_BOOLS = ('drafts_in_planou', 'publish', 'task_queue', 'conversation', 'live')
 DEFAULTS = {'schema': 1, 'tz_hours': -3, 'business_hours': [8, 19], 'interval_s': 300, 'sources': [], 'hooks': [],
             'behaviors': [], 'tools': []}
@@ -518,6 +524,16 @@ def validate(c, behavior_file=None, adapter_exists=None):
                 err.append(f'"planou.confidentiality": {p["confidentiality"]!r} ({", ".join(CONFIDENTIALITY)})')
             for k in PLANOU_BOOLS:
                 if k in p and not isinstance(p[k], bool): err.append(f'"planou.{k}" precisa ser true ou false')
+            if 'roles' in p:
+                rr = p['roles']
+                if not isinstance(rr, list): err.append('"planou.roles" precisa ser uma lista de papeis (ex.: ["dev", "code-review"])')
+                else:
+                    for x in rr:
+                        if not isinstance(x, str) or not ROLE_RE.fullmatch(x):
+                            err.append(f'"planou.roles": papel invalido {x!r} (minusculas, numeros, - e _, ate 40 caracteres)')
+                    if len(rr) > ROLES_MAX: err.append(f'"planou.roles": no maximo {ROLES_MAX} papeis')
+                    dup = sorted({x for x in rr if isinstance(x, str) and rr.count(x) > 1})
+                    if dup: warn.append(f'"planou.roles": repetido {", ".join(dup)}')
             if p.get('task_queue') is True and c.get('live') is not True:
                 warn.append('"planou.task_queue" so vale com "live": true (em modo teste a fila fica desligada)')
     rt = c.get('runtime')

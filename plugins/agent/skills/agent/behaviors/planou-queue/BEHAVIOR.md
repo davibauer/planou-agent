@@ -130,6 +130,15 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
      instância que desenvolve" do `code-review` e do `qa`). A vaga dessa revisão conta no mesmo "Ao mesmo tempo".
      O registro só vale enquanto a tarefa está na coluna para onde foi passada e só para colunas de revisão ou QA:
      de volta à coluna do dev, numa coluna de outro tipo ou fora da fila, as linhas de sempre.
+   - **Coluna por papel** (Planou PLN0284): o dono da coluna pode ser um papel em vez de um agente (`owner_role` nos
+     estados). O heartbeat declara os papéis da instância em `roles`, tirados dos comportamentos ligados (`dev-worker`
+     dev, `code-review` code-review, `qa` qa, `batch-release` release) ou de `planou.roles` no config, que substitui a
+     lista (`[]`: nenhum). Uma coluna de um papel desta instância conta como dela no `fila done` (vira handoff). Quando
+     ninguém com o papel da próxima coluna está livre, o handoff responde sem responsável e a saída é
+     `ESPERANDO PAPEL: <PID> foi para <coluna>, coluna do papel <papel>, ...`: a tarefa espera na coluna e vai para o
+     primeiro agente com o papel que tiver vaga. Contar ao usuário que passou adiante e espera alguém com o papel, nunca
+     que foi concluída. Se esta instância é a única com o papel, o Planou devolve a tarefa a ela (`PASSOU: ... , este
+     mesmo agente`) e vale a regra da mesma instância acima (worker NOVO), também quando a tarefa esperou e voltou depois.
    - O Planou move pela coluna em que a tarefa está, não pela coluna do agente: uma tarefa que a pessoa atribuiu direto
      ao agente numa coluna com próximo estado também anda para a frente no `fila done`, se o agente for dono de alguma
      coluna com próximo no projeto.
@@ -166,8 +175,12 @@ Todo arquivo local que o agente (ou o worker) produz para uma tarefa da fila (an
 vai como anexo dela: `$PL attach <PID> <arquivo>` assim que estiver gravado, e de novo sempre que mudar (só sobe quando o
 sha256 muda; o tick reenvia sozinho o que já foi anexado uma vez). Na nota de `fila in_review|blocked|done`, citar o
 arquivo pelo caminho: ele sobe como anexo e a nota diz `[ver anexo: <nome>]`. O `fila started` anexa os arquivos locais
-que a descrição da tarefa cita. Tipos aceitos: .md, .txt, .pdf, .docx e imagens, até 10 MB; nada de `secrets/`, `.env`,
-cache ou arquivo com credencial (o `attach` recusa e diz por quê). Com `"confidentiality": "minimum"` nada sobe.
+que a descrição da tarefa cita. Tipos aceitos: .md, .txt, .pdf, .docx e imagens, até 10 MB, e vídeo (.webm, .mp4), até
+50 MB (a gravação do roteiro de QA, por exemplo, que a pessoa assiste na seção Anexos). Vídeo sobe só pelo `attach`
+explícito: citado numa nota ou numa descrição ele não sobe e o caminho fica como está, porque pode ser gravação de
+reunião com dado de cliente. O limite é conferido antes de enviar; o que passa dele, ou que o Planou recusa por tamanho (413), não sobe de novo até o arquivo mudar. Nada de
+`secrets/`, `.env`, cache ou arquivo com credencial (o `attach` recusa e diz por quê). Com `"confidentiality": "minimum"`
+nada sobe.
 
 ## Tarefa corrente (custo e tempo)
 

@@ -128,6 +128,16 @@ ajuste` on such a task prints `RETRABALHO PROPRIO: ...` (rework in the same colu
 the ask on the task as the agent's comment (POST /agent/tasks/{id}/comments; under "minimum" a neutral line), since
 without a PR nothing else shows it in Planou. `fila done` of such a task warns (stderr, not a refusal) when no worker
 of role other (`fila worker-start --role other`) was opened for it after the handoff or the last ask.
+Owner by role (Planou PLN0284): a column may be owned by a role (`owner_role` in the project's states) instead of an
+agent. The heartbeat declares the agent's `roles` with the capabilities: the roles of its behaviors (ROLE_OF_BEHAVIOR:
+dev-worker dev, code-review code-review, qa qa, batch-release release) or "planou.roles" of its config, which replaces
+them (`[]` clears); a Planou that refuses the field (400/422 naming `roles`) gets the same heartbeat again without them
+at once, and without them for a day (cache/planou/roles_sent.json, roles.log). A column of one of its roles counts as
+its own for `fila done` (handoff). A handoff answer without `assignee` means nobody with the role was free: the task
+waits in the column and goes to the first agent with the role that has a slot (`ESPERANDO PAPEL: ...`, never
+"concluida"). When the agent is the only one with the role, Planou hands the task back to it (assignee is this agent,
+by GET /agent/whoami): the PLN0281 rule below applies (record in self_handoffs.json with the role, a NEW worker); a task
+that waits for a role this agent has is recorded too (`waiting`), for when Planou hands it back later.
 The Prazo (`deadline`) goes in the sync when the source states one (watch_core.deadlines): absent keeps Planou's.
 Worker deliveries (Planou "Entregas", PLN0045): `fila worker <PID> --role dev|integrator --tokens N --steps N
 --duration-ms N --result feito|parcial|falhou [--model M]` reports a worker (subagent) that came back, with the usage the
@@ -223,9 +233,11 @@ the cache and that key of that task is never sent again, even when the file chan
 Files of a task (PLN0052): every local file the agent produces for a task, or that its text cites, goes as an attachment.
 attach_file(task, path) (CLI `attach TASK FILE`) sends it under `file:<name>` and registers it in
 cache/planou/attach_files.json, so the tick retries it and sends each new version (flush_attachments, from the sync and
-the tick heartbeat). The sync attaches the files a task description cites and sends the description with
+the tick heartbeat). The sync attaches the files a task description cites (never a video: that goes only by an
+explicit `attach`, it may be a meeting recording) and sends the description with
 "[ver anexo: <name>]" in place of the local path; a `fila` note does the same, and `fila started` attaches the files the
-queue task's description cites. Only what passes attachable() goes: a type Planou accepts, 1 byte to 10 MB, outside
+queue task's description cites. Only what passes attachable() goes: a type Planou accepts, 1 byte to the limit of its
+type (50 MB for a video, .webm or .mp4; 10 MB for the rest; a 413 too_large is final until the file changes), outside
 secrets/, .ssh, caches and git, no credential-looking name, no credential in a text file.
 
 Proposals (Planou 0.53.0, "Propostas do agente"): propose(change, title, ref, ...) asks the person to approve a parameter
@@ -1049,6 +1061,65 @@ def capabilities():
     return [c for c in CAPABILITIES if (c not in OPT_IN or _opted_in(OPT_IN[c])) and (c not in AGENT_ONLY or agent_layout)]
 
 
+# ---------------------------------------------------------------- roles (Planou PLN0284, "Dono por papel")
+# A column of a project may be owned by a role instead of a fixed agent: the task that enters it goes to an agent that
+# declares the role in the heartbeat (`roles`). The roles come from the behaviors on in the instance (ROLE_OF_BEHAVIOR:
+# the behavior that does the part of a column in a dev -> review -> QA -> release flow), or from "planou.roles" in its
+# config, which replaces them (`[]`: none). They go with the capabilities: never in the launcher's session_closed nor
+# from a runner of another plugin (no capabilities), so those never clear the roles.
+ROLE_OF_BEHAVIOR = {'dev-worker': 'dev', 'code-review': 'code-review', 'qa': 'qa', 'batch-release': 'release',
+                    'deploy-notice': 'release'}           # deploy-notice: the old name of batch-release
+# the behavior whose column part a role is (the PLN0281 rule of an own review or QA reads it); dev is plain work
+BEHAVIOR_OF_ROLE = {'code-review': 'code-review', 'qa': 'qa', 'release': 'batch-release'}
+ROLES_MAX, ROLE_LEN = 10, 40
+ROLE_RX = re.compile(r'^[a-z0-9][a-z0-9_-]{0,39}$')
+ROLES_EVERY = timedelta(days=1)          # a Planou that refused `roles` gets the heartbeat without them this long
+
+
+def role_name(r):
+    """A role as Planou stores it (trimmed, lower case, spaces as "-"), or None when it does not fit."""
+    r = re.sub(r'\s+', '-', str(r or '').strip().lower()) if isinstance(r, str) else ''
+    return r if ROLE_RX.fullmatch(r) else None
+
+
+def _agent_config():
+    """The agent's own config (config/config.json or config.json in its folder), {} when there is none."""
+    for rel in ('config/config.json', 'config.json'):
+        try:
+            with open(os.path.join(_S['root'] or '', rel)) as f:
+                c = json.load(f)
+        except (OSError, ValueError):
+            continue
+        return c if isinstance(c, dict) else {}
+    return {}
+
+
+def roles():
+    """The roles this agent plays: "planou.roles" of its config when present (replaces the derived list), else the
+    roles of its behaviors (ROLE_OF_BEHAVIOR), normalized, without repeats, at most ROLES_MAX. None outside the agent
+    plugin's layout (a runner of another plugin declares no roles)."""
+    if not _S['root'] or not config.is_agent_layout(_S['root']): return None
+    c = _agent_config()
+    pc = c.get('planou') if isinstance(c.get('planou'), dict) else {}
+    if isinstance(pc.get('roles'), list): raw = pc['roles']
+    else: raw = [ROLE_OF_BEHAVIOR.get(b) for b in c.get('behaviors') or [] if isinstance(b, str)]
+    return list(dict.fromkeys(r for r in map(role_name, raw) if r))[:ROLES_MAX]
+
+
+def _roles_held(now):
+    """True while a Planou that refused `roles` gets the heartbeat without them (cache/planou/roles_sent.json)."""
+    until = _date_time(_load('roles_sent.json', {}).get('plain_until'))
+    return bool(until and now < until)
+
+
+def _roles_refused(e):
+    """The refusal is about `roles` (a Planou that does not know the field, or refuses its value)."""
+    if e.status not in (400, 422): return False
+    fields = list(e.fields or [])
+    if fields: return all(f == 'roles' or f.startswith(('roles[', 'roles.')) for f in fields)
+    return 'roles' in str(e.code or '') or bool(re.search(r'\broles\b', str(e.message or '')))
+
+
 def session_fields(session_id=None):
     """session_id and remote_control_url of the agent's session, as the runner last found them
     (cache/planou/session.json, written by watch_core.transcript). A different session_id passed in (the launcher
@@ -1066,6 +1137,8 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     body = {'phase': phase, 'broken_sources': list(broken_sources), 'host': socket.gethostname(), 'plugin_version': _S['plugin_version']}
     caps = capabilities()
     if caps: body['capabilities'] = caps       # absent = the server keeps what it had (the launcher's session_closed)
+    rs = roles() if caps and not _roles_held(now) else None
+    if rs is not None: body['roles'] = rs       # [] clears; absent keeps (PLN0284)
     if next_tick: body['next_tick_at'] = next_tick.isoformat() if hasattr(next_tick, 'isoformat') else str(next_tick)
     body.update(session_fields(session_id))
     due = _tools_due(now)
@@ -1075,7 +1148,17 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     docs = _docs_due(now)
     if docs: body['docs'] = docs[1]           # absent = the server keeps the manifest
     try:
-        _, res = _call('POST', '/agent/heartbeat', body)
+        try:
+            _, res = _call('POST', '/agent/heartbeat', body)
+        except PlanouError as e:
+            if 'roles' not in body or not _roles_refused(e): raise
+            # a Planou older than the roles (or that refuses them): the sign of life goes again without them, now, and
+            # without them for a day; the refusal is logged with the field paths only
+            body.pop('roles')
+            _save('roles_sent.json', {'plain_until': (now + ROLES_EVERY).isoformat(), 'refused': e.code or str(e.status)})
+            _log('roles.log', f'AVISO (planou): o Planou nao aceita os papeis ({e.status} {e.code}: '
+                              f'{", ".join(e.fields) or "sem campo"}); o heartbeat vai sem eles por um dia', now)
+            _, res = _call('POST', '/agent/heartbeat', body)
     except PlanouError as e:
         if docs and e.status == 422 and e.code in DOCS_REFUSED and all(f.startswith('docs') for f in e.fields or ['docs']):
             # Planou answers the tools and the links refusals first: here both were taken.
@@ -1350,9 +1433,45 @@ def _self_handoffs():
     return {k: v for k, v in tasks.items() if isinstance(v, dict)}
 
 
+def mine(s, my_roles=None):
+    """True when a project state (GET /agent/projects/{key}/states) is this agent's column: its owner is this agent
+    (`owner.is_me`) or its owner is a role this agent declares (`owner_role`, PLN0284)."""
+    if not isinstance(s, dict): return False
+    if (s.get('owner') or {}).get('is_me') is True: return True
+    r = role_name(s.get('owner_role'))
+    return bool(r) and r in ((roles() or []) if my_roles is None else my_roles)
+
+
+def _state_of(entry, name, now=None):
+    """The state named `name` in the task's project (cached states, fresh for a handoff), or None."""
+    data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
+    col = state_key(name)
+    return next((s for s in (data or {}).get('states') or [] if isinstance(s, dict) and col and state_key(s.get('name')) == col), None)
+
+
+WHOAMI_TTL = timedelta(days=1)
+
+
+def my_name(now=None):
+    """This agent's name in Planou (GET /agent/whoami, cached a day in cache/planou/whoami.json), else the configured
+    one: the assignee of a handoff to a role column names the agent that got it."""
+    now = now or datetime.now(timezone.utc)
+    hit = _load('whoami.json', {})
+    at = _date_time(hit.get('at'))
+    if hit.get('agent') and at and now - at < WHOAMI_TTL: return hit['agent']
+    try:
+        _, res = _call('GET', '/agent/whoami')
+        name = one_line((res or {}).get('agent'), 80)
+    except PlanouError:
+        name = None
+    if name: _save('whoami.json', {'agent': name, 'at': now.isoformat()})
+    return name or hit.get('agent') or _S['agent']
+
+
 def _handed_to_me(entry, res, now=None):
     """True when the handoff answer gives the task back to this same agent: the assignee is the owner marked `is_me` in
-    the project's states, or the new column is one this agent owns."""
+    the project's states, or the new column is one this agent owns; in a column owned by a role of this agent (PLN0284)
+    the assignee is this agent itself (by its name in Planou)."""
     who = res.get('assignee') if isinstance(res.get('assignee'), dict) else {}
     if who.get('kind') != 'agent': return False
     data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
@@ -1361,7 +1480,18 @@ def _handed_to_me(entry, res, now=None):
         o = (s.get('owner') or {}) if isinstance(s, dict) else {}
         if o.get('is_me') is not True: continue
         if (who.get('id') and o.get('id') == who.get('id')) or (col and state_key(s.get('name')) == col): return True
+    st = _state_of(entry, res.get('project_state'), now)
+    if st and not st.get('owner') and mine(st):
+        return bool(who.get('name')) and state_key(who.get('name')) == state_key(my_name(now))
     return False
+
+
+def waiting_for_role(entry, res, now=None):
+    """The role the task waits for after a handoff with no assignee (PLN0284: nobody with the column's role was free),
+    or None when the answer has an assignee or the column is not owned by a role."""
+    if not isinstance(res, dict) or res.get('state') != 'handoff' or res.get('assignee'): return None
+    st = _state_of(entry, res.get('project_state'), now)
+    return role_name((st or {}).get('owner_role'))
 
 
 def _column_before(entry, res, now=None):
@@ -1369,22 +1499,26 @@ def _column_before(entry, res, now=None):
     data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
     col = state_key(res.get('project_state'))
     for s in (data or {}).get('states') or []:
-        if isinstance(s, dict) and ((s.get('owner') or {}).get('is_me') is True) and col and state_key(s.get('next_state')) == col:
+        if mine(s) and col and state_key(s.get('next_state')) == col:
             return one_line(s.get('name'), 60) or None
     return None
 
 
-def note_self_handoff(tid, res, note=None, entry=None, now=None):
-    """Keeps the record of a handoff to this same agent (see above): column, PR, the note (the branch, without a PR) and
-    the column it came from."""
+def note_self_handoff(tid, res, note=None, entry=None, now=None, waiting=False):
+    """Keeps the record of a handoff to this same agent (see above): column, PR, the note (the branch, without a PR),
+    the column it came from and the column's role (PLN0284, `owner_role`). `waiting`: the task waits in a column of a
+    role of this agent with nobody assigned; when Planou later hands it to this agent, it is still its own work."""
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     before = one_line((entry or {}).get('project_state'), 60) or _column_before(entry, res, now)   # no lock over HTTP
+    role = role_name((_state_of(entry, res.get('project_state'), now) or {}).get('owner_role'))
     with _locked('self_handoffs.json'):
         tasks = _self_handoffs()
         prev = tasks.get(str(tid)) or {}
         tasks[str(tid)] = {'pid': res.get('pid') or (entry or {}).get('pid'), 'column': one_line(res.get('project_state'), 60) or None,
                            'from': prev.get('column') or before, 'pr_url': res.get('pr_url') or (entry or {}).get('pr_url'),
                            'note': one_line(note, 300) or prev.get('note'), 'at': stamp, 'asks': []}
+        if role: tasks[str(tid)]['role'] = role
+        if waiting: tasks[str(tid)]['waiting'] = True
         _save('self_handoffs.json', {'tasks': tasks})
 
 
@@ -1408,13 +1542,20 @@ def self_handoff(p, now=None):
     return rec
 
 
+def rec_role(rec):
+    """The behavior of the column of an own handoff record: the column's role when it has one (PLN0284), else guessed
+    from the column's name (column_role)."""
+    rec = rec or {}
+    return BEHAVIOR_OF_ROLE.get(role_name(rec.get('role'))) or column_role(rec.get('column'))
+
+
 def self_handoff_line(p, pr=None):
     """The tail of a released task that this same agent handed to itself (another column of its own), or ''."""
     rec = self_handoff(p)
     if not rec: return ''
     column = one_line(p.get('project_state') or rec.get('column'), 60)
     note = one_line(rec.get('note'), 300)
-    role = column_role(column)
+    role = BEHAVIOR_OF_ROLE.get(role_name(rec.get('role'))) or column_role(column)
     head = ('passada por voce mesmo (mesma instancia que desenvolve)' + (f' para a coluna {column}' if column else '')
             + (f', com a PR: {pr}' if pr else '') + (f'; nota: {note}' if note else ''))
     if role in INDEPENDENT_ROLES:
@@ -1444,7 +1585,7 @@ def self_rework_comment(rec, text):
     """The comment that leaves the ask of an own review or QA on the task (PLN0281): without another agent there is no
     request-changes, and without a PR (batch release) nothing else shows it in Planou. Under "minimum" only a neutral
     line goes up (the text stays in the session and in self_handoffs.json)."""
-    what = INDEPENDENT_ROLES.get(column_role(rec.get('column')), 'revisao')
+    what = INDEPENDENT_ROLES.get(rec_role(rec), 'revisao')
     head = f'Ajuste pedido na {what} independente (worker novo, mesma instancia que desenvolve)'
     if _S['confidentiality'] == 'minimum':
         return f'{head}: o parecer esta ' + ('na PR.' if rec.get('pr_url') else 'com o agente.')
@@ -1466,7 +1607,7 @@ def review_worker_after(ref, rec):
 def self_rework_text(pid, rec, text):
     """What to do when a review or QA of this same agent asks for changes (request-changes has no one to send back to)."""
     column, came = one_line(rec.get('column'), 60), one_line(rec.get('from'), 60)
-    role = column_role(column)
+    role = rec_role(rec)
     what = INDEPENDENT_ROLES.get(role, 'revisao')
     pr = one_line(rec.get('pr_url'), 300)
     return (f'RETRABALHO PROPRIO: {pid} pediu ajuste na {what} independente desta mesma instancia (o Planou nao devolve '
@@ -2311,12 +2452,12 @@ HANDOFF_STATES_TTL = timedelta(minutes=2)
 
 def owns_a_column(entry=None, now=None):
     """True when the task's project (the queue payload's `project`, else the configured one) has a state whose owner is
-    this agent (`owner.is_me`) and that has a `next_state` (Planou 0.27.0, "Dono da coluna e esteira"). The queue payload
+    this agent (`owner.is_me`, or `owner_role` a role it declares: mine()) and that has a `next_state` (Planou 0.27.0, "Dono da coluna e esteira"). The queue payload
     does not say the task's column, so this only gates the try: Planou moves the task by the column it is in, and answers
     409 no_next_state when that column has no next. False when unknown (no project, an older Planou, the route failed)."""
     data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
-    return any((s.get('owner') or {}).get('is_me') is True and s.get('next_state')
-               for s in (data or {}).get('states') or [] if isinstance(s, dict))
+    my_roles = roles() or []
+    return any(mine(s, my_roles) and s.get('next_state') for s in (data or {}).get('states') or [] if isinstance(s, dict))
 
 
 MAX_HOURS = 100000
@@ -2405,6 +2546,9 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         raise
     res = res or {}
     pid = res.get('pid') or (entry or {}).get('pid')
+    # a rework sent as in_review whose column flows to another owner or to a role (Planou PLN0269/PLN0284) comes back
+    # as a handoff: the task left this agent like any other handoff
+    if sent == 'in_review' and res.get('state') == 'handoff': sent = 'handoff'
     if sent in ('in_review', 'done', 'handoff'):
         ctid, _ = _change_of(ref or tid, entry)          # delivered again: the adjustment is answered
         if ctid: _clear_change(ctid, sent, now)
@@ -2422,6 +2566,10 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         _save('queue.json', q)
     if sent in ('done', 'handoff'):
         if res.get('state') == 'handoff' and _handed_to_me(entry, res, now): note_self_handoff(tid, res, local_note, entry, now)
+        elif (res.get('state') == 'handoff' and waiting_for_role(entry, res, now)
+              and mine(_state_of(entry, res.get('project_state'), now))):
+            # waits for a role this agent has too: if Planou later gives it back here, it is an own review or QA
+            note_self_handoff(tid, res, local_note, entry, now, waiting=True)
         else: forget_self_handoff(tid, pid)          # concluded, or passed to someone else: out of the own cycle
     if state == 'started' and pid: current_task(pid, now=now)
     elif state != 'started': _stop_marker(pid, now)
@@ -3569,9 +3717,22 @@ def _docs_refused(e, sig, now):
 
 ATTACHMENT_TYPES = {'.md': 'text/markdown', '.markdown': 'text/markdown', '.txt': 'text/plain', '.pdf': 'application/pdf',
                     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-                    '.webp': 'image/webp',
+                    '.webp': 'image/webp', '.webm': 'video/webm', '.mp4': 'video/mp4',
                     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
 MAX_ATTACHMENT = 10 * 1024 * 1024
+MAX_VIDEO_ATTACHMENT = 50 * 1024 * 1024          # Planou 0.75.0 (PLN0280): a video goes up to 50 MB, the rest to 10 MB
+VIDEO_KINDS = ('.webm', '.mp4')
+UPLOAD_BYTES_PER_S = 256 * 1024                  # the slowest upload the timeout allows for (a 50 MB video: ~260 s)
+
+
+def max_size(name):
+    """Largest attachment Planou takes for a file of this name: by the extension, as the server decides the type."""
+    return MAX_VIDEO_ATTACHMENT if os.path.splitext(str(name or ''))[1].lower() in VIDEO_KINDS else MAX_ATTACHMENT
+
+
+def size_label(name):
+    """'50 MB (limite de vídeo)' or '10 MB'."""
+    return f'{max_size(name) // (1024 * 1024)} MB' + (' (limite de vídeo)' if max_size(name) == MAX_VIDEO_ATTACHMENT else '')
 ATTACH_REFUSED = (403, 409, 413, 415, 422)       # the same file would be refused again: not retried until it changes
 
 
@@ -3624,30 +3785,36 @@ def _send(code, source_key, path=None, data=None, name=None, now=None):
     code, pid = _task_ref(code)
     cache = _load('attachments.json', {})
     k = f'{code}|{source_key}'
-    if (cache.get(k) or {}).get('result') == 'ignored': return 'ignored', []    # before reading up to 10 MB
+    if (cache.get(k) or {}).get('result') == 'ignored': return 'ignored', []    # before reading up to 50 MB
     if data is None:
         if not path or not os.path.isfile(path): return 'missing', []
         with open(path, 'rb') as f: data = f.read()
     name = name or os.path.basename(path or '') or f'{source_key}.md'
     sha = hashlib.sha256(data).hexdigest()
-    if (cache.get(k) or {}).get('sha') == sha and cache[k].get('name') == name: return 'unchanged', []
+    if (cache.get(k) or {}).get('sha') == sha and cache[k].get('name') == name:
+        return ('refused' if cache[k].get('refused') else 'unchanged'), []     # a refusal is final until the file changes
     # the same content already went up under another key of this task (job-scout's `cv` and a `file:` of the same PDF)
     if any(kk.startswith(f'{code}|') and kk != k and v.get('sha') == sha and v.get('id') for kk, v in cache.items()):
         return 'unchanged', []
-    if len(data) > MAX_ATTACHMENT:
+    if len(data) > max_size(name):          # checked before sending: the limit of the type, by the name's extension
         _cache_put(k, {'sha': sha, 'name': name, 'refused': 'too_large', 'at': now.isoformat()})
-        return 'refused', [f'AVISO (planou): anexo {source_key} de {code} passa de 10 MB; não enviado']
+        return 'refused', [f'AVISO (planou): anexo {source_key} de {code} ({name}, {len(data) / 1e6:.0f} MB) passa de '
+                           f'{size_label(name)}; não enviado']
     ctype = ATTACHMENT_TYPES.get(os.path.splitext(name)[1].lower(), 'application/octet-stream')
     if not pid: return 'pending', []      # the sync has not created the task (or refused it): a later tick sends it
     ref = urllib.parse.quote(pid, safe=':@-._~')
     body, mtype = _multipart({'source_key': source_key, 'name': name}, name, data, ctype)
     try:
-        _, res = _call('POST', f'/agent/tasks/{ref}/attachments', raw=body, content_type=mtype, timeout=60)
+        # a video takes longer to go up: the timeout grows with the size (a timeout is retried on the next tick)
+        _, res = _call('POST', f'/agent/tasks/{ref}/attachments', raw=body, content_type=mtype,
+                       timeout=max(60, 30 + len(data) // UPLOAD_BYTES_PER_S))
     except PlanouError as e:
         if e.status == 404: return 'not_found', []          # not synced yet (the next tick tries again), or gone
         if e.status in ATTACH_REFUSED:
             _cache_put(k, {'sha': sha, 'name': name, 'refused': e.code, 'at': now.isoformat()})
-            line = f'AVISO (planou): anexo {source_key} de {code} recusado ({e.status} {e.code})'
+            line = (f'AVISO (planou): anexo {source_key} de {code} ({name}) recusado pelo Planou: passa de {size_label(name)} '
+                    f'({e.status} {e.code}); não vai de novo até o arquivo mudar' if e.status == 413 else
+                    f'AVISO (planou): anexo {source_key} de {code} recusado ({e.status} {e.code})')
             _log('attachments.log', line, now)
             return 'refused', [line]
         return 'pending', [f'AVISO (planou): anexo {source_key} de {code}: {e.message if e.status else e}']
@@ -3673,7 +3840,8 @@ def attach(code, source_key, path=None, data=None, name=None, now=None):
     """Sends a file to the agent's task `code` (the code of the synced item, its pid, or a task of the queue by pid)
     under the attachment's `source_key` (stable per kind: 'roteiro', 'cv', 'respostas'), only when the content or the
     name changed since the last send (sha256 in cache/planou/attachments.json). Missing file: nothing. 404 (the task
-    does not exist yet) and network failures are retried on a later tick; a refusal (403, 409, 413, 415) is not retried
+    does not exist yet) and network failures are retried on a later tick; a file over the limit of its type (50 MB for a
+    video, 10 MB for the rest) is not sent; a refusal (403, 409, 413 too_large, 415) is not retried
     until the file changes; an attachment the person deleted (202 ignored) is never sent again under that key, not even
     a new version (if the person restores it from the Lixeira, new versions stay local). Nothing goes under "minimum"
     confidentiality. Returns lines (AVISO on failure; an ignored attachment is not a failure: only attachments.log)."""
@@ -3687,7 +3855,7 @@ _UUID = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 # a local path in text: in backticks, or bare, starting at / or ~/ (not inside a URL or a word) and running to the
 # first extension Planou accepts, spaces included ("artifacts/2026-09-28 previsao-horas.md")
 _CITED_TICKS = re.compile(r'`(~?/[^`\n]+)`')
-_CITED_BARE = re.compile(r'(?<![\w:/.~`-])(~?/[^\n`\'"<>()\[\]{}|]*?\.(?:md|markdown|txt|pdf|png|jpe?g|gif|webp|docx))(?![\w-]|\.\w)',
+_CITED_BARE = re.compile(r'(?<![\w:/.~`-])(~?/[^\n`\'"<>()\[\]{}|]*?\.(?:md|markdown|txt|pdf|png|jpe?g|gif|webp|webm|mp4|docx))(?![\w-]|\.\w)',
                          re.I)
 NOT_FOUND_WAIT = timedelta(days=1)  # a registered file whose task Planou does not find is tried again a day later
 _DENY_DIRS = {'secrets', '.ssh', '.gnupg', '.aws', '.kube', '.docker', 'cache', '.cache', '.git'}
@@ -3699,7 +3867,8 @@ SEEN_TEXT = 'ver anexo'
 
 def attachable(path):
     """(real path, None) when the file may go up as an attachment, else (None, why): a regular file, a type Planou
-    accepts, 1 byte to 10 MB, outside secrets/, .ssh, caches and git, no credential-looking name, and a text file without
+    accepts, 1 byte to the limit of its type (50 MB for a video, 10 MB for the rest), outside secrets/, .ssh, caches and
+    git, no credential-looking name, and a text file without
     a credential in it."""
     try:
         p = os.path.realpath(os.path.expanduser(str(path or '').strip()))
@@ -3713,7 +3882,7 @@ def attachable(path):
         return None, 'caminho de credencial ou de cache: não vai como anexo'
     size = os.path.getsize(p)
     if size == 0: return None, 'arquivo vazio'
-    if size > MAX_ATTACHMENT: return None, 'passa de 10 MB'
+    if size > max_size(p): return None, f'passa de {size_label(p)}'
     if ext in _TEXT_KINDS:
         try:
             with open(p, 'rb') as f: text = f.read().decode('utf-8', 'replace')
@@ -3730,12 +3899,15 @@ def file_key(path):
 
 
 def cited_files(text):
-    """[(the text as cited, real path)] of the local files a text cites that pass attachable(), once each."""
+    """[(the text as cited, real path)] of the local files a text cites that pass attachable(), once each. A video
+    (.webm, .mp4) is never attached by citation, only by an explicit `attach` (PLN0302): it may be a meeting recording
+    with client data. The bare pattern still stops at its extension, so the path stays as written in the text."""
     out, seen = [], set()
     for rx in (_CITED_TICKS, _CITED_BARE):
         for m in rx.finditer(str(text or '')):
             raw = m.group(1).strip()
             real, _why = attachable(raw)
+            if real and os.path.splitext(real)[1].lower() in VIDEO_KINDS: continue     # only by an explicit attach
             if real and real not in seen:
                 seen.add(real)
                 out.append((m.group(0) if rx is _CITED_TICKS else raw, real))
@@ -3830,7 +4002,7 @@ def flush_attachments(now=None):
             m = missing.get(f'{task}|{k}') or {}
             if m.get('sha') == sha and now - datetime.fromisoformat(m['at']) < NOT_FOUND_WAIT:
                 waits[f'{task}|{k}'] = m
-                continue                # Planou did not find the task a moment ago: no 10 MB upload on every tick
+                continue                # Planou did not find the task a moment ago: no 50 MB upload on every tick
             outcome, out = _send(task, k, path=real, now=now)
             lines += out
             if outcome == 'ignored': gone.append((task, k))
@@ -3987,7 +4159,7 @@ def queue_view():
         own = self_handoff(v)
         if own:
             # handed to itself (PLN0281): the column's part goes to a new worker; the branch of the note stays here
-            v['mesma_instancia'] = {'coluna': own.get('column'), 'veio_de': own.get('from'), 'papel': column_role(own.get('column')),
+            v['mesma_instancia'] = {'coluna': own.get('column'), 'veio_de': own.get('from'), 'papel': rec_role(own),
                                     'nota': own.get('note'), 'ajustes': [x.get('text') for x in own.get('asks') or []]}
     if out['source'] == 'cache': rows.sort(key=lambda v: (not released(v), int(v.get('seq') or 0)))
     out['tasks'] = rows
@@ -4007,7 +4179,8 @@ def declared():
     tools = _load('tools.json', None) if _S['root'] else None
     links = _load('links.json', None) if _S['root'] else None
     count = lambda d, k: len(d[k]) if isinstance(d, dict) and isinstance(d.get(k), list) else None
-    return {'capabilities': capabilities(), 'tools': count(tools, 'tools'), 'links': count(links, 'links')}
+    caps = capabilities()
+    return {'capabilities': caps, 'roles': roles() if caps else None, 'tools': count(tools, 'tools'), 'links': count(links, 'links')}
 
 
 def queue_limit():
@@ -4123,12 +4296,14 @@ def _fila(a, ap):
             return PAUSED_EXIT
     note = _text_arg(a.note) if a.note else None
     if sub == 'blocked' and not note and paused(): note = PAUSE_NOTE
-    if sub == 'done':
+    tid = entry = None
+    if sub in ('done', 'handoff', 'in_review'):
         try: tid, entry = _queue_entry(ref)
         except PlanouError: tid, entry = None, None
+    if sub == 'done':
         own = self_handoff({'task_id': tid, 'pid': (entry or {}).get('pid') or ref,
                             'project_state': (entry or {}).get('project_state')}) if tid else None
-        role = column_role((own or {}).get('column'))
+        role = rec_role(own)
         if own and role in INDEPENDENT_ROLES and not review_worker_after((tid, (entry or {}).get('pid'), ref), own):
             what = INDEPENDENT_ROLES[role]
             print(f'AVISO (planou): {(entry or {}).get("pid") or ref} esta na {what} desta mesma instancia e nenhum worker '
@@ -4159,10 +4334,27 @@ def _fila(a, ap):
         return 1
     print(json.dumps(res, ensure_ascii=False))
     if res.get('state') == 'handoff':
-        who = res.get('assignee') or {}
-        who = who.get('name') or ('o usuario' if who.get('kind') == 'person' else 'sem responsavel')
-        print(f'PASSOU: {res.get("pid") or ref or "a tarefa"} foi para {res.get("project_state") or "o proximo estado"} '
-              f'({who}); nao esta mais com o agente. Diga ao usuario que passou adiante, nao que foi concluida.')
+        pid, col = res.get('pid') or ref or 'a tarefa', res.get('project_state') or 'o proximo estado'
+        waits = waiting_for_role(entry, res)
+        own = self_handoff({'task_id': res.get('task_id') or tid, 'pid': pid, 'project_state': res.get('project_state')})
+        if waits:
+            # PLN0284: nobody with the column's role was free; the task waits in the column with nobody assigned
+            print(f'ESPERANDO PAPEL: {pid} foi para {col}, coluna do papel {waits}, e ninguem com esse papel estava livre: '
+                  f'a tarefa espera na coluna sem responsavel e vai para o primeiro agente com o papel {waits} que tiver vaga'
+                  + (' (pode ser este mesmo, que tambem tem o papel: entao a parte da coluna vai para um worker NOVO)'
+                     if own else '') + '. Nao esta mais com o agente. Diga ao usuario que passou adiante e espera alguem '
+                  f'com o papel {waits}, nao que foi concluida.')
+        else:
+            who = res.get('assignee') or {}
+            who = who.get('name') or ('o usuario' if who.get('kind') == 'person' else 'sem responsavel')
+            if own and not own.get('waiting'):
+                # PLN0281/PLN0284: this same agent owns the next column, or is the only one with its role
+                print(f'PASSOU: {pid} foi para {col} ({who}), este mesmo agente (dono da coluna ou unico com o papel dela): '
+                      'a parte da coluna volta pela fila (-- FILA) e vai para um worker NOVO, nunca o que entregou. Diga '
+                      'ao usuario que passou adiante, nao que foi concluida.')
+            else:
+                print(f'PASSOU: {pid} foi para {col} ({who}); nao esta mais com o agente. Diga ao usuario que passou '
+                      'adiante, nao que foi concluida.')
     if sub == 'started' and a.estimate_h is None and not (_queue_entry(ref)[1] or {}).get('estimate_h'):
         print('AVISO (planou): sem estimativa; mande --estimate-h H no started (ou `fila tempo <PID> --estimate-h H`)',
               file=sys.stderr)

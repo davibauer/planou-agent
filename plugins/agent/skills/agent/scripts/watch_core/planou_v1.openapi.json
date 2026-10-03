@@ -760,6 +760,14 @@
                     "default": null,
                     "nullable": true
                   },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": null,
+                    "nullable": true
+                  },
                   "tools": {
                     "type": "array",
                     "items": {
@@ -4640,7 +4648,8 @@
           "is_default",
           "color",
           "owner",
-          "next_state"
+          "next_state",
+          "owner_role"
         ],
         "type": "object",
         "properties": {
@@ -4666,6 +4675,11 @@
           },
           "next_state": {
             "type": "string",
+            "nullable": true
+          },
+          "owner_role": {
+            "type": "string",
+            "default": null,
             "nullable": true
           }
         }
@@ -4695,7 +4709,47 @@
           "states": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/AgentProjectStateDto"
+              "required": [
+                "name",
+                "category",
+                "is_default",
+                "color",
+                "owner",
+                "next_state",
+                "owner_role"
+              ],
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "is_default": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "owner": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/AgentStateOwnerDto"
+                    }
+                  ],
+                  "nullable": true
+                },
+                "next_state": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "owner_role": {
+                  "type": "string",
+                  "default": null,
+                  "nullable": true
+                }
+              }
             }
           },
           "name": {
@@ -7606,6 +7660,14 @@
             "nullable": true
           },
           "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
+            "nullable": true
+          },
+          "roles": {
             "type": "array",
             "items": {
               "type": "string"

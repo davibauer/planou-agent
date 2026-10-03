@@ -120,7 +120,9 @@ rodar primeiro os casos que falharam (o `run.cjs` da `<pasta>` continua lá) e d
 ## Mesma instância que desenvolve
 
 Quando esta instância também tem `dev-worker` e é dona da coluna do dev e da coluna de QA (PLN0281: uma instância
-faz o ciclo todo; instâncias separadas por papel continuam valendo), a tarefa que ela mesma desenvolveu chega aqui como
+faz o ciclo todo; instâncias separadas por papel continuam valendo), ou é a única no ar com o papel da coluna de QA
+(coluna por papel, PLN0284: o Planou devolve a tarefa a quem a desenvolveu quando não há outra instância com o papel),
+a tarefa que ela mesma desenvolveu chega aqui como
 `-- FILA LIBERADA <PID>: ... -> passada por voce mesmo (mesma instancia que desenvolve) para a coluna <coluna>[, com a
 PR: <link>][; nota: <branch>]`. O Planou não guarda quem passou nem a nota quando o dono é o mesmo; o plugin guarda
 (`cache/planou/self_handoffs.json`) e `$PL fila ver` mostra em `mesma_instancia` (coluna, de onde veio, nota com a

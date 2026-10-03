@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.78.0 (2026-10-03)
+- Vídeo como anexo da tarefa (PLN0302): o `attach` aceita `.webm` e `.mp4`, enviados como `video/webm` e `video/mp4`, e a pessoa assiste no player da seção Anexos do Planou (0.75.0 ou mais novo). O limite vem da extensão: até 50 MB para vídeo e 10 MB para o resto, conferido antes de enviar, com a mensagem dizendo o limite. Um 413 do Planou (arquivo grande demais) é final: o tick não tenta de novo até o arquivo mudar.
+- Vídeo só sobe pelo `attach` explícito: citado numa nota ou numa descrição de tarefa ele não vira anexo e o caminho fica no texto, porque pode ser gravação de reunião com dado de cliente. A citação automática continua para os tipos de antes.
+- `attach` de novo num arquivo que o Planou recusou e que não mudou agora diz que foi recusado (e sai com erro), em vez de dizer que está igual.
+- O agente declara ao Planou os papéis que faz (dev, code-review, qa, release), tirados dos comportamentos ligados; `planou.roles` no config troca a lista. Assim uma coluna cujo dono é um papel passa a tarefa a qualquer instância com aquele papel. Planou antigo que recusa o campo continua recebendo o sinal de vida, sem os papéis.
+- `fila done` numa coluna de um papel da instância passa a tarefa adiante, e quando ninguém com o papel da próxima coluna está livre a saída diz `ESPERANDO PAPEL`: a tarefa espera na coluna e vai para o primeiro agente com o papel que tiver vaga, sem ser dada como concluída.
+- Quando a instância é a única com o papel da revisão ou do QA e a tarefa volta para ela, a revisão vai para um worker novo, como na instância que faz o ciclo todo.
+
 ## 0.77.0 (2026-10-03)
 - Comportamento novo `prototype` (sob demanda): a tarefa da fila que muda tela e deixa o desenho em aberto ganha, antes do dev, um protótipo em PNG anexado ao card (desenho já decidido ou ajuste pequeno de tela vão direto), feito por um worker a partir do protótipo de referência e dos tokens do projeto, com os estados vazio, erro e carregando, nas larguras 1360, 834 e 390, claro e escuro. A tarefa espera em `blocked` a resposta do usuário (aprovar, aprovar com ajustes, que vão direto para o dev, ou refazer), que nunca se destrava sozinha pela recomendada. Não vem ligado em nenhuma instância; passo a passo em `docs/prototype.md`.
 - `scripts/prototype_shot.cjs` renderiza um HTML local em PNG por largura e tema com o Playwright do próprio projeto (pelo `NODE_PATH`, sem dependência nova no plugin) e recusa link no lugar do arquivo.
