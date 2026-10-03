@@ -63,7 +63,8 @@ Say "WSL: $Distro"
 
 # 1. install.sh inside WSL
 $shArgs = @('--base-url', $BaseUrl, '--ref', $Ref, '--service', 'wsl-task')
-if ($NoVSCode) { $shArgs += '--no-vscode' }
+# VS Code stays the Windows way of seeing the employees (install.sh leaves it off by default since PLN0297)
+if ($NoVSCode) { $shArgs += '--no-vscode' } else { $shArgs += '--vscode' }
 if ($NoPair) { $shArgs += '--no-pair' }
 if ($piped.Count -gt 0) { $shArgs += '--code-stdin' }
 $shArgs += $InstallArgs

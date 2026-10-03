@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.79.0 (2026-10-03)
+- Na instância que faz o ciclo todo, o pedido de ajuste da revisão ou do QA próprio segue o fluxo normal do Planou 0.76.0: `fila ajuste` responde `DEVOLVIDA` e a tarefa volta à coluna do dev, o `-- AJUSTE PEDIDO` chega dizendo que veio da própria revisão independente, espera a vaga e volta como retrabalho. O caminho local `RETRABALHO PROPRIO` (registro em `cache/planou/self_handoffs.json` e comentário do agente na tarefa) saiu.
+- A entrega desse retrabalho, e do ajuste que a pessoa pede nessa revisão, é `fila handoff` em vez de `fila in_review`, para a tarefa voltar à revisão e ir de novo para um worker novo.
+- A passagem para a própria revisão é reconhecida pelo `handed_off_by` que o Planou agora manda com o nome do agente e a nota (a branch); `fila ver` mostra coluna, papel e nota em `mesma_instancia`.
+
 ## 0.78.1 (2026-10-03)
 - Provisionador: quando o relógio do computador volta alguns segundos (acerto de hora, comum no WSL), o cartão do funcionário sem sessão continua dizendo a causa no tempo certo, em vez de ficar calado até o relógio alcançar.
 

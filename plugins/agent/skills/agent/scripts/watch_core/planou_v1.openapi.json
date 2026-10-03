@@ -1337,6 +1337,45 @@
         }
       }
     },
+    "/v1/agent/projects/{key}/epics": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProjectEpicsDto"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agent/projects/{key}/flow": {
       "get": {
         "tags": [
@@ -4637,6 +4676,68 @@
                 }
               },
               "nullable": true
+            }
+          }
+        }
+      },
+      "AgentProjectEpicDto": {
+        "required": [
+          "task_id",
+          "pid",
+          "source_key",
+          "title",
+          "open",
+          "total",
+          "done"
+        ],
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pid": {
+            "type": "string"
+          },
+          "source_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "done": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AgentProjectEpicsDto": {
+        "required": [
+          "project",
+          "project_id",
+          "epics"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "epics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentProjectEpicDto"
             }
           }
         }

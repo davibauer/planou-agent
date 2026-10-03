@@ -136,9 +136,12 @@ faz o ciclo todo; instâncias separadas por papel continuam valendo), ou é a ú
 (coluna por papel, PLN0284: o Planou devolve a tarefa a quem a desenvolveu quando não há outra instância com o papel),
 a tarefa que ela mesma desenvolveu chega aqui como
 `-- FILA LIBERADA <PID>: ... -> passada por voce mesmo (mesma instancia que desenvolve) para a coluna <coluna>[, com a
-PR: <link>][; nota: <branch>]`. O Planou não guarda quem passou nem a nota quando o dono é o mesmo; o plugin guarda
-(`cache/planou/self_handoffs.json`) e `$PL fila ver` mostra em `mesma_instancia` (coluna, de onde veio, nota com a
-branch, ajustes já pedidos). A sessão viu a volta do dev, então **não faz revisão: delega**. Contra a autoaprovação, o
+PR: <link>][; nota: <branch>]`. Desde o Planou 0.76.0 (PLN0286) a passagem para si mesmo guarda quem passou (o
+próprio agente, em `handed_off_by`) e a nota, como entre agentes; o plugin reconhece pelo nome (o da config ou o do
+`whoami`) e `$PL fila ver` mostra em `mesma_instancia` (coluna, papel e nota com a branch). Sem `handed_off_by` (coluna
+por papel que esperou vaga e voltou a esta instância), a tarefa que chegou pela coluna numa coluna de revisão desta
+instância conta igual quando ela também faz o dev (dona da coluna anterior ou com o papel dev); revisor puro com card
+arrastado pela pessoa segue as linhas de sempre. A sessão viu a volta do dev, então **não faz revisão: delega**. Contra a autoaprovação, o
 worker de revisão nunca é o worker que entregou, nem continuação dele por SendMessage.
 1. `$PL fila ver` e `$PL fila started <PID> --estimate-h <H>`.
 2. Um `Agent(worker)` NOVO, com:
@@ -150,17 +153,17 @@ worker de revisão nunca é o worker que entregou, nem continuação dele por Se
    `$PL worker end <key> --result feito|parcial|falhou` (o `fila worker` de entregas só aceita `dev` e `integrator`).
 3. O parecer começa com `Revisão independente (worker novo) de <PID> (<sha7>): aprovada | ajuste pedido`. Com `pr_comment`, quem comenta na PR é o worker; `fila ...` é só da sessão.
 4. Aprovado: `$PL fila done <PID> --note "revisão independente aprovada (<sha7>): <uma linha do que conferiu>"` (handoff para a próxima coluna, como em Aprovar). Sem `fila worker-start <PID> --role other` aberto depois do
-   handoff (ou do último ajuste), o `fila done` avisa (`AVISO`, não recusa): a aprovação tem de ser do worker novo.
-5. Ajuste pedido: o mesmo `fila ajuste <PID> --text -` de "Devolver com pedido de ajuste". Sem outro agente para receber,
-   a saída é `RETRABALHO PROPRIO: ...` (exit 0; o texto fica em `mesma_instancia.ajustes`). O pedido fica registrado na
-   tarefa como comentário do agente (`Ajuste pedido na revisão independente (worker novo, ...)` e o texto; com
-   `confidentiality: minimum`, só a linha neutra), porque sem PR (release em lote) nada mais mostra o ajuste no Planou;
-   se o comentário não subir, a saída traz `AVISO` e a sessão registra com `$PL comentario <PID> --text -`. O ajuste volta como
-   retrabalho normal, sem sair da coluna: worker de dev (`dev-worker`) na mesma branch e na mesma PR atendendo o parecer
-   (`fila worker-start <PID> --role dev`, e `fila worker ... --role dev` na volta), sem `fila in_review`; quando ele
-   voltar, outro worker NOVO de revisão confere só o que mudou desde o `sha7` do parecer, e o passo 4 ou 5 de novo.
-6. `SEM DEV` continua querendo dizer que a tarefa não veio do handoff desta instância (a pessoa a pôs direto na
-   coluna): pedir à pessoa como acima. Mesmo assim, a revisão é de um worker novo.
+   a tarefa chegar na coluna, o `fila done` avisa (`AVISO`, não recusa): a aprovação tem de ser do worker novo.
+5. Ajuste pedido: o mesmo `fila ajuste <PID> --text -` de "Devolver com pedido de ajuste", e o Planou devolve como
+   entre agentes: a saída é `DEVOLVIDA: <PID> voltou para <coluna do dev> (<esta instância>, este mesmo agente)` (exit 0)
+   e a entrada da revisão termina. Daí em diante é o retrabalho normal: chega `-- AJUSTE PEDIDO <PID> (<papel> <nome>,
+   voce mesmo: revisao independente)` (também quando a pessoa usa "Pedir ajuste" nesta coluna), espera a vaga e volta
+   como `-- FILA LIBERADA <PID>: ... -> RETRABALHO (ajuste pedido)`: worker de dev (`dev-worker`) na mesma branch e na
+   mesma PR atendendo o parecer e, na volta dele, **`fila handoff <PID>`** (não `fila in_review`: com o mesmo dono na
+   coluna seguinte o `in_review` não vira passagem). A tarefa volta a esta coluna pela fila e outro worker NOVO de revisão
+   confere só o que mudou desde o `sha7` do parecer, e o passo 4 ou 5 de novo.
+6. `SEM DEV` continua querendo dizer que a tarefa não veio por passagem (a pessoa a pôs direto na coluna, ou a coluna
+   por papel esperou vaga e o Planou não guardou quem passou): pedir à pessoa como acima. Mesmo assim, a revisão é de um worker novo.
 A vaga de revisão é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila, junto com as de dev.
 
 ## O que o revisor não faz

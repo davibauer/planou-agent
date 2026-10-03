@@ -120,14 +120,16 @@ Handoff (Planou 0.27.0, owners of columns): when the agent owns a column with a 
 (GET /agent/projects/{key}/states, `owner.is_me` and `next_state`, read fresh), `fila done` sends `handoff` instead: the
 task goes to the next column and to its owner (`PASSOU: ...`), and a 409 no_next_state falls back to done. `fila handoff`
 asks for it explicitly, without the fallback.
-One instance, the whole cycle (PLN0281): when the next column is this same agent's (dev, then review or QA), Planou
-queues the task to it again without `handed_off_by` nor the note; progress() keeps a local record of that handoff
-(cache/planou/self_handoffs.json), the queue line says `passada por voce mesmo ...` and sends the review or QA to a NEW
-worker (never the one that delivered), `fila ver` shows `mesma_instancia`, and the 409 no_previous_owner of `fila
-ajuste` on such a task prints `RETRABALHO PROPRIO: ...` (rework in the same column, then a new review worker) and leaves
-the ask on the task as the agent's comment (POST /agent/tasks/{id}/comments; under "minimum" a neutral line), since
-without a PR nothing else shows it in Planou. `fila done` of such a task warns (stderr, not a refusal) when no worker
-of role other (`fila worker-start --role other`) was opened for it after the handoff or the last ask.
+One instance, the whole cycle (PLN0281, Planou 0.76.0 PLN0286): when the next column is this same agent's (dev, then
+review or QA), Planou queues the task to it again with `handed_off_by` naming this agent and the note (the branch), like
+between agents. Nothing is kept locally: own_handoff() reads it from the entry (the name against the configured one and
+GET /agent/whoami), the queue line says `passada por voce mesmo ...` and sends the review or QA to a NEW worker (never
+the one that delivered), `fila ver` shows `mesma_instancia`. `fila ajuste` on such a task answers 200 like between
+agents (`DEVOLVIDA`, back to this agent's dev column); the `-- AJUSTE PEDIDO <PID>` that follows (`requested_by` is this
+agent, or the person in its review column) waits for the slot like any ask, comes back as `-> RETRABALHO (ajuste
+pedido)` and is delivered with `fila handoff` (an in_review to a next column of the same owner is no handoff), so the
+review comes again to a new worker. `fila done` of such a task warns (stderr, not a refusal) when no worker of role
+other (`fila worker-start --role other`) was opened for it after it reached the column.
 Owner by role (Planou PLN0284): a column may be owned by a role (`owner_role` in the project's states) instead of an
 agent. The heartbeat declares the agent's `roles` with the capabilities: the roles of its behaviors (ROLE_OF_BEHAVIOR:
 dev-worker dev, code-review code-review, qa qa, batch-release release) or "planou.roles" of its config, which replaces
@@ -136,8 +138,9 @@ at once, and without them for a day (cache/planou/roles_sent.json, roles.log). A
 its own for `fila done` (handoff). A handoff answer without `assignee` means nobody with the role was free: the task
 waits in the column and goes to the first agent with the role that has a slot (`ESPERANDO PAPEL: ...`, never
 "concluida"). When the agent is the only one with the role, Planou hands the task back to it (assignee is this agent,
-by GET /agent/whoami): the PLN0281 rule below applies (record in self_handoffs.json with the role, a NEW worker); a task
-that waits for a role this agent has is recorded too (`waiting`), for when Planou hands it back later.
+by GET /agent/whoami): the PLN0281 rule above applies (a NEW worker). A task that waited for a role and came back to
+this agent has no `handed_off_by` (Planou keeps it only between different agents): it counts as its own review or QA
+when it came by the column into a review or QA column of its own, and `fila ajuste` there answers `SEM DEV`.
 The Prazo (`deadline`) goes in the sync when the source states one (watch_core.deadlines): absent keeps Planou's.
 Worker deliveries (Planou "Entregas", PLN0045): `fila worker <PID> --role dev|integrator --tokens N --steps N
 --duration-ms N --result feito|parcial|falhou [--model M]` reports a worker (subagent) that came back, with the usage the
@@ -1392,6 +1395,8 @@ def handoff_line(p, pr=None):
     Planou). The part of this agent is the column's, not new work: a reviewer reviews (code-review), the owner of the
     release column after the review puts the branch in the release queue (batch-release). The note of the handoff is the
     branch when there is no PR (batch release)."""
+    own = own_handoff(p)
+    if own: return own_handoff_line(own, pr)
     by = p.get('handed_off_by')
     if not isinstance(by, dict) or not one_line(by.get('name'), 80):
         return ''
@@ -1406,13 +1411,12 @@ def handoff_line(p, pr=None):
 
 
 # ---------------------------------------------------------------- one instance does the whole cycle (PLN0281)
-# The same agent may own the dev column and the review or QA column after it. Planou then hands the task to itself: the
-# entry is queued again with `queued_by: "state"` and the next column, but without `handed_off_by` and without the note
-# (only the PR goes on), and request-changes answers 409 no_previous_owner (there is no other agent to send it back to).
-# The plugin keeps its own record of that handoff (cache/planou/self_handoffs.json), so the queue line tells the column's
-# part from new work and the review or QA goes to a NEW worker, never the one that delivered (no self-approval). The
-# record has no expiry: it goes only when the task leaves the agent (done or handoff to someone else, dequeued), and it
-# counts only while the task is in the column it was handed to, so a review that waits long is still a review.
+# The same agent may own the dev column and the review or QA column after it. Planou then hands the task to itself; since
+# Planou 0.76.0 (PLN0286) the entry keeps who handed it off (this agent) and the note, like between agents, and
+# request-changes sends it back to the dev column with the usual task_changes_requested (`requested_by` is this agent).
+# The queue line tells the column's part from new work and the review or QA goes to a NEW worker, never the one that
+# delivered (no self-approval); the rework goes back with `fila handoff` (an in_review to a next column of the same owner
+# is no handoff). Nothing is kept locally: the queue entry says it.
 INDEPENDENT_ROLES = {'code-review': 'revisao', 'qa': 'QA'}
 
 
@@ -1425,12 +1429,6 @@ def column_role(name):
     if 'revis' in n or 'review' in n: return 'code-review'
     if 'release' in n or 'publica' in n or 'deploy' in n: return 'batch-release'
     return None
-
-
-def _self_handoffs():
-    d = _load('self_handoffs.json', {})
-    tasks = d.get('tasks') if isinstance(d, dict) and isinstance(d.get('tasks'), dict) else {}
-    return {k: v for k, v in tasks.items() if isinstance(v, dict)}
 
 
 def mine(s, my_roles=None):
@@ -1494,128 +1492,88 @@ def waiting_for_role(entry, res, now=None):
     return role_name((st or {}).get('owner_role'))
 
 
-def _column_before(entry, res, now=None):
-    """The column of this agent whose "Ao terminar, vai para" is the new one (where the handoff came from), or None."""
-    data = project_states((entry or {}).get('project') or _S['project'], now, ttl=HANDOFF_STATES_TTL)
-    col = state_key(res.get('project_state'))
-    for s in (data or {}).get('states') or []:
-        if mine(s) and col and state_key(s.get('next_state')) == col:
-            return one_line(s.get('name'), 60) or None
-    return None
+def is_me(name, now=None):
+    """True when a name from Planou (handed_off_by, requested_by, an assignee) is this agent: the configured name, else
+    its name in Planou (my_name, GET /agent/whoami cached a day)."""
+    n = state_key(name)
+    return bool(n) and (n == state_key(_S['agent']) or n == state_key(my_name(now)))
 
 
-def note_self_handoff(tid, res, note=None, entry=None, now=None, waiting=False):
-    """Keeps the record of a handoff to this same agent (see above): column, PR, the note (the branch, without a PR),
-    the column it came from and the column's role (PLN0284, `owner_role`). `waiting`: the task waits in a column of a
-    role of this agent with nobody assigned; when Planou later hands it to this agent, it is still its own work."""
-    stamp = (now or datetime.now(timezone.utc)).isoformat()
-    before = one_line((entry or {}).get('project_state'), 60) or _column_before(entry, res, now)   # no lock over HTTP
-    role = role_name((_state_of(entry, res.get('project_state'), now) or {}).get('owner_role'))
-    with _locked('self_handoffs.json'):
-        tasks = _self_handoffs()
-        prev = tasks.get(str(tid)) or {}
-        tasks[str(tid)] = {'pid': res.get('pid') or (entry or {}).get('pid'), 'column': one_line(res.get('project_state'), 60) or None,
-                           'from': prev.get('column') or before, 'pr_url': res.get('pr_url') or (entry or {}).get('pr_url'),
-                           'note': one_line(note, 300) or prev.get('note'), 'at': stamp, 'asks': []}
-        if role: tasks[str(tid)]['role'] = role
-        if waiting: tasks[str(tid)]['waiting'] = True
-        _save('self_handoffs.json', {'tasks': tasks})
+def _column_state(project, name, now=None):
+    """The state named `name` in the project (cached states, STATES_TTL), or None."""
+    col = state_key(name.get('name') if isinstance(name, dict) else name)
+    if not col: return None
+    data = project_states(project or _S['project'], now)
+    return next((s for s in (data or {}).get('states') or [] if isinstance(s, dict) and state_key(s.get('name')) == col), None)
 
 
-def forget_self_handoff(tid, pid=None):
-    with _locked('self_handoffs.json'):
-        tasks = _self_handoffs()
-        drop = [k for k, v in tasks.items() if k == str(tid) or (pid and v.get('pid') == pid)]
-        if drop:
-            for k in drop: tasks.pop(k)
-            _save('self_handoffs.json', {'tasks': tasks})
+def _also_dev(project, column, now=None):
+    """True when this agent also does the work before `column`: it owns a column whose "Ao terminar, vai para" is it, or
+    it plays the dev role. A pure reviewer that gets a card the person dragged into its column is not reviewing its own
+    work."""
+    if 'dev' in (roles() or []): return True
+    col = state_key(column)
+    data = project_states(project or _S['project'], now)
+    return any(mine(s) and col and state_key(s.get('next_state')) == col for s in (data or {}).get('states') or [])
 
 
-def self_handoff(p, now=None):
-    """The record of a handoff of this task to this same agent (by task_id, else by PID), or None. Only while the task
-    is in the column it was handed to (`project_state` of the payload or of the queue entry): a task the person moved
-    back to the dev column, or sent elsewhere, is not the column's part any more."""
-    tasks = _self_handoffs()
-    tid, pid = str(p.get('task_id') or ''), one_line(p.get('pid'), 20).upper()
-    rec = tasks.get(tid) or next((v for v in tasks.values() if pid and str(v.get('pid') or '').upper() == pid), None)
-    if not rec or state_key(p.get('project_state')) != state_key(rec.get('column')): return None
-    return rec
+def own_handoff(p, now=None):
+    """{column, role, note, named} when the task (queue payload or entry) reached a review or QA column of this same agent
+    by its own handoff, else None. Since Planou 0.76.0 (PLN0286) the entry says so: `handed_off_by` names this agent and
+    carries the note (the branch). A column of a role that waited for a free agent and came back to this one has no
+    `handed_off_by` (Planou keeps it only between different agents): a task that came by the column (`queued_by:
+    "state"`) into a review or QA column of its own counts too, when this agent also does the work before it
+    (_also_dev), so its review still goes to a new worker; a pure reviewer keeps the usual lines."""
+    by = p.get('handed_off_by') if isinstance(p.get('handed_off_by'), dict) else None
+    named = bool(by and one_line(by.get('name'), 80))
+    if named and not is_me(by.get('name'), now): return None
+    if not named and p.get('queued_by') != 'state': return None
+    ps = p.get('project_state')
+    column = one_line(ps.get('name') if isinstance(ps, dict) else ps, 60) or None
+    st = _column_state(p.get('project'), column, now)
+    role = BEHAVIOR_OF_ROLE.get(role_name((st or {}).get('owner_role'))) or column_role(column)
+    if not named and not (role in INDEPENDENT_ROLES and mine(st) and _also_dev(p.get('project'), column, now)): return None
+    return {'column': column, 'role': role, 'note': (one_line(by.get('note'), 300) or None) if named else None, 'named': named}
 
 
-def rec_role(rec):
-    """The behavior of the column of an own handoff record: the column's role when it has one (PLN0284), else guessed
-    from the column's name (column_role)."""
-    rec = rec or {}
-    return BEHAVIOR_OF_ROLE.get(role_name(rec.get('role'))) or column_role(rec.get('column'))
-
-
-def self_handoff_line(p, pr=None):
+def own_handoff_line(own, pr=None):
     """The tail of a released task that this same agent handed to itself (another column of its own), or ''."""
-    rec = self_handoff(p)
-    if not rec: return ''
-    column = one_line(p.get('project_state') or rec.get('column'), 60)
-    note = one_line(rec.get('note'), 300)
-    role = BEHAVIOR_OF_ROLE.get(role_name(rec.get('role'))) or column_role(column)
+    column, note, role = own.get('column'), own.get('note'), own.get('role')
     head = ('passada por voce mesmo (mesma instancia que desenvolve)' + (f' para a coluna {column}' if column else '')
             + (f', com a PR: {pr}' if pr else '') + (f'; nota: {note}' if note else ''))
     if role in INDEPENDENT_ROLES:
         what = INDEPENDENT_ROLES[role]
+        ask = ('`fila ajuste` devolve a coluna do dev (DEVOLVIDA) e o retrabalho volta como -- AJUSTE PEDIDO' if own.get('named')
+               else '`fila ajuste` responde SEM DEV (o Planou nao guardou a passagem): `fila blocked` com o ajuste')
         return (f'{head} -> nao e tarefa nova: `fila ver`, `fila started` e delegar a {what} a um worker NOVO ({role}, '
                 f'`--brief --role {role}`; contexto limpo: so o pedido, a PR ou a branch e o criterio; nunca o worker que '
                 f'entregou nem SendMessage a ele; a sessao nao faz a {what}); o parecer registra "{what} independente '
-                '(worker novo)"; ajuste pedido: `fila ajuste` responde RETRABALHO PROPRIO')
+                f'(worker novo)"; ajuste pedido: {ask}')
     if role == 'batch-release':
         return (f'{head} -> nao e tarefa nova e nao pede worker de codigo: `fila ver` e seguir o batch-release '
                 '(`--release-queue add <branch> <PID>` e `fila in_review`)')
     return ''          # any other own column (an analysis before A fazer, the dev's own): the usual lines, it is work
 
 
-def note_self_rework(tid, rec, text, now=None):
-    """Keeps the ask of an own review or QA with the record (the rework brief), the text cut like request-changes'."""
-    with _locked('self_handoffs.json'):
-        tasks = _self_handoffs()
-        key = str(tid) if str(tid) in tasks else next((k for k, v in tasks.items() if v.get('pid') == rec.get('pid')), None)
-        if key is None: return
-        tasks[key].setdefault('asks', []).append({'text': clean_text(text or '', CHANGES_TEXT_MAX),
-                                                  'at': (now or datetime.now(timezone.utc)).isoformat()})
-        _save('self_handoffs.json', {'tasks': tasks})
+def own_cycle_ask(a, project=None, now=None):
+    """True when an adjustment asked (a changes.json ask) came from this agent's own review or QA: asked by this same
+    agent, or asked by the person in a review or QA column of this agent (Planou 0.76.0 sends both back to the dev column). The
+    rework then goes back with `fila handoff`: an in_review to a next column of the same owner is no handoff."""
+    if a.get('by_kind') == 'agent' and is_me(a.get('by'), now): return True
+    st = _column_state(project, a.get('in'), now)
+    role = BEHAVIOR_OF_ROLE.get(role_name((st or {}).get('owner_role'))) or column_role(a.get('in'))
+    return role in INDEPENDENT_ROLES and mine(st)       # a plain own column with no next keeps in_review
 
 
-def self_rework_comment(rec, text):
-    """The comment that leaves the ask of an own review or QA on the task (PLN0281): without another agent there is no
-    request-changes, and without a PR (batch release) nothing else shows it in Planou. Under "minimum" only a neutral
-    line goes up (the text stays in the session and in self_handoffs.json)."""
-    what = INDEPENDENT_ROLES.get(rec_role(rec), 'revisao')
-    head = f'Ajuste pedido na {what} independente (worker novo, mesma instancia que desenvolve)'
-    if _S['confidentiality'] == 'minimum':
-        return f'{head}: o parecer esta ' + ('na PR.' if rec.get('pr_url') else 'com o agente.')
-    return f'{head}; volta como retrabalho na mesma branch' + (' e PR' if rec.get('pr_url') else '') + f'.\n\n{str(text or "").strip()}'
-
-
-def review_worker_after(ref, rec):
-    """True when a worker of role other was opened for this task (`fila worker-start --role other`) after the handoff
-    to the own review or QA column, or after its last ask for changes: the independent worker that `fila done` stands for."""
-    since = max([rec.get('at') or ''] + [a.get('at') or '' for a in rec.get('asks') or []])
+def review_worker_after(ref, since):
+    """True when a worker of role other was opened for this task (`fila worker-start --role other`) after `since` (when
+    the task reached the own review or QA column): the independent worker that `fila done` stands for."""
     refs = {_norm_ref(x) for x in ref if x}
     for v in _workers()['workers'].values():
-        if (isinstance(v, dict) and v.get('role') == 'other' and (v.get('started_at') or '') >= since
+        if (isinstance(v, dict) and v.get('role') == 'other' and (v.get('started_at') or '') >= (since or '')
                 and refs & {_norm_ref(t) for t in v.get('tasks') or []}):
             return True
     return False
-
-
-def self_rework_text(pid, rec, text):
-    """What to do when a review or QA of this same agent asks for changes (request-changes has no one to send back to)."""
-    column, came = one_line(rec.get('column'), 60), one_line(rec.get('from'), 60)
-    role = rec_role(rec)
-    what = INDEPENDENT_ROLES.get(role, 'revisao')
-    pr = one_line(rec.get('pr_url'), 300)
-    return (f'RETRABALHO PROPRIO: {pid} pediu ajuste na {what} independente desta mesma instancia (o Planou nao devolve '
-            f'ao proprio agente; a tarefa fica na coluna {column or "atual"}, com o agente). Retrabalho normal: worker de dev '
-            f'na mesma branch e na mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste (`fila worker-start {pid} --role dev`), '
-            f'sem `fila in_review`; quando ele voltar, um worker NOVO de {role or "code-review"} confere so o que mudou desde o '
-            f'commit do parecer; aprovado: `fila done {pid}`. Ajuste: {one_line(text, 300)}'
-            + (f' (veio de {came})' if came else ''))
 
 
 def _author(a):
@@ -1657,12 +1615,16 @@ def line(ev):
             if not released(p):
                 return f'{head} -> RETRABALHO NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA){asks}'
             pr = one_line(chg.get('pr_url') or p.get('pr_url'), 300)
+            # an ask of this agent's own review or QA (PLN0286): an in_review to a next column of the same owner is no
+            # handoff, so the rework goes back with `fila handoff` and the review is again a new worker's
+            back = ('`fila handoff` (a revisao propria volta pela fila para um worker NOVO)'
+                    if any(own_cycle_ask(a, p.get('project')) for a in chg.get('asks') or []) else '`fila in_review` de novo')
             return (f'{head} -> RETRABALHO (ajuste pedido), nao e tarefa nova: `fila started`, worker na mesma branch e na '
-                    f'mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste, depois `fila in_review` de novo{asks}')
+                    f'mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste, depois {back}{asks}')
         pr = one_line(p.get('pr_url'), 300)
         if not released(p):
             return f'{head} -> NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA)' + (f'; PR: {pr}' if pr else '')
-        handed = handoff_line(p, pr) or self_handoff_line(p, pr)
+        handed = handoff_line(p, pr)
         if handed:
             return f'{head} -> {handed}'
         if pr:
@@ -1675,6 +1637,8 @@ def line(ev):
     if kind == CHANGES_EVENT:
         pid, pr = one_line(p.get('pid'), 20), one_line(p.get('pr_url'), 300)
         by = requested_by(p.get('requested_by'), role=p.get('requested_by_role'), where=p.get('requested_in'))
+        if _by_agent(p.get('requested_by')) and is_me(p['requested_by'].get('name')):
+            by += ', voce mesmo: revisao independente'          # PLN0286: the own review or QA asked, the usual rework
         return (f'{CHANGES_PREFIX} {pid} ({by}): {message_text(p.get("text"))}\n    -> retrabalho de {pid}: nao mandar '
                 f'progresso agora; quando vier -- FILA LIBERADA {pid}, retomar na mesma branch'
                 + (f' e na mesma PR ({pr})' if pr else '') + ' atendendo este texto'
@@ -2066,7 +2030,6 @@ def queue_note(ev, now=None):
     else:
         q['tasks'][tid] = {'pid': p.get('pid'), 'title': p.get('title'), 'left': p.get('reason') or 'dequeued', 'seq': seq, 'at': stamp}
         _stop_marker(p.get('pid'), now)          # the turns after this are no longer this task's
-        forget_self_handoff(tid, p.get('pid'))   # out of the agent: an own review that was waiting is gone too
     cut = ((now or datetime.now(timezone.utc)) - timedelta(days=SEEN_DAYS)).isoformat()
     q['tasks'] = {k: v for k, v in q['tasks'].items() if not v.get('left') or (v.get('at') or '') >= cut}
     _save('queue.json', q)
@@ -2494,7 +2457,6 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     _wait_changes(tid, entry, ref)
     # the note is free text the server shows as it came: under "minimum" it stays in the session (Planou then shows its
     # neutral "O agente parou e precisa de você para seguir."); the PR link goes up like any origin URL
-    local_note = note                   # the branch of a handoff to itself stays here (self_handoffs.json)
     if _S['confidentiality'] == 'minimum': note = None
     files = []
     if note: note, files = without_paths(note)       # a file the note cites goes as an attachment (PLN0052)
@@ -2564,13 +2526,6 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
             for k, v in (('estimate_h', estimate_h), ('remaining_h', remaining_h)):
                 if v is not None: q['tasks'][tid][k] = v
         _save('queue.json', q)
-    if sent in ('done', 'handoff'):
-        if res.get('state') == 'handoff' and _handed_to_me(entry, res, now): note_self_handoff(tid, res, local_note, entry, now)
-        elif (res.get('state') == 'handoff' and waiting_for_role(entry, res, now)
-              and mine(_state_of(entry, res.get('project_state'), now))):
-            # waits for a role this agent has too: if Planou later gives it back here, it is an own review or QA
-            note_self_handoff(tid, res, local_note, entry, now, waiting=True)
-        else: forget_self_handoff(tid, pid)          # concluded, or passed to someone else: out of the own cycle
     if state == 'started' and pid: current_task(pid, now=now)
     elif state != 'started': _stop_marker(pid, now)
     if files:
@@ -4156,11 +4111,10 @@ def queue_view():
     rows = list(tasks.values())
     for v in rows:
         v['status'] = 'liberada' if released(v) else 'na fila'
-        own = self_handoff(v)
-        if own:
-            # handed to itself (PLN0281): the column's part goes to a new worker; the branch of the note stays here
-            v['mesma_instancia'] = {'coluna': own.get('column'), 'veio_de': own.get('from'), 'papel': rec_role(own),
-                                    'nota': own.get('note'), 'ajustes': [x.get('text') for x in own.get('asks') or []]}
+        own = None if v.get('left') or v.get('state') == 'changes_requested' else own_handoff(v)
+        if own and own.get('role'):
+            # handed to itself (PLN0281, PLN0286): the column's part goes to a new worker
+            v['mesma_instancia'] = {'coluna': own.get('column'), 'papel': own.get('role'), 'nota': own.get('note')}
     if out['source'] == 'cache': rows.sort(key=lambda v: (not released(v), int(v.get('seq') or 0)))
     out['tasks'] = rows
     pause = paused()
@@ -4255,21 +4209,6 @@ def _fila(a, ap):
                 print(f'ESPERE: a tarefa ainda nao foi liberada ({e.message}). Revise so quando vier -- FILA LIBERADA.')
                 return 4
             if e.code == 'no_previous_owner':
-                tid, entry = _queue_entry(a.arg[1])
-                rec = self_handoff({'task_id': tid, 'pid': (entry or {}).get('pid') or a.arg[1],
-                                    'project_state': (entry or {}).get('project_state')})
-                if rec:
-                    note_self_rework(tid, rec, text)
-                    pid = (entry or {}).get('pid') or a.arg[1]
-                    try:
-                        post_comment(pid, self_rework_comment(rec, text))
-                        kept = ' O pedido ficou registrado na tarefa (comentario).'
-                    except PlanouError as ce:
-                        kept = ''
-                        print(f'AVISO (planou): o pedido de ajuste nao subiu como comentario da tarefa ({ce.message}); '
-                              f'registre a mao: `comentario {pid} --text -`', file=sys.stderr)
-                    print(self_rework_text(pid, rec, text) + kept)
-                    return 0
                 print(f'SEM DEV: a tarefa nao chegou pelo handoff de outro agente ({e.message}); nao ha a quem devolver. '
                       f'Peca a pessoa: printf \'%s\' "<ajuste>" | fila blocked {a.arg[1]} --note -')
                 return 5
@@ -4279,8 +4218,15 @@ def _fila(a, ap):
         who = (res.get('assignee') or {}).get('name') or 'o dev'
         ps = res.get('project_state')
         ps = ps.get('name') if isinstance(ps, dict) else ps
-        print(f'DEVOLVIDA: {res.get("pid") or a.arg[1]} voltou para {ps or "a coluna do dev"} ({who}) como retrabalho, '
-              f'na mesma PR{" (" + res["pr_url"] + ")" if res.get("pr_url") else ""}; nao esta mais com o agente.')
+        pid = res.get('pid') or a.arg[1]
+        pr = f'na mesma PR{" (" + res["pr_url"] + ")" if res.get("pr_url") else ""}'
+        if (res.get('assignee') or {}).get('kind', 'agent') == 'agent' and is_me(who):
+            # PLN0286: the own review or QA sends it back to this same agent's dev column, like between agents
+            print(f'DEVOLVIDA: {pid} voltou para {ps or "a coluna do dev"} ({who}, este mesmo agente) como retrabalho, {pr}: '
+                  f'nao comecar agora; vem -- AJUSTE PEDIDO {pid} e, com a vaga, -- FILA LIBERADA {pid} -> RETRABALHO '
+                  '(worker de dev na mesma branch, depois `fila handoff` e a revisao de novo por um worker NOVO).')
+            return 0
+        print(f'DEVOLVIDA: {pid} voltou para {ps or "a coluna do dev"} ({who}) como retrabalho, {pr}; nao esta mais com o agente.')
         return 0
     if sub not in PROGRESS_STATES + ('tempo',):
         ap.error('use: fila ver | fila started|in_review|done|blocked|handoff|refinar [PID] [--pr-url URL] [--note TEXTO] '
@@ -4301,13 +4247,12 @@ def _fila(a, ap):
         try: tid, entry = _queue_entry(ref)
         except PlanouError: tid, entry = None, None
     if sub == 'done':
-        own = self_handoff({'task_id': tid, 'pid': (entry or {}).get('pid') or ref,
-                            'project_state': (entry or {}).get('project_state')}) if tid else None
-        role = rec_role(own)
-        if own and role in INDEPENDENT_ROLES and not review_worker_after((tid, (entry or {}).get('pid'), ref), own):
+        own = own_handoff(entry) if entry else None
+        role = (own or {}).get('role')
+        if role in INDEPENDENT_ROLES and not review_worker_after((tid, (entry or {}).get('pid'), ref), (entry or {}).get('received_at')):
             what = INDEPENDENT_ROLES[role]
             print(f'AVISO (planou): {(entry or {}).get("pid") or ref} esta na {what} desta mesma instancia e nenhum worker '
-                  f'NOVO de {what} foi aberto depois do handoff (`fila worker-start <PID> --role other`). A {what} e de um '
+                  f'NOVO de {what} foi aberto depois que ela chegou na coluna (`fila worker-start <PID> --role other`). A {what} e de um '
                   'worker novo, nunca da sessao nem do worker que entregou', file=sys.stderr)
     try:
         if sub == 'tempo':
@@ -4336,7 +4281,7 @@ def _fila(a, ap):
     if res.get('state') == 'handoff':
         pid, col = res.get('pid') or ref or 'a tarefa', res.get('project_state') or 'o proximo estado'
         waits = waiting_for_role(entry, res)
-        own = self_handoff({'task_id': res.get('task_id') or tid, 'pid': pid, 'project_state': res.get('project_state')})
+        own = (mine(_state_of(entry, res.get('project_state'))) if waits else _handed_to_me(entry, res))
         if waits:
             # PLN0284: nobody with the column's role was free; the task waits in the column with nobody assigned
             print(f'ESPERANDO PAPEL: {pid} foi para {col}, coluna do papel {waits}, e ninguem com esse papel estava livre: '
@@ -4347,7 +4292,7 @@ def _fila(a, ap):
         else:
             who = res.get('assignee') or {}
             who = who.get('name') or ('o usuario' if who.get('kind') == 'person' else 'sem responsavel')
-            if own and not own.get('waiting'):
+            if own:
                 # PLN0281/PLN0284: this same agent owns the next column, or is the only one with its role
                 print(f'PASSOU: {pid} foi para {col} ({who}), este mesmo agente (dono da coluna ou unico com o papel dela): '
                       'a parte da coluna volta pela fila (-- FILA) e vai para um worker NOVO, nunca o que entregou. Diga '

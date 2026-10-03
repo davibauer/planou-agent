@@ -135,9 +135,10 @@ dois estão juntos). Os papéis são comportamentos; o que garante a revisão in
   (`$A --brief <repo> --role code-review|qa`), só com o pedido, a PR ou a branch e o critério. Nunca o mesmo worker,
   nunca continuação dele por SendMessage, nunca a própria sessão (que viu a volta do dev);
 - o parecer registra "revisão independente (worker novo)" ou "QA independente (worker novo)";
-- ajuste pedido volta como retrabalho normal: `fila ajuste` responde `RETRABALHO PROPRIO` (o Planou não devolve ao
-  próprio agente; o pedido fica como comentário do agente na tarefa), um worker de dev atende na mesma branch e PR e
-  outro worker NOVO confere o que mudou;
+- ajuste pedido volta como retrabalho normal (Planou 0.76.0): `fila ajuste` responde `DEVOLVIDA` como entre agentes e
+  a tarefa volta à coluna do dev desta instância; chega `-- AJUSTE PEDIDO`, espera a vaga, volta como `RETRABALHO`, um
+  worker de dev atende na mesma branch e PR, a entrega é `fila handoff` (não `in_review`) e outro worker NOVO confere o
+  que mudou;
 - a vaga de revisão ou de QA é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila.
 Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `qa`.
 

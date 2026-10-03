@@ -72,7 +72,7 @@
     "planou.queue"
    ],
    "decision": "faz",
-   "expected": "A sessão não revisa: delega a um worker NOVO com o brief --role code-review (só o pedido, a PR e o critério, nada do worker de dev), o parecer diz revisão independente (worker novo); aprova com fila done ou pede ajuste e, com RETRABALHO PROPRIO, manda um worker de dev na mesma branch e outro worker novo revisa o que mudou."
+   "expected": "A sessão não revisa: delega a um worker NOVO com o brief --role code-review (só o pedido, a PR e o critério, nada do worker de dev), o parecer diz revisão independente (worker novo); aprova com fila done ou pede ajuste com fila ajuste (DEVOLVIDA, de volta à coluna do dev desta instância); o retrabalho chega como AJUSTE PEDIDO, um worker de dev atende na mesma branch, a entrega é fila handoff e outro worker novo revisa o que mudou."
   }
  ]
 }

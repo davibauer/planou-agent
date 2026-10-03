@@ -123,13 +123,14 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
      sem a coluna configurada, o `done` concluiria a tarefa), sem esperar o merge. O ajuste pedido pelo revisor volta
      direto ao dev como `-- AJUSTE PEDIDO <PID> (<função> <nome>)`, pela seção abaixo; o do QA também (Planou 0.49.0).
    - **Revisão ou QA na mesma instância** (PLN0281: a coluna seguinte também é deste agente, com `code-review` ou `qa`
-     ligado junto do `dev-worker`): o mesmo `fila handoff` passa a tarefa a si mesmo. O Planou não guarda quem passou
-     nem a nota nesse caso, então o plugin guarda (`cache/planou/self_handoffs.json`) e a tarefa volta como
+     ligado junto do `dev-worker`): o mesmo `fila handoff` passa a tarefa a si mesmo. Desde o Planou 0.76.0 (PLN0286)
+     a passagem guarda quem passou (este agente, em `handed_off_by`) e a nota, como entre agentes, e a tarefa volta como
      `-- FILA LIBERADA <PID>: ... -> passada por voce mesmo (mesma instancia que desenvolve) para a coluna <coluna>`.
      A parte da coluna vai para um worker NOVO, nunca para a sessão nem para o worker que entregou (seção "Mesma
      instância que desenvolve" do `code-review` e do `qa`). A vaga dessa revisão conta no mesmo "Ao mesmo tempo".
-     O registro só vale enquanto a tarefa está na coluna para onde foi passada e só para colunas de revisão ou QA:
-     de volta à coluna do dev, numa coluna de outro tipo ou fora da fila, as linhas de sempre.
+     Vale só para colunas de revisão ou QA: de volta à coluna do dev ou numa coluna de outro tipo, as linhas de sempre.
+     O ajuste pedido nessa revisão (pelo worker novo ou pela pessoa) volta como qualquer `-- AJUSTE PEDIDO`, abaixo,
+     e a entrega do retrabalho é `fila handoff`, não `fila in_review`.
    - **Coluna por papel** (Planou PLN0284): o dono da coluna pode ser um papel em vez de um agente (`owner_role` nos
      estados). O heartbeat declara os papéis da instância em `roles`, tirados dos comportamentos ligados (`dev-worker`
      dev, `code-review` code-review, `qa` qa, `batch-release` release) ou de `planou.roles` no config, que substitui a
@@ -167,6 +168,10 @@ o briefing do retrabalho.
    O worker do ajuste abre key nova (`fila worker-start`), porque o da entrega anterior já fechou.
 4. Worker voltou: `$PL fila worker ... --key <key> --phases-from <output_file>` e `$PL fila in_review <PID> --pr-url
    <link>` de novo (a mesma PR). A entrega encerra o ajuste; contar ao usuário em uma linha o que mudou.
+   Ajuste da revisão ou QA desta mesma instância (`-- AJUSTE PEDIDO <PID> (<papel> <nome>, voce mesmo: revisao
+   independente)`, ou da pessoa nessa coluna; a linha do RETRABALHO diz "depois `fila handoff`"): entregar com
+   `$PL fila handoff <PID> --pr-url <link> --note "<PR ou branch>"`, porque com o mesmo dono na coluna seguinte o
+   `in_review` não vira passagem e a revisão não voltaria ao worker novo.
 `$PL fila ver` mostra o texto em `ajuste_pedido` (`fase`: `esperando a fila` ou `retrabalho`) até a nova entrega.
 
 ## Arquivos da tarefa vão como anexo

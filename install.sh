@@ -6,15 +6,24 @@
 #   curl -fsSL https://raw.githubusercontent.com/davibauer/planou-agent/main/install.sh | sh -s -- --base-url URL
 #
 # It installs, and a second run updates:
+#   0. Python (PLN0297): the system's python3 when it is 3.8 or newer; without it, a portable CPython 3.12
+#      (python-build-standalone, the release and the SHA-256 of each platform pinned below) in
+#      ~/.local/share/planou/python, next to the plugin copy (never inside it: the update swaps that folder whole). The
+#      launchers, the runner, the provisioner and its service find it first in PATH;
 #   1. the agent plugin: a copy of davibauer/planou-agent (public: the agent as published by the CI of the plugins
-#      repository; git, or the tarball without git) in ~/.local/share/planou/claude-plugins (the folder keeps its old
-#      name: the Windows task and the extension point at it). A copy cloned from the old repository (claude-plugins) moves
-#      to the public one on its own when it has no local changes,
-#      the skills ~/.claude/skills/agent and ~/.claude/skills/work-watch pointing at it, the `team` launcher in
-#      ~/.local/bin and ~/.config/team/agents.json (empty) when missing;
-#   2. the Team Terminals extension of VS Code, from extensions/vscode-team-terminals/dist/team-terminals.vsix, with
-#      `code --install-extension` (the extension then updates itself from the same copy);
-#   3. the local provisioner as a user service: systemd --user on Linux and WSL, launchd on macOS;
+#      repository) in ~/.local/share/planou/claude-plugins (the folder keeps its old name: the Windows task and the
+#      extension point at it). By default the .tar.gz of its latest GitHub Release, checked against the .sha256 of that
+#      release, without git (the provisioner then keeps it up to date the same way: "auto_update"). A copy that is a
+#      git clone keeps being updated by git (--git, --repo or --ref ask for git on a new copy). A copy cloned from the
+#      old repository (claude-plugins) moves to the public one on its own when it has no local changes,
+#      the skills ~/.claude/skills/agent and ~/.claude/skills/work-watch pointing at it, the launchers `team` and
+#      `planou-agent` (the employee in this terminal, reopened when the session ends) in ~/.local/bin and
+#      ~/.config/team/agents.json (empty) when missing;
+#   2. only with --vscode: the Team Terminals extension of VS Code, from
+#      extensions/vscode-team-terminals/dist/team-terminals.vsix, with `code --install-extension` (the extension then
+#      updates itself from the same copy);
+#   3. the local provisioner as a user service: systemd --user on Linux and WSL, launchd on macOS, with "auto_update"
+#      on in a new config.json;
 #   4. last, it asks for the pairing code of Planou (Configuracoes > Computadores > Conectar este computador), hidden, and
 #      turns the service on once this computer is connected. A computer already connected keeps its credential.
 # No account is created and no secret is shown: the code goes to `provisioner.py pair` on stdin, the credential goes
@@ -23,16 +32,21 @@
 # Options (each one also as an environment variable):
 #   --base-url URL     Planou (PLANOU_BASE_URL, default https://app.planou.com)
 #   --dir DIR          where the copy lives (PLANOU_INSTALL_DIR, default ~/.local/share/planou/claude-plugins)
-#   --ref REF          branch or tag (PLANOU_INSTALL_REF, default main)
-#   --repo URL         git repository (PLANOU_INSTALL_REPO)
-#   --tarball URL      archive used without git (PLANOU_INSTALL_TARBALL)
+#   --git              a new copy by git clone instead of the release archive (PLANOU_INSTALL_GIT=1)
+#   --ref REF          branch or tag, by git or by its archive (PLANOU_INSTALL_REF; asks for the git way)
+#   --repo URL         git repository (PLANOU_INSTALL_REPO; asks for the git way)
+#   --tarball URL      archive used instead of the release (PLANOU_INSTALL_TARBALL; no checksum to check)
 #   --no-git           use the archive even with git (PLANOU_INSTALL_NO_GIT=1)
 #   --service MODE     auto | none | wsl-task (PLANOU_INSTALL_SERVICE; wsl-task: the Windows task runs the provisioner)
-#   --no-vscode        skip the extension (PLANOU_INSTALL_VSCODE=0)
+#   --vscode           also install the Team Terminals extension (PLANOU_INSTALL_VSCODE=1; off by default)
+#   --no-vscode        skip the extension (the default; kept for older callers)
 #   --no-pair          skip the pairing (PLANOU_INSTALL_PAIR=0)
 #   --code-stdin       read the pairing code from stdin instead of the terminal (only when running a saved copy)
 # Exit: 0 done, 1 an error (the message says which), 3 installed but the pairing failed (run again with a new code).
-# Test hooks: PLANOU_INSTALL_OS (linux|wsl|macos), PLANOU_INSTALL_TTY, SYSTEMCTL, LAUNCHCTL, PLANOU_CODE_CLI.
+# Test hooks: PLANOU_INSTALL_OS (linux|wsl|macos), PLANOU_INSTALL_TTY, SYSTEMCTL, LAUNCHCTL, PLANOU_CODE_CLI,
+# PLANOU_INSTALL_RELEASES (the releases page of planou-agent), PLANOU_PYTHON_BASE_URL and PLANOU_PYTHON_SHA256 (where
+# the portable Python comes from and its checksum), PLANOU_PYTHON_DIR, PLANOU_INSTALL_NO_SYSTEM_PYTHON=1 (act as if
+# the system had no python3).
 # The text is ASCII on purpose: install.ps1 and old terminals pass it through without mangling accents.
 set -eu
 
@@ -42,27 +56,33 @@ REF=${PLANOU_INSTALL_REF:-main}
 REPO=${PLANOU_INSTALL_REPO:-https://github.com/davibauer/planou-agent.git}
 TARBALL=${PLANOU_INSTALL_TARBALL:-}
 NO_GIT=${PLANOU_INSTALL_NO_GIT:-0}
+# git only when asked for (a new copy) or when the copy already is a clone; otherwise the release archive
+USE_GIT=${PLANOU_INSTALL_GIT:-0}
+[ -z "${PLANOU_INSTALL_REPO:-}${PLANOU_INSTALL_REF:-}" ] || USE_GIT=1
+RELEASES=${PLANOU_INSTALL_RELEASES:-https://github.com/davibauer/planou-agent/releases}
 SERVICE=${PLANOU_INSTALL_SERVICE:-auto}
-VSCODE=${PLANOU_INSTALL_VSCODE:-1}
+VSCODE=${PLANOU_INSTALL_VSCODE:-0}
 PAIR=${PLANOU_INSTALL_PAIR:-1}
 CODE_STDIN=0
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'aviso: %s\n' "$*" >&2; }
 die() { printf 'erro: %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '2,32p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,49p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --base-url) [ $# -ge 2 ] || die "--base-url sem valor"; BASE_URL=$2; shift 2;;
     --base-url=*) BASE_URL=${1#*=}; shift;;
     --dir) [ $# -ge 2 ] || die "--dir sem valor"; DEST=$2; shift 2;;
-    --ref) [ $# -ge 2 ] || die "--ref sem valor"; REF=$2; shift 2;;
-    --repo) [ $# -ge 2 ] || die "--repo sem valor"; REPO=$2; shift 2;;
+    --git) USE_GIT=1; shift;;
+    --ref) [ $# -ge 2 ] || die "--ref sem valor"; REF=$2; USE_GIT=1; shift 2;;
+    --repo) [ $# -ge 2 ] || die "--repo sem valor"; REPO=$2; USE_GIT=1; shift 2;;
     --tarball) [ $# -ge 2 ] || die "--tarball sem valor"; TARBALL=$2; shift 2;;
     --no-git) NO_GIT=1; shift;;
     --service) [ $# -ge 2 ] || die "--service sem valor"; SERVICE=$2; shift 2;;
     --service=*) SERVICE=${1#*=}; shift;;
+    --vscode) VSCODE=1; shift;;
     --no-vscode) VSCODE=0; shift;;
     --no-pair) PAIR=0; shift;;
     --code-stdin) CODE_STDIN=1; shift;;
@@ -71,7 +91,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$SERVICE" in auto|none|wsl-task) ;; *) die "--service: use auto, none ou wsl-task";; esac
-[ -n "$TARBALL" ] || TARBALL="https://codeload.github.com/davibauer/planou-agent/tar.gz/$REF"
+# the archive of a branch or tag (no checksum to check) only when a ref was asked for; otherwise the release
+[ -n "$TARBALL" ] || [ "$USE_GIT" != 1 ] || TARBALL="https://codeload.github.com/davibauer/planou-agent/tar.gz/$REF"
+TARBALL_SHA=
 BASE_URL=${BASE_URL%/}
 case "$BASE_URL" in */v1) ;; *) BASE_URL="$BASE_URL/v1";; esac
 [ -n "${HOME:-}" ] && [ -d "$HOME" ] || die "HOME nao definido"
@@ -96,20 +118,109 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SYSTEMCTL=${SYSTEMCTL:-systemctl}
 LAUNCHCTL=${LAUNCHCTL:-launchctl}
 
-# ------------------------------------------------------------------------------------------------ prerequisites
-command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' \
-  2>/dev/null || die "precisa do python3 (3.8 ou mais novo)"
+# ------------------------------------------------------------------------------------------------ helpers
+# download <url> <file>: curl, else wget; nothing else is needed (no git, no python yet)
+download() {
+  if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 2 -o "$2" "$1"
+  elif command -v wget >/dev/null 2>&1; then wget -qO "$2" "$1"
+  else die "precisa do curl ou do wget para baixar"; fi
+}
+
+# sha256_of <file>: its SHA-256 in hex (sha256sum on Linux, shasum on macOS, openssl elsewhere)
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 "$1" | sed 's/^.*= *//'
+  fi
+}
+
+# ------------------------------------------------------------------------------------------------ 0. python
+# The portable CPython (PLN0297): python-build-standalone, release 20261001, CPython 3.12.15, install_only_stripped.
+# Each SHA-256 was checked by downloading the file. glibc builds: Alpine and other musl systems need their own python3.
+PBS_TAG=20261001
+PBS_VERSION=3.12.15
+PY_DIR=${PLANOU_PYTHON_DIR:-$HOME/.local/share/planou/python}
+PBS_BASE=${PLANOU_PYTHON_BASE_URL:-https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG}
+
+py_ok() { "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; }
+
+system_python() {
+  [ "${PLANOU_INSTALL_NO_SYSTEM_PYTHON:-0}" != 1 ] || return 1
+  p=$(command -v python3 2>/dev/null) || return 1
+  case "$p" in "$PY_DIR"/*) return 1;; esac      # the portable one is checked below, with its marker
+  # macOS without the Command Line Tools: /usr/bin/python3 only opens a dialog that offers to install them
+  if [ "$OS" = macos ] && [ "$p" = /usr/bin/python3 ] && ! xcode-select -p >/dev/null 2>&1; then return 1; fi
+  py_ok "$p" || return 1
+  printf '%s' "$p"
+}
+
+portable_python() {
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64|Linux/amd64) triple=x86_64-unknown-linux-gnu; sum=7bb1659e3235077b7f63d5b6eb6ce653c6fcd6c5041e9d5f73b42ce10421464d;;
+    Linux/aarch64|Linux/arm64) triple=aarch64-unknown-linux-gnu; sum=0b35f4dc08d58534eb82e024989e2db9873885dccd4f2a316ff55c0cec146123;;
+    Darwin/x86_64) triple=x86_64-apple-darwin; sum=d101ac54bc34afff54741406261325dc896b7b646a36a58fff4845ef0a00b2ce;;
+    Darwin/arm64) triple=aarch64-apple-darwin; sum=10cab8f6ed6202fdd81637aa6eda4af8d5b7eaa8fc42f9df3c6bea4923de0d93;;
+    *) die "sem python3 3.8 ou mais novo e sem Python portatil para $(uname -s) $(uname -m): instale o python3 e rode de novo";;
+  esac
+  [ -z "${PLANOU_PYTHON_SHA256:-}" ] || sum=$PLANOU_PYTHON_SHA256
+  file="cpython-$PBS_VERSION+$PBS_TAG-$triple-install_only_stripped.tar.gz"
+  if [ -x "$PY_DIR/bin/python3" ] && [ "$(cat "$PY_DIR/.planou-python" 2>/dev/null)" = "$file" ] && py_ok "$PY_DIR/bin/python3"; then
+    say "python: portatil $PBS_VERSION em $PY_DIR"
+    PY="$PY_DIR/bin/python3"; return
+  fi
+  say "python: python3 3.8 ou mais novo nao encontrado; baixando o Python portatil $PBS_VERSION (uns 30 MB, so desta vez)"
+  tmp="$PY_DIR.new.$$"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  url="$PBS_BASE/$(printf '%s' "$file" | sed 's/+/%2B/g')"
+  download "$url" "$tmp/python.tar.gz" || { rm -rf "$tmp"; die "nao consegui baixar o Python portatil ($url)"; }
+  got=$(sha256_of "$tmp/python.tar.gz")
+  [ -n "$got" ] || { rm -rf "$tmp"; die "sem sha256sum, shasum ou openssl para conferir o Python portatil"; }
+  [ "$got" = "$sum" ] || { rm -rf "$tmp"; die "o Python portatil baixado nao confere (SHA-256 $got); nada foi instalado"; }
+  mkdir -p "$tmp/x"
+  tar -xzf "$tmp/python.tar.gz" -C "$tmp/x" || { rm -rf "$tmp"; die "nao consegui extrair o Python portatil"; }
+  [ -x "$tmp/x/python/bin/python3" ] || { rm -rf "$tmp"; die "o arquivo do Python portatil nao tem python/bin/python3"; }
+  printf '%s\n' "$file" > "$tmp/x/python/.planou-python"
+  rm -rf "$PY_DIR.old"
+  [ ! -e "$PY_DIR" ] || mv "$PY_DIR" "$PY_DIR.old"
+  mkdir -p "$(dirname "$PY_DIR")"
+  mv "$tmp/x/python" "$PY_DIR"
+  rm -rf "$tmp" "$PY_DIR.old"
+  py_ok "$PY_DIR/bin/python3" || die "o Python portatil nao roda neste computador ($PY_DIR/bin/python3)"
+  say "python: portatil $PBS_VERSION conferido (SHA-256) em $PY_DIR"
+  PY="$PY_DIR/bin/python3"
+}
+
 say "== Planou: instalando o plugin agent ($OS)"
+if PY=$(system_python); then :; else portable_python; fi
+# everything below (and the scripts it starts) finds this python first as python3
+PATH="$(dirname "$PY"):$PATH"; export PATH
 
 # ------------------------------------------------------------------------------------------------ 1. the plugin copy
 have_git() { [ "$NO_GIT" != 1 ] && git --version >/dev/null 2>&1; }
 
+# release_archive: TARBALL and TARBALL_SHA of the latest release of planou-agent (the tag comes from the redirect of
+# releases/latest: no GitHub API, no rate limit), the same files the provisioner's update reads
+release_archive() {
+  command -v curl >/dev/null 2>&1 || die "precisa do curl para baixar o plugin"
+  final=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "$RELEASES/latest") \
+    || die "nao consegui ler a versao publicada do plugin ($RELEASES/latest)"
+  tag=${final##*/}
+  case "$tag" in v[0-9]*.[0-9]*.[0-9]*) ;; *) die "nao achei a versao publicada do plugin em $RELEASES/latest";; esac
+  TARBALL="$RELEASES/download/$tag/planou-agent-$tag.tar.gz"
+  TARBALL_SHA=$(curl -fsSL "$TARBALL.sha256" 2>/dev/null | cut -d' ' -f1)
+  [ -n "$TARBALL_SHA" ] || die "a versao $tag do plugin nao tem o .sha256; nada foi instalado"
+}
+
 fetch_tarball() {
   tmp="$DEST.new.$$"
-  rm -rf "$tmp"; mkdir -p "$tmp"
-  if command -v curl >/dev/null 2>&1; then curl -fsSL "$TARBALL" | tar -xzf - -C "$tmp" --strip-components=1
-  elif command -v wget >/dev/null 2>&1; then wget -qO- "$TARBALL" | tar -xzf - -C "$tmp" --strip-components=1
-  else rm -rf "$tmp"; die "precisa do git, do curl ou do wget para baixar o plugin"; fi
+  rm -rf "$tmp" "$tmp.tar.gz"; mkdir -p "$tmp"
+  download "$TARBALL" "$tmp.tar.gz" || { rm -rf "$tmp" "$tmp.tar.gz"; die "nao consegui baixar o plugin ($TARBALL)"; }
+  if [ -n "$TARBALL_SHA" ]; then
+    got=$(sha256_of "$tmp.tar.gz")
+    [ "$got" = "$TARBALL_SHA" ] || { rm -rf "$tmp" "$tmp.tar.gz"; die "o plugin baixado nao confere (SHA-256 $got); nada foi instalado"; }
+  fi
+  tar -xzf "$tmp.tar.gz" -C "$tmp" --strip-components=1 || { rm -rf "$tmp" "$tmp.tar.gz"; die "nao consegui extrair o plugin ($TARBALL)"; }
+  rm -f "$tmp.tar.gz"
   [ -f "$tmp/plugins/agent/skills/agent/scripts/provisioner.py" ] || { rm -rf "$tmp"; die "arquivo baixado sem o plugin agent ($TARBALL)"; }
   printf '%s\n' "$TARBALL" > "$tmp/.$MARK"
   rm -rf "$DEST.old"
@@ -138,17 +249,20 @@ if [ -d "$DEST/.git" ] && have_git; then
   else
     die "a copia em $DEST tem mudancas locais ou saiu da $REF; resolva la (git status) e rode de novo"
   fi
-elif [ ! -e "$DEST" ] && have_git; then
+elif [ ! -e "$DEST" ] && [ "$USE_GIT" = 1 ] && have_git; then
   git clone -q --branch "$REF" "$REPO" "$DEST" || die "nao consegui clonar $REPO"
   say "plugin: instalado em $DEST ($(git -C "$DEST" rev-parse --short HEAD))"
 elif [ ! -e "$DEST" ] || [ -f "$DEST/.$MARK" ]; then
+  tag=
+  [ -n "$TARBALL" ] || release_archive
   fetch_tarball
-  say "plugin: instalado em $DEST (arquivo, sem git)"
+  if [ -n "$tag" ]; then say "plugin: instalado em $DEST ($tag, arquivo conferido pelo SHA-256, sem git)"
+  else say "plugin: instalado em $DEST (arquivo, sem git)"; fi
 else
   die "$DEST existe e nao e uma copia deste instalador; apague ou use --dir"
 fi
 [ -f "$OURS/scripts/provisioner.py" ] || die "a copia em $DEST nao tem o plugin agent"
-VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
+VERSION=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
   "$DEST/plugins/agent/.claude-plugin/plugin.json" 2>/dev/null || echo '?')
 
 # skills: a link this installer made (or a broken one) follows the copy; anything else stays
@@ -184,11 +298,25 @@ EOF
 else
   say "launcher: mantido ($BIN/team ja existe)"
 fi
-case ":$PATH:" in *":$BIN:"*) ;; *) warn "$BIN nao esta no PATH: acrescente no ~/.profile para usar o comando team";; esac
+# planou-agent <name>: the employee in this terminal (employee.sh of the copy in use), reopened when the session ends
+if [ ! -e "$BIN/planou-agent" ] || grep -q "$MARK" "$BIN/planou-agent" 2>/dev/null; then
+  cat > "$BIN/planou-agent.tmp.$$" <<'EOF'
+#!/usr/bin/env bash
+# planou-install: planou-agent launcher stub. Runs employee.sh of the agent plugin copy in use; rewritten by install.sh.
+E="${PLANOU_EMPLOYEE_SH:-$HOME/.claude/skills/agent/scripts/employee.sh}"
+if [ ! -f "$E" ]; then echo "planou-agent: nao achei $E (plugin agent)" >&2; exit 1; fi
+exec bash "$E" "$@"
+EOF
+  chmod 755 "$BIN/planou-agent.tmp.$$"; mv "$BIN/planou-agent.tmp.$$" "$BIN/planou-agent"
+  say "launcher: $BIN/planou-agent"
+else
+  say "launcher: mantido ($BIN/planou-agent ja existe)"
+fi
+case ":$PATH:" in *":$BIN:"*) ;; *) warn "$BIN nao esta no PATH: acrescente no ~/.profile para usar os comandos team e planou-agent";; esac
 
 # the team list: the provisioner refuses to work without it; created empty (never overwritten)
 if [ ! -e "$HOME/.config/team/agents.json" ]; then
-  printf '[]' | python3 "$OURS/scripts/team_agents.py" migrate --seed - >/dev/null 2>&1 \
+  printf '[]' | "$PY" "$OURS/scripts/team_agents.py" migrate --seed - >/dev/null 2>&1 \
     || die "nao consegui criar ~/.config/team/agents.json"
   say "time: ~/.config/team/agents.json criado"
 fi
@@ -221,7 +349,7 @@ umask 077
 mkdir -p "$PROV_DIR/secrets" "$PROV_DIR/data"
 chmod 700 "$PROV_DIR" "$PROV_DIR/secrets" "$PROV_DIR/data"
 if [ ! -f "$PROV_DIR/config.json" ]; then
-  printf '{\n  "base_url": "%s",\n  "interval_s": 30\n}\n' "$BASE_URL" > "$PROV_DIR/config.json"
+  printf '{\n  "base_url": "%s",\n  "interval_s": 30,\n  "auto_update": true\n}\n' "$BASE_URL" > "$PROV_DIR/config.json"
 fi
 umask 022
 
@@ -260,7 +388,7 @@ case "$MODE" in
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>$h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>$h/.local/share/planou/python/bin:$h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>PYTHONUNBUFFERED</key><string>1</string>
   </dict>
   <key>RunAtLoad</key><true/>
@@ -278,18 +406,18 @@ EOF
   none) say "servico: pulado (--service none)";;
   manual)
     if [ "$OS" = wsl ]; then
-      warn "o WSL esta sem systemd: ligue em /etc/wsl.conf ([boot] systemd=true) e rode de novo, ou instale pelo install.ps1 no Windows"
+      warn "o WSL esta sem systemd: enquanto a janela do funcionario (planou-agent) estiver aberta, ela faz o papel do servico; para o servico, ligue em /etc/wsl.conf ([boot] systemd=true)"
     else
-      warn "systemctl --user nao responde: rode o provisionador por conta propria: python3 $ACTIVE/scripts/provisioner.py run"
+      warn "systemctl --user nao responde: enquanto a janela do funcionario (planou-agent) estiver aberta, ela faz o papel do servico; ou rode: $PY $ACTIVE/scripts/provisioner.py run"
     fi;;
 esac
 
 # ------------------------------------------------------------------------------------------------ 4. pairing
 paired() { grep -q '^PLANOU_PROVISIONER_KEY=.' "$CRED" 2>/dev/null; }
-PAIR_CMD="python3 $OURS/scripts/provisioner.py pair --base-url $BASE_URL"
+PAIR_CMD="$PY $OURS/scripts/provisioner.py pair --base-url $BASE_URL"
 
 send_code() {   # the code only on stdin: printf is a builtin, so it never shows up in a process list
-  printf '%s\n' "$1" | python3 "$OURS/scripts/provisioner.py" pair --base-url "$BASE_URL"
+  printf '%s\n' "$1" | "$PY" "$OURS/scripts/provisioner.py" pair --base-url "$BASE_URL"
 }
 
 pair_status=0
