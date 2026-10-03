@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.78.1 (2026-10-03)
+- Provisionador: quando o relógio do computador volta alguns segundos (acerto de hora, comum no WSL), o cartão do funcionário sem sessão continua dizendo a causa no tempo certo, em vez de ficar calado até o relógio alcançar.
+
 ## 0.78.0 (2026-10-03)
 - Vídeo como anexo da tarefa (PLN0302): o `attach` aceita `.webm` e `.mp4`, enviados como `video/webm` e `video/mp4`, e a pessoa assiste no player da seção Anexos do Planou (0.75.0 ou mais novo). O limite vem da extensão: até 50 MB para vídeo e 10 MB para o resto, conferido antes de enviar, com a mensagem dizendo o limite. Um 413 do Planou (arquivo grande demais) é final: o tick não tenta de novo até o arquivo mudar.
 - Vídeo só sobe pelo `attach` explícito: citado numa nota ou numa descrição de tarefa ele não vira anexo e o caminho fica no texto, porque pode ser gravação de reunião com dado de cliente. A citação automática continua para os tipos de antes.

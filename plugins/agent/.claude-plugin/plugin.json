@@ -1,6 +1,6 @@
 {
   "name": "agent",
-  "version": "0.78.0",
+  "version": "0.78.1",
   "description": "Agent do time para o Claude Code: um plugin, uma instância por agent. Runner em background com volta leve no Planou (fila, conversa, heartbeat), tick de fontes e ganchos, e comportamentos ligados pela configuração da instância. Instância nova nasce em modo teste.",
   "author": {
     "name": "Planou"

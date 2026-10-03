@@ -139,6 +139,14 @@ def write_atomic(path, text, mode=0o600):
         raise
 
 
+def since(mark):
+    """Seconds since `mark`, a time.time() an earlier pass saved in state.json. Never negative: the wall clock can step
+    back between two passes (NTP, or WSL2 resyncing with the host, seen at about 10 s every 30 s), and a mark "in the
+    future" would hold a wait of 0 s, or any wait, for as long as the clock is behind. monotonic() does not survive the
+    process (state.json is read by the next pass), so the clamp is the fix."""
+    return max(0.0, time.time() - (mark or 0))
+
+
 def read_json(path, default):
     try:
         with open(path) as f: return json.load(f)
@@ -705,21 +713,20 @@ class Provisioner:
         the same status goes again with what to run. Once: the inventory answer has no `detail` to compare with."""
         aid, name = str(a['agent_id']), a['name']
         st = self.state.get(aid) or {}
-        since = st.get('terminal_open_at')
-        if not since or st.get('no_session_told'): return
-        now = time.time()
+        opened = st.get('terminal_open_at')
+        if not opened or st.get('no_session_told'): return
         if (not adopted and not st.get('fallback_at') and self.cfg['session_fallback'] == 'tmux'
                 and ours(name, aid)):
-            if now - since < self.cfg['session_fallback_s']: return
-            st['fallback_at'] = int(now)
+            if since(opened) < self.cfg['session_fallback_s']: return
+            st['fallback_at'] = int(time.time())
             self.state[aid] = st
             if not session_held(name) and start_session(name):
                 st['fallback'] = 'tmux'
                 boot = boot_id()
                 if boot: st['tmux_boot'] = boot
                 return self.report(a, 'terminal_open', FALLBACK_UP.format(see=session_cmd(name)[0]))
-        base = st.get('fallback_at') if st.get('fallback') else since
-        if now - base < self.cfg['session_timeout_s']: return
+        base = st.get('fallback_at') if st.get('fallback') else opened
+        if since(base) < self.cfg['session_timeout_s']: return
         see, run = session_cmd(name)
         self.report(a, 'terminal_open', (FALLBACK_NO_RUNNER.format(see=see, run=run) if st.get('fallback')
                                          else NO_SESSION.format(run=run)))
@@ -908,7 +915,7 @@ class Provisioner:
         if status == 'error':
             st = self.state.get(str(a['agent_id'])) or {}
             new_key = key.get('state') == 'waiting' and key.get('prefix') != st.get('failed_prefix')
-            if not new_key and time.time() - (st.get('failed_at') or 0) < self.cfg['retry_s']: return
+            if not new_key and since(st.get('failed_at')) < self.cfg['retry_s']: return
             if key.get('state') != 'waiting' and not (ours(name, a['agent_id']) and os.path.isfile(key_file(name))):
                 return                                   # nothing new to try with: wait for a new key
             return self.create(a)
