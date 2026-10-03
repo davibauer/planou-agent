@@ -33,6 +33,14 @@ _NAMES = {'CONFIG': ('config.json',), 'DATA_DIR': ('data',), 'SECRETS_DIR': ('se
           'RECORDING_OWNERS': ('data', 'recording_owners.json'), 'NOTION_ENV': ('secrets', 'notion.env')}
 
 
+def claude_dir(home=None):
+    """Claude Code's config folder, where it keeps sessions/<pid>.json and projects/: $CLAUDE_CONFIG_DIR when set (a
+    session opened with another config folder), else <home>/.claude. An explicit `home` (tests) wins over the variable.
+    Not for ~/.claude/skills: that is where the plugin is installed, a different thing."""
+    if home: return os.path.join(home, '.claude')
+    return os.path.expanduser(os.environ.get('CLAUDE_CONFIG_DIR') or '') or os.path.expanduser('~/.claude')
+
+
 def root():
     """~/.config/watch-core (or $WATCH_CORE_HOME), read now. Under WATCH_CORE_TEST=1 it must live in the temp folder."""
     r = os.path.expanduser(os.environ.get('WATCH_CORE_HOME') or '~/.config/watch-core')

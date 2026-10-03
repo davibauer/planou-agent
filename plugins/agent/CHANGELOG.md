@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.76.1 (2026-10-03)
+- Sessão aberta com `CLAUDE_CONFIG_DIR` apontando para outra pasta: a aba Conversa volta a receber as mensagens e os turnos voltam a contar. O runner, o transcript, as fases dos workers e o lançador `team` procuram `sessions/` e `projects/` na pasta da variável e caem em `~/.claude` só sem ela.
+
 ## 0.76.0 (2026-10-03)
 - Reuniões gravadas em um só idioma: a opção `language` em `behavior_config.recordings` (código curto, como `pt`) vai para a transcrição como `ATA_LANG`, só para essa instância, e evita que uma reunião em português com início silencioso seja detectada como inglês e saia traduzida. Sem a opção, nada muda. Valor inválido (como `pt-BR`) aparece no `--validate`.
 - Funcionário novo sobe sem VS Code: se a extensão Team Terminals não abrir o terminal em 1 minuto, o provisionador abre a sessão sozinho num tmux (`tmux -L agent-<nome> attach -t <nome>` para ver) e o cartão diz "sem VS Code: subi a sessao pelo terminal". Sem tmux, ou se o runner ainda não subir, o cartão diz o que fazer: abrir o VS Code com Team Terminals ou rodar `team <nome>` no computador. Pausar e remover fecham essa sessão.

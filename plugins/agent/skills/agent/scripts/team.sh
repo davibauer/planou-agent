@@ -88,7 +88,7 @@ aposenta() {   # keeps the current id in the history and drops the pointer
 if [[ "$ROTATE" == *" $m "* ]]; then
   export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=$COMPACT_PCT
   if [ -s "$ptr" ]; then
-    old=$(tr -d '[:space:]' < "$ptr"); f="$HOME/.claude/projects/$slug/$old.jsonl"
+    old=$(tr -d '[:space:]' < "$ptr"); f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$slug/$old.jsonl"
     if [ -f "$f" ]; then
       ts=$(head -c 20000 "$f" | grep -o '"timestamp":"[^"]*"' | head -1 | cut -d'"' -f4)   # UTC
       inicio=$(TZ=America/Sao_Paulo date -d "$ts" +%F 2>/dev/null)
@@ -100,7 +100,7 @@ if [ ! -s "$ptr" ]; then
   python3 -c 'import uuid; print(uuid.uuid4())' > "$ptr"
 fi
 sid=$(tr -d '[:space:]' < "$ptr")
-if [ -f "$HOME/.claude/projects/$slug/$sid.jsonl" ]; then
+if [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$slug/$sid.jsonl" ]; then
   echo ">> $m: retomando a sessão $sid"
   claude --resume "$sid" --name "$m" --remote-control "$m" --dangerously-skip-permissions "/$skill"
 else

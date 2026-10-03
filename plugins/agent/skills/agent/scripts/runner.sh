@@ -276,7 +276,7 @@ echo $$ > "$D/runner.pid"; rm -f "$D/runner.stop"
 planou=0; PL active >/dev/null 2>&1 && planou=1
 
 # the Claude Code session this runner belongs to: the first ancestor with ~/.claude/sessions/<pid>.json
-SDIR=~/.claude/sessions
+SDIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"   # a session opened with another config folder
 SPID=; SSTART=; SID=; p=$PPID
 for _ in $(seq 1 32); do
   [ "${p:-0}" -gt 1 ] 2>/dev/null || break

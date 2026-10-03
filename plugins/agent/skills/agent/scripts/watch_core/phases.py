@@ -176,8 +176,8 @@ def resolve(ref, home=None):
         if aid.endswith(suffix): aid = aid[:-len(suffix)]
     if aid.startswith('agent-'): aid = aid[len('agent-'):]
     if not re.fullmatch(r'[A-Za-z0-9_-]{6,80}', aid): return None
-    home = home or os.path.expanduser('~')
-    found = sorted(glob.glob(os.path.join(glob.escape(home), '.claude', 'projects', '*', '*', 'subagents', f'agent-{aid}.jsonl')),
+    from . import config
+    found = sorted(glob.glob(os.path.join(glob.escape(config.claude_dir(home)), 'projects', '*', '*', 'subagents', f'agent-{aid}.jsonl')),
                    key=lambda p: os.path.getmtime(p), reverse=True)
     return found[0] if found else None
 

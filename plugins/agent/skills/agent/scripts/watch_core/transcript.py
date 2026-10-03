@@ -5,9 +5,9 @@ session transcript (a `stat`, no Python); only when that changed it calls `pump`
 the last read and sends it. This never wakes the session and never touches the heavy tick.
 
 Where the session is:
-  ~/.claude/sessions/<pid>.json    one per live session: sessionId, cwd, name (the agent), bridgeSessionId (the Remote
+  <claude dir>/sessions/<pid>.json    one per live session: sessionId, cwd, name (the agent), bridgeSessionId (the Remote
                                    Control id; the link is https://claude.ai/code/<bridgeSessionId>)
-  ~/.claude/projects/<cwd with every non-alphanumeric character as '-'>/<sessionId>.jsonl
+  <claude dir>/projects/<cwd with every non-alphanumeric character as '-'>/<sessionId>.jsonl
                                    the transcript; subagents in <sessionId>/subagents/*.jsonl
 The session is the first ancestor of this process with a sessions/<pid>.json (the runner is a child of the session);
 without one, the live session named after the agent.
@@ -51,7 +51,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from . import fileio, planou, turns
+from . import config, fileio, planou, turns
 
 TAIL_BYTES = 4 * 1024 * 1024        # first read of a session: look for the last prompt within this much
 BATCH_MESSAGES = 50
@@ -67,7 +67,7 @@ RETRY_STATUS = (401, 403, 404, 405, 408, 409, 425, 429)   # the server may not h
 
 
 def _claude_dir():
-    return os.path.expanduser('~/.claude')
+    return config.claude_dir()
 
 
 def _read_session(pid):
