@@ -64,6 +64,9 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    **Em refinamento** com a pergunta em Precisa de você (não ocupa vaga); tarefa criada pela pessoa vai para `blocked`
    com a pergunta. Depois, esperar: a resposta devolve a tarefa para A fazer e ela volta pela fila (`-- FILA`). Com
    `"confidentiality": "minimum"` a pergunta não sobe: dizer o que precisa também na sessão.
+   Com o comportamento `prototype` ligado, tarefa que muda tela com o desenho em aberto passa por ele antes do dev (protótipo em PNG no card e
+   a aprovação do usuário). A aprovação do protótipo é decisão pessoal do usuário: nunca destravar pela recomendada nem
+   com `pergunta --auto`.
 2. `$PL fila started <PID> --estimate-h <H>` (a estimativa do agente, em horas, do trabalho inteiro) e delegar a
    entrega a um worker, em background, conforme o comportamento `dev-worker` (ou fazer na sessão, quando é só
    investigação curta), com o `<PID>` na descrição do worker. A sessão fica livre para o runner.

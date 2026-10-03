@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.77.0 (2026-10-03)
+- Comportamento novo `prototype` (sob demanda): a tarefa da fila que muda tela e deixa o desenho em aberto ganha, antes do dev, um protótipo em PNG anexado ao card (desenho já decidido ou ajuste pequeno de tela vão direto), feito por um worker a partir do protótipo de referência e dos tokens do projeto, com os estados vazio, erro e carregando, nas larguras 1360, 834 e 390, claro e escuro. A tarefa espera em `blocked` a resposta do usuário (aprovar, aprovar com ajustes, que vão direto para o dev, ou refazer), que nunca se destrava sozinha pela recomendada. Não vem ligado em nenhuma instância; passo a passo em `docs/prototype.md`.
+- `scripts/prototype_shot.cjs` renderiza um HTML local em PNG por largura e tema com o Playwright do próprio projeto (pelo `NODE_PATH`, sem dependência nova no plugin) e recusa link no lugar do arquivo.
+- As lições do agente sobem para a aba Papel do Planou: o texto das seções dele dos últimos 7 dias vai no arquivo de lições do manifesto, e o Planou mostra cada lição com o selo do estado (aplicada, proposta, recusada, a aplicar). Um Planou que ainda não aceita o texto recebe o arquivo sem ele, sem quebrar o sinal de vida.
+- Uma ação só dá baixa pela PR a que ela está ligada (a do texto ou a do link do item; sem PR em nenhum dos dois, fecha como antes) (número ou endereço exato: #100 não casa com #1000), e uma ação que espera um merge ("ao mergear A, redirecionar B") nunca fecha por merge nenhum. Se o gancho da instância tentar, a ação volta para aberta e o tick avisa o motivo. Ação com duas PRs ou condicional também deixa de ganhar o link automático da primeira PR.
+- `--acao done` (e `--acao add`) feito com o runner vivo não se perde mais: o comando relê o estado com trava, e o tick, ao gravar a cópia que leu no começo, mantém as ações que a linha de comando fechou ou criou nesse meio tempo.
+
 ## 0.76.1 (2026-10-03)
 - Sessão aberta com `CLAUDE_CONFIG_DIR` apontando para outra pasta: a aba Conversa volta a receber as mensagens e os turnos voltam a contar. O runner, o transcript, as fases dos workers e o lançador `team` procuram `sessions/` e `projects/` na pasta da variável e caem em `~/.claude` só sem ela.
 

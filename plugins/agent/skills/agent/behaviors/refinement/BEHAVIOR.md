@@ -21,6 +21,7 @@ antes de o usuário aprovar na tela.
 2. Para cada tarefa, só onde houver motivo real, uma sugestão de cada tipo no máximo:
    - `estimate`: `estimate_h` em horas (maior que 0). Estime pelo que a tarefa pede e pelo que você já fez parecido;
      não mexa numa estimativa que já existe sem dizer por que ela está errada.
+     Tarefa que muda tela com o desenho em aberto, com o comportamento `prototype` ligado, conta também o protótipo antes do dev.
    - `split`: de 2 a `max_parts` partes (`title`, `detail` opcional, `estimate_h` opcional) quando a tarefa junta
      entregas que andam sozinhas. Não quebre o que cabe num dia de trabalho.
    - `agent_can_do`: `true` quando a tarefa está clara o bastante para um agente começar sozinho (o que fazer e como

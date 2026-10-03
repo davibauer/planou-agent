@@ -51,14 +51,60 @@ def exige_live(efeito):
 
 
 # ---------------- estado ----------------
+_BASE = {}                   # id(state) -> (state, its actions as they were on disk when it was read); see save_state
+
+
+def _acoes_json(s):
+    return {a['id']: json.dumps(a, sort_keys=True) for a in (s.get('acoes') or []) if isinstance(a, dict) and 'id' in a}
+
+
 def load_state():
-    try: return json.load(open(STATE))
-    except (FileNotFoundError, json.JSONDecodeError): return {}
+    try:
+        with open(STATE) as f: s = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError): s = {}
+    while len(_BASE) >= 8: _BASE.pop(next(iter(_BASE)))
+    _BASE[id(s)] = (s, _acoes_json(s))      # the reference keeps the id from being reused
+    return s
+
+
+def state_lock():
+    """Exclusive, cross-process and reentrant lock of the state file: hold it for a read, change, save (PLN0256)."""
+    return fileio.locked(STATE)
+
+
+def _merge_acoes(s, disk, base):
+    """The runner holds its copy of the state for the whole tick; the CLI (`--acao add/done`) writes the file meanwhile.
+    Before saving that copy, take from the file every action someone else added or changed since the copy was read and
+    this copy did not touch. Both changed: an action closed by either side stays closed. Never loses a --acao done."""
+    mine = {a['id']: a for a in (s.get('acoes') or []) if isinstance(a, dict) and 'id' in a}
+    out = list(s.get('acoes') or [])
+    for a in disk.get('acoes') or []:
+        if not isinstance(a, dict) or 'id' not in a: continue
+        j = json.dumps(a, sort_keys=True)
+        if a['id'] not in mine:
+            if a['id'] not in base: out.append(a)            # added by someone else (one this copy dropped stays dropped)
+        elif j != base.get(a['id']):                          # changed by someone else
+            cur = mine[a['id']]
+            if json.dumps(cur, sort_keys=True) == base.get(a['id']) or (a.get('status') == 'feita' and cur.get('status') != 'feita'):
+                out[out.index(cur)] = a
+    s['acoes'] = out
+    s['acao_seq'] = max(s.get('acao_seq', 0), disk.get('acao_seq', 0), max([a['id'] for a in out if isinstance(a.get('id'), int)] or [0]))
+
 
 def save_state(s):
     if not paths.dentro(STATE): raise Teste(f'estado fora da pasta da instancia: {STATE}')
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
-    fileio.write_json(STATE, s, indent=1, ensure_ascii=False)
+    ent = _BASE.get(id(s))
+    base = ent[1] if ent and ent[0] is s else None
+    if base is None:                                         # a state that was never read from the file: plain write
+        fileio.write_json(STATE, s, indent=1, ensure_ascii=False); return
+    with state_lock():
+        try:
+            with open(STATE) as f: disk = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError): disk = {}
+        if isinstance(disk, dict) and disk.get('acoes') and _acoes_json(disk) != base: _merge_acoes(s, disk, base)
+        fileio.write_json(STATE, s, indent=1, ensure_ascii=False)
+        _BASE[id(s)] = (s, _acoes_json(s))
 
 def dt(iso):
     """ISO (GitHub/Jira/Slack) -> datetime aware (tolera fracao longa e offset sem dois-pontos)."""

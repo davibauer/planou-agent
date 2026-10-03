@@ -93,6 +93,33 @@ def propostas(agent=None):
     return out
 
 
+PLANOU_DIAS = 7                 # dias de licoes deste agent que sobem para o Planou (aba Papel, Memoria)
+PLANOU_MAX = 32_000             # bytes: o limite do Planou para o texto do arquivo lessons
+
+
+def recentes(agent, dias=PLANOU_DIAS, max_bytes=PLANOU_MAX, hoje=None):
+    """As secoes deste agent (nome novo ou antigo, como em propostas) dos ultimos `dias`, da mais nova para a mais
+    antiga, no formato do lessons.md; corta as mais antigas para caber em `max_bytes`. '' quando nao ha nenhuma."""
+    try: txt = open(LICOES_MD, encoding='utf-8').read()
+    except FileNotFoundError: return ''
+    hoje = hoje or _agora().date()
+    secs = []
+    for bloco in re.split(r'(?m)^(?=## )', txt):
+        cab = bloco.split('\n', 1)[0].strip()
+        if not cab.startswith('## ') or not same_agent(_agent_da_secao(cab[3:]), agent): continue
+        try: d = datetime.strptime(cab[3:].split('·', 1)[0].strip(), '%d/%m/%Y').date()
+        except ValueError: continue
+        if not 0 <= (hoje - d).days < dias: continue
+        corpo = '\n'.join(l for l in bloco.split('\n')[1:] if l.strip())
+        if corpo: secs.append((d, f'{cab}\n{corpo}\n'))
+    secs.sort(key=lambda x: x[0], reverse=True)
+    out = ''
+    for _, sec in secs:
+        if len((out + sec).encode('utf-8')) > max_bytes: break
+        out += sec
+    return out
+
+
 def regras():
     try: return open(REGRAS_MD, encoding='utf-8').read()
     except FileNotFoundError: return '(sem rules.md ainda)'

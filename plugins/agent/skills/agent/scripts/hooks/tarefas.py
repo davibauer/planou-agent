@@ -53,7 +53,9 @@ class Gancho(Base):
         repo_re, pr_url, issue_url = lk.get('repo_regex'), lk.get('pr_url'), lk.get('issue_url')
 
         def link_auto(texto):
-            if repo_re and pr_url:
+            # PLN0256: a text that waits on a merge ("when A merges, do B") or cites several PRs is not the task of one PR:
+            # no PR link, so a link-state closer never ties it to the first PR cited
+            if repo_re and pr_url and not tc.condicional(texto) and len(tc.pr_refs(texto)) < 2:
                 m = re.search(rf'\b({repo_re})\s?#(\d+)', texto or '')     # PR first
                 if m: return pr_url.format(repo=m.group(1), n=m.group(2))
             m = re.search(r'\b([A-Z][A-Z0-9]+-\d+)\b', texto or '')

@@ -3414,17 +3414,21 @@ def _links_refused(e, sig, now):
 DOCS_EVERY = timedelta(days=1)             # resend the unchanged manifest at least this often (a restored Planou gets it)
 DOCS_REFUSED = ('invalid_docs', 'secret_refused')
 # Fields newer than some Planou, which refuses the whole manifest with a field it does not know, in levels: level 1 is
-# the newest (PLN0257, Planou after 0.66.0: the autonomy of the Rules layer and the first lines of the handoff in the
-# Memory layer); level 2 adds the name and sentence of each behavior (frontmatter of its BEHAVIOR.md: title and summary,
-# and layer and kind in the catalog; Planou after 0.64.0). A refusal that names only fields of a level sends the
-# manifest without them (and without the newer ones) for a day (DOCS_EVERY), then tries them again. "top" keys are keys
-# of the manifest itself.
+# the newest (PLN0292, Planou after 0.74.1: the text of this agent's recent lessons in the "lessons" file, which an
+# older Planou refuses as content on a read-only file); level 2 adds the autonomy of the Rules layer and the first
+# lines of the handoff in the Memory layer (PLN0257, Planou after 0.66.0); level 3 the name and sentence of each
+# behavior (frontmatter of its BEHAVIOR.md: title and summary, and layer and kind in the catalog; Planou after 0.64.0).
+# A refusal that names only fields of a level sends the manifest without them (and without the newer ones) for a day
+# (DOCS_EVERY), then tries them again. "top" keys are keys of the manifest itself; "lessons" keys are dropped from the
+# files of kind lessons only.
 DOCS_NEW_LEVELS = (
+    {'lessons': ('content',)},
     {'top': ('autonomy',), 'files': ('excerpt',)},
     {'catalog': ('title', 'summary', 'layer', 'kind'), 'files': ('title', 'summary')},
 )
-DOCS_NEW = DOCS_NEW_LEVELS[1]
-_DOCS_NEW_RX = (re.compile(r'^docs\.(autonomy(\..*)?|files\[\d+\]\.excerpt)$'),
+DOCS_NEW = DOCS_NEW_LEVELS[2]
+_DOCS_LESSONS_RX = re.compile(r'^docs\.files\[(\d+)\]\.content$')
+_DOCS_NEW_RX = (_DOCS_LESSONS_RX, re.compile(r'^docs\.(autonomy(\..*)?|files\[\d+\]\.excerpt)$'),
                 re.compile(r'^docs\.(catalog\[\d+\]\.(title|summary|layer|kind)|files\[\d+\]\.(title|summary))$'))
 DOCS_EVENT = 'agent_docs_changed'
 _docs_handler = [None]
@@ -3477,19 +3481,23 @@ def _docs_plain(manifest, level=2):
     out = dict(manifest)
     for lv in DOCS_NEW_LEVELS[:level]:
         for k in lv.get('top', ()): out.pop(k, None)
+        if lv.get('lessons') and isinstance(out.get('files'), list):
+            out['files'] = [{k: v for k, v in x.items() if k not in lv['lessons']}
+                            if isinstance(x, dict) and x.get('kind') == 'lessons' else x for x in out['files']]
         for part, keys in lv.items():
-            if part != 'top' and isinstance(out.get(part), list):
+            if part not in ('top', 'lessons') and isinstance(out.get(part), list):
                 out[part] = [{k: v for k, v in x.items() if k not in keys} if isinstance(x, dict) else x for x in out[part]]
     return out
 
 
 def _plain_level(sent, now):
     """How many levels of DOCS_NEW_LEVELS go out while `plain_until` holds (0: none). A `plain_until` of before the
-    levels counts as 2 (it was about the title and summary)."""
+    levels counts as the title and summary; a `plain_level` saved before the lessons level (no `plain_v`) is one less."""
     until = _date_time(sent.get('plain_until'))
     if not until or now >= until: return 0
-    lv = sent.get('plain_level')
-    return lv if lv in (1, 2) else 2
+    lv, n = sent.get('plain_level'), len(DOCS_NEW_LEVELS)
+    if sent.get('plain_v') != 2: lv = lv + 1 if lv in (1, 2) else n
+    return lv if isinstance(lv, int) and 1 <= lv <= n else n
 
 
 def _docs_due(now):
@@ -3516,8 +3524,20 @@ def _docs_taken(sig, now):
     sent = {'sig': sig, 'at': now.isoformat()}
     old = _load('docs_sent.json', {})
     level = _plain_level(old, now)
-    if level: sent.update(plain_until=old['plain_until'], plain_level=level)
+    if level: sent.update(plain_until=old['plain_until'], plain_level=level, plain_v=2)
     _save('docs_sent.json', sent)
+
+
+def _docs_new_field(i, field, level):
+    """Whether the refused `field` is one of level i+1 of DOCS_NEW_LEVELS. The content of a file is of the lessons level
+    only when that file (in the manifest as it went) is the lessons file: on another file it is a real refusal."""
+    m = _DOCS_NEW_RX[i].match(field)
+    if not m: return False
+    if _DOCS_NEW_RX[i] is not _DOCS_LESSONS_RX: return True
+    data = _load('docs.json', None)
+    files = (_docs_plain(data['docs'], level) if level else data['docs']).get('files') if isinstance(data, dict) and isinstance(data.get('docs'), dict) else None
+    n = int(m.group(1))
+    return isinstance(files, list) and n < len(files) and isinstance(files[n], dict) and files[n].get('kind') == 'lessons'
 
 
 def _docs_refused(e, sig, now):
@@ -3530,11 +3550,11 @@ def _docs_refused(e, sig, now):
     fields = list(e.fields or [])
     level = _plain_level(sent, now)       # already without these: this is a refusal of the manifest
     new = next((i + 1 for i in range(len(_DOCS_NEW_RX)) if fields
-                and all(any(rx.match(f) for rx in _DOCS_NEW_RX[:i + 1]) for f in fields)), 0)
+                and all(any(_docs_new_field(j, f, level) for j in range(i + 1)) for f in fields)), 0)
     if new > level:
-        sent.update(plain_until=(now + DOCS_EVERY).isoformat(), plain_level=new)
+        sent.update(plain_until=(now + DOCS_EVERY).isoformat(), plain_level=new, plain_v=2)
         _save('docs_sent.json', sent)
-        what = 'a autonomia e o resumo de passagem' if new == 1 else 'o nome e a frase das habilidades'
+        what = ('o texto das lições', 'a autonomia e o resumo de passagem', 'o nome e a frase das habilidades')[new - 1]
         _log('docs.log', f'AVISO (planou): o Planou ainda não aceita {what} ({e.code}: '
                          f'{", ".join(fields)}); o papel vai sem eles por um dia', now)
         return []

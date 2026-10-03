@@ -17,7 +17,7 @@ O que e' de cada agent entra por `configura(sigla, **ganchos)` no wrapper `scrip
   rotulos {chave: texto}         rotulos da pagina (ROT_EN para pagina em ingles)
 Regras de uso e historico: SKILL.md da vigia-daily (skill antiga, arquivada), secao "Tarefas na pagina do dia".
 """
-import os, sys, json
+import os, re, sys, json
 from datetime import datetime, timezone, timedelta
 
 from . import notion_page as nd
@@ -587,9 +587,62 @@ VERIF_INTERVALO = timedelta(minutes=30)
 COBRAR_DIAS = 3                   # Aguardando parado ha N dias uteis: ⏰ na pagina + pedido de rascunho de cobranca
 
 
+# PLN0256: which PR an action cites, and when a merge may close it
+_PR_RE = re.compile(
+    r'https?://[^\s)\]]*?/([\w.-]+)/(?:-/)?(?:pull|pullrequest|pullrequests|merge_requests)/(\d+)(?!\d)'   # URL: repo, number
+    r'|(?<![\w/&])(?:[\w.-]+/)?([\w.-]+)#(\d+)(?!\d)'                                                 # repo#N, owner/repo#N
+    r'|(?<![\w/&])#(\d+)(?!\d)|(?<![\w/])!(\d+)(?!\d)'                                               # #N, !N
+    r'|\b(?:PR|MR|pull request|merge request)\s?(\d+)(?!\d)', re.I)
+_GATILHO = r'(?:ao|quando|assim que|depois (?:de|que)|ap[oó]s|once|when|after|as soon as|if|se)'
+_MERGE = r'(?:merge|mergear|mesclar|mesclad|aprovad|approv|fechad|closed)'
+_COND_RE = re.compile(rf'\b{_GATILHO}\b[^,;\n]{{0,100}}?{_MERGE}\w*[^,;\n]*(?:[,;]|\bent[aã]o\b|\bthen\b)', re.I)
+
+
+def pr_refs(texto):
+    """PRs/MRs cited in the text, in order, as (repo or None, number): a URL, `repo#N`, `#N`, `!N` or `PR N`. Whole numbers
+    only: #100 is never #1000."""
+    out = []
+    for m in _PR_RE.finditer(texto or ''):
+        repo, n = (m.group(1), m.group(2)) if m.group(2) else (m.group(3), m.group(4)) if m.group(4) else (None, m.group(5) or m.group(6) or m.group(7))
+        out.append(((repo or '').lower() or None, int(n)))
+    return out
+
+
+def same_pr(a, b):
+    """Same number, and the same repository when both say which."""
+    return a[1] == b[1] and (a[0] is None or b[0] is None or a[0] == b[0])
+
+
+def condicional(texto):
+    """"When A merges, do B": the text is a task for after an event, so a merge never closes it (the merge only releases it)."""
+    return bool(_COND_RE.search(texto or ''))
+
+
+def baixa_valida(a, resposta, link=None):
+    """May a PR-state closing with this `resposta` (the evidence the hook wrote) close the action? Never a conditional one.
+    When the evidence names a PR, it must be one the action is tied to (exact): those cited in its text or its item link
+    (`link`). An action tied to no PR (no PR in the text, no PR link) is closed by whatever closes it."""
+    if condicional(a.get('texto')): return False
+    visto = pr_refs(resposta)
+    citadas = pr_refs(a.get('texto')) + pr_refs(link)
+    if not visto or not citadas: return True
+    return any(same_pr(v, c) for v in visto for c in citadas)
+
+
 def verifica_links(s, dry=False):
-    """Baixa pelo estado do link (MR/PR mergeada) — gancho do agent."""
-    return list(G['verifica_links'](s, dry) or [])
+    """Baixa pelo estado do link (MR/PR mergeada) — gancho do agent. The engine refuses a closing the action's own text does
+    not support (`baixa_valida`): the action goes back to open, with the reason in the output."""
+    antes = {a['id'] for a in s.get('acoes') or [] if a.get('status') == 'aberta'}
+    links = (s.get('tarefas_notion') or {}).get('links') or {}
+    out = list(G['verifica_links'](s, dry) or [])
+    for a in s.get('acoes') or []:
+        if a['id'] not in antes or a.get('status') != 'feita' or baixa_valida(a, a.get('resposta'), links.get(f'a{a["id"]}')): continue
+        motivo = 'acao condicional (ao mergear...)' if condicional(a.get('texto')) else 'a PR da baixa nao e a citada no texto'
+        out = [l for l in out if not l.startswith(f'-- ✓ a{a["id"]} ')]
+        out.append(f'-- ! a{a["id"]}: baixa por PR recusada ({motivo}); segue aberta')
+        a['status'] = 'aberta'
+        for k in ('feita', 'resposta'): a.pop(k, None)
+    return out
 
 
 def urllib_q(x):

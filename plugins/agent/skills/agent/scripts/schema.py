@@ -79,9 +79,10 @@ BEHAVIOR_ALIASES = {'deploy-notice': 'batch-release'}
 # line (and it is the list the leak check uses). 'path' is a file or folder on the machine that decides what code runs
 # or what the session writes or deletes there: qa.node_dir goes in NODE_PATH (node loads code from it); the integrator
 # overwrites batch-release.e2e_marker with a date, deletes the used fragments in batch-release.fragments (and workers
-# write <fragments>/<branch>.md) and appends a line to batch-release.deploy_log. Both validate like 'str', but an edit
-# from Planou's Papel tab may not change, add or remove one (role_edit.py, machine_changes): they are edited on the
-# machine only (PLN0229, PLN0233), or whoever gets into Planou would run code or overwrite files here.
+# write <fragments>/<branch>.md) and appends a line to batch-release.deploy_log; prototype.node_dir goes in NODE_PATH
+# like qa's. Both validate like 'str', but an edit from Planou's Papel tab may not change, add or remove one
+# (role_edit.py, machine_changes): they are edited on the machine only (PLN0229, PLN0233), or whoever gets into Planou
+# would run code or overwrite files here.
 BEHAVIOR_OPTIONS = {
     'batch-release': {'repo': 'str', 'test_lock': 'command', 'deploy_lock': 'command', 'e2e_marker': 'path',
                       'e2e_every_h': 'num', 'fragments': 'path', 'deploy_log': 'path', 'check_url': 'str',
@@ -98,6 +99,7 @@ BEHAVIOR_OPTIONS = {
            'served_urls': 'strs',
            'node_dir': 'path', 'widths': 'ints', 'min_target_px': 'int', 'axe_tags': 'strs', 'up_timeout_s': 'int', 'pr_comment': 'bool',
            'send_back': 'str'},
+    'prototype': {'node_dir': 'path', 'widths': 'ints', 'themes': 'strs', 'reference': 'str', 'tokens': 'str'},
     'tech-radar': {'project': 'str', 'column': 'str', 'per_task': 'int', 'max_hours': 'num', 'max_tasks': 'int',
                    'stacks': 'strs', 'weekday': 'int', 'hour': 'int', 'window_days': 'int'},
     'product-radar': {'project': 'str', 'max_ideas': 'int', 'terms': 'strs', 'weekday': 'int', 'hour': 'int',

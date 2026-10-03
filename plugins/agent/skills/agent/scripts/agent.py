@@ -242,7 +242,9 @@ def docs_manifest(cfg, now=None):
                                  'problems': [] if minimum else
                                  [_clip(p, 300) for p in r['problems'] if isinstance(p, str) and p.strip()][:20]}
         files.append(item)
-        if len(files) >= 38: break
+        if len(files) >= 37: break                 # + lessons, handoff and options: 40 at most
+    lessons = _lessons_item(cfg, minimum, now)
+    if lessons: files.append(lessons)
     memory = _handoff_item(minimum)
     if memory: files.append(memory)
     files.append(_options_item(cfg, minimum))
@@ -252,6 +254,30 @@ def docs_manifest(cfg, now=None):
     cat = role_edit.catalog()
     if cat: out['catalog'] = cat
     return out
+
+
+def _lessons_item(cfg, minimum, now):
+    """The lessons of the Memory layer (PLN0292): this agent's sections of the shared lessons.md from the last days
+    (watch_core.lessons.recentes), as a read-only "lessons" file whose content and sha256 are that text, so the Papel
+    tab shows each lesson with its state ([aplicada em ...], [proposta], [recusada], [a aplicar]) and the manifest goes
+    again when a state changes. Under confidentiality "minimum", or with no lesson in those days, only the file's size
+    and date. None when there is no lessons.md. An older Planou refuses the content: watch_core.planou drops it."""
+    import hashlib
+    from watch_core import lessons
+    f = lessons.LICOES_MD
+    try:
+        with open(f, 'rb') as fh: data = fh.read()
+        mtime = os.stat(f).st_mtime
+    except OSError:
+        return None
+    item = {'kind': 'lessons', 'name': 'lessons.md', 'path_label': _path_label(f), 'bytes': len(data),
+            'sha256': hashlib.sha256(data).hexdigest(),
+            'updated_at': datetime.fromtimestamp(mtime, timezone.utc).isoformat(timespec='seconds'), 'editable': False}
+    text = '' if minimum else lessons.recentes(paths.agent(cfg), hoje=now.astimezone(lessons.BRT).date())
+    if text:
+        raw = text.encode('utf-8')
+        item.update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(), content=text)
+    return item
 
 
 HANDOFF_EXCERPT_LINES = 6

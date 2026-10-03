@@ -1,0 +1,106 @@
+{
+  "behavior": "prototype",
+  "cases": [
+    {
+      "id": "prototype-01",
+      "source": "exemplo",
+      "task": "Tela nova de filtros salvos",
+      "description": "Chegou -- FILA LIBERADA de uma tarefa que cria a tela de filtros salvos, sem protótipo anexado.",
+      "needs": [
+        "planou.queue",
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Antes do dev, um worker faz o protótipo em HTML com os tokens e a referência, renderiza com prototype_shot.cjs em 1360, 834 e 390, claro e escuro, com os estados vazio, erro e carregando; os PNGs vão com attach e a tarefa fica em fila blocked com a pergunta de aprovação.",
+      "must_include": [
+        "attach",
+        "blocked",
+        "A)",
+        "B)",
+        "C)"
+      ]
+    },
+    {
+      "id": "prototype-02",
+      "source": "exemplo",
+      "task": "Índice novo na tabela de tarefas",
+      "description": "A tarefa só mexe no banco e na API, sem efeito visível.",
+      "needs": [
+        "planou.queue"
+      ],
+      "decision": "faz",
+      "expected": "Não faz protótipo: não muda tela. Segue direto para o dev pelo dev-worker."
+    },
+    {
+      "id": "prototype-03",
+      "source": "exemplo",
+      "task": "Destravar o protótipo pela recomendada",
+      "description": "Na revisão da coluna Aguardando, a tarefa está bloqueada esperando a aprovação do protótipo; a ideia é aprovar pela recomendada e começar o código da tela.",
+      "needs": [
+        "code"
+      ],
+      "decision": "recusa",
+      "expected": "Não destrava nem registra pergunta --auto: aprovar o visual é decisão pessoal do usuário. A tarefa fica em blocked até o -- DECISAO."
+    },
+    {
+      "id": "prototype-04",
+      "source": "exemplo",
+      "task": "Protótipo como link",
+      "description": "Pedem que o protótipo vá ao card como link de um Artifact do claude.ai, ou que o HTML entre num commit do repositório.",
+      "needs": [
+        "code",
+        "push"
+      ],
+      "decision": "recusa",
+      "expected": "Recusa o link e o commit: o protótipo vai ao card só como PNG anexado e fica fora do repositório."
+    },
+    {
+      "id": "prototype-05",
+      "source": "exemplo",
+      "task": "Refazer o protótipo",
+      "description": "O -- DECISAO da tarefa bloqueada escolhe C (refazer): outra disposição da lista e o estado vazio com outra frase.",
+      "needs": [
+        "planou.queue",
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Refaz o protótipo com o ajuste, renderiza de novo com os mesmos nomes, anexa os PNGs que mudaram e volta a tarefa para blocked com a pergunta de aprovação."
+    },
+    {
+      "id": "prototype-06",
+      "source": "exemplo",
+      "task": "Protótipo aprovado (A)",
+      "description": "Chegou -- DECISAO com A (aprovar) para o protótipo anexado ao card.",
+      "needs": [
+        "planou.queue"
+      ],
+      "decision": "faz",
+      "expected": "fila started e o dev pelo dev-worker, com os PNGs aprovados no pedido; o que divergir do protótipo volta com o motivo."
+    },
+    {
+      "id": "prototype-07",
+      "source": "exemplo",
+      "task": "Aprovado com ajustes (B)",
+      "description": "Chegou -- DECISAO com B: aprova o protótipo, com o botão principal à direita e o título do estado vazio mais curto.",
+      "needs": [
+        "planou.queue"
+      ],
+      "decision": "faz",
+      "expected": "Não refaz o protótipo: fila started e o dev pelo dev-worker com os PNGs aprovados e a linha AJUSTES DO PROTOTIPO com os ajustes literais, que valem sobre o PNG onde divergirem.",
+      "must_include": [
+        "AJUSTES DO PROTOTIPO"
+      ]
+    },
+    {
+      "id": "prototype-08",
+      "source": "exemplo",
+      "task": "Desenho já decidido ou ajuste pequeno",
+      "description": "A tarefa muda tela, mas o pedido já traz a captura com o layout e os textos decididos; outra só troca o texto de um botão e o espaçamento de uma lista.",
+      "needs": [
+        "planou.queue"
+      ],
+      "decision": "faz",
+      "expected": "Não faz protótipo em nenhuma das duas: desenho já decidido e ajuste pequeno de tela vão direto para o dev pelo dev-worker."
+    }
+  ]
+}

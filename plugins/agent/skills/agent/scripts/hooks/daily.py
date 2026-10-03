@@ -46,5 +46,8 @@ class Gancho(Base):
             dv(ctx.cfg.get('sigla')).cli(a.daily, ctx.s, core.save_state); return True
         if a.acao is not None:
             if a.acao and a.acao[0] not in LEITURA_ACAO: core.exige_live(f'--acao {a.acao[0]}')
-            dv(ctx.cfg.get('sigla')).cli_acao(a.acao, ctx.s, core.save_state); return True
+            with core.state_lock():              # PLN0256: the runner may be saving; read again, change, save, all under the lock
+                ctx.s = core.load_state()
+                dv(ctx.cfg.get('sigla')).cli_acao(a.acao, ctx.s, core.save_state)
+            return True
         return False

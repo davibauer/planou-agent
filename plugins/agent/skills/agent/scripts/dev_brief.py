@@ -25,6 +25,8 @@ placeholder the session replaces) and ECONOMIA tells the worker to batch command
 PLN0281: `--role code-review` or `--role qa` is the brief of an independent review or QA worker (one instance that does
 the whole cycle): a read-only worktree, no RELEASE line, the verdict as the done criterion and an INDEPENDENCIA line
 (a new worker, not the one that delivered; the session sends `fila done` or `fila ajuste`, never the worker).
+PLN0054: `--role prototype` is the brief of a worker whose output never enters the repository (SCRATCH_ROLES): no
+worktree (the scratchpad), no release, the PNGs as the done criterion.
 """
 import os, re, subprocess
 
@@ -44,6 +46,15 @@ REVIEW_ROLES = {
         'done': 'o parecer do qa (qa-<pid>.md: casos, axe, larguras) com as capturas, comentado na PR quando pr_comment; '
                 'ambiente derrubado (qa_env.py down); sem commit, sem push',
         'what': 'QA'},
+}
+# workers whose output never enters the repository (PLN0054): the prototype is PNGs in the scratchpad, read-only repo
+SCRATCH_ROLES = {
+    'prototype': {
+        'worktree': 'nenhuma: o HTML e os PNGs ficam numa subpasta do scratchpad (<scratchpad>/<PID>-prototipo/); {path} '
+                    'so para ler (regras, referencia, tokens, node_modules do node_dir)',
+        'done': 'os PNGs do prototipo (prototype_shot.cjs, um por largura e tema) conferidos um a um, com os caminhos e o '
+                'que cada um mostra na volta; sem codigo, sem commit, sem push, sem PR',
+        'release': 'nenhum: o prototipo nao entra no repositorio; o dev so comeca depois da aprovacao do usuario'},
 }
 INDEPENDENT = ('{what} independente: este worker e NOVO, nao e o que entregou nem continuacao dele, e nao recebe o '
                'transcript nem o resumo de quem desenvolveu (so o pedido, a PR ou a branch e o criterio); o parecer diz '
@@ -123,8 +134,10 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
     path, base, mode = repo['path'], repo.get('base') or 'main', release_mode(repo, rel)
     wt = repo.get('worktrees') or os.path.join(os.path.dirname(os.path.normpath(path)) or '.', 'wt')
     review = REVIEW_ROLES.get((perms or {}).get('role'))
+    scratch = SCRATCH_ROLES.get((perms or {}).get('role'))
+    own = review or scratch
     out = [f'REPOSITORIO: {schema.repo_name(repo)} ({path})',
-           'WORKTREE: ' + (review['worktree'].format(wt=wt, path=path) if review
+           'WORKTREE: ' + (own['worktree'].format(wt=wt, path=path) if own
                            else f'{wt}/<nome-curto>, branch propria a partir de origin/{base}; nunca direto em {path}')]
     gh = [t for t in cfg.get('tools') or [] if isinstance(t, dict) and t.get('kind') == 'cli' and t.get('name') == 'gh']
     if repo.get('gh_account'):
@@ -145,6 +158,7 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
     tests = repo.get('tests') or {}
     out.append('TESTES FILTRADOS (so o que a mudanca afeta): ' + (tests.get('filtered') or 'os do arquivo de regras'))
     if review: out.append('INDEPENDENCIA: ' + INDEPENDENT.format(what=review['what']))
+    elif scratch: out.append('RELEASE: ' + scratch['release'])
     elif mode in RELEASE_TEXT: out.append(f'RELEASE: {mode}, {RELEASE_TEXT[mode]}')
     else: out.append('RELEASE: (nao definido no config: ver o instructions.md da instancia)')
     allowed = (lambda a: a in perms['actions']) if perms else (lambda a: True)
@@ -160,7 +174,7 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
             out.append('DEPLOY (so o integrador): ' + (f'flock -o {lk} {cmd}' if cmd and lk else cmd if cmd
                                                       else f'o do arquivo de regras, sob flock -o {lk}')
                        + (f'; uma linha por deploy em {rel["deploy_log"]}' if rel.get('deploy_log') else ''))
-    out.append('CRITERIO DE PRONTO: ' + (review['done'] if review else (repo.get('done') or default_done(repo, rel))
+    out.append('CRITERIO DE PRONTO: ' + (own['done'] if own else (repo.get('done') or default_done(repo, rel))
                                           + ' (o instructions.md da instancia vale sobre este, quando diz outra coisa)'))
     a = cfg.get('autonomy') if isinstance(cfg.get('autonomy'), dict) else {}
     can, other = list(a.get('can') or []), []

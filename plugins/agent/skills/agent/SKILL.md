@@ -80,7 +80,9 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     comportamento `planou-queue` (só começar tarefa liberada). `-> passada por voce mesmo (mesma instancia que
     desenvolve) para a coluna <coluna>`: a tarefa que esta instância desenvolveu chegou à coluna de revisão ou de QA,
     que também é dela; a revisão ou o QA vai para um worker NOVO, nunca para a sessão nem para o worker que entregou
-    (abaixo, "Mesma instância: dev, revisão e QA").
+    (abaixo, "Mesma instância: dev, revisão e QA"). Com `prototype` ligado, tarefa que muda tela com o desenho em
+    aberto passa antes por `behaviors/prototype/BEHAVIOR.md` (sob demanda): PNG no card e aprovação do usuário, nunca
+    pela recomendada.
   - `-- AJUSTE PEDIDO <PID> (pessoa|<função> <nome>): <texto>`: a pessoa ou um agente (revisor, QA) pediu ajuste numa tarefa
     em revisão; a tarefa volta pela fila como `-> RETRABALHO` (mesma branch e PR, o texto é o pedido). Comportamento
     `planou-queue`, "Ajuste pedido pelo botão ou pelo revisor".
