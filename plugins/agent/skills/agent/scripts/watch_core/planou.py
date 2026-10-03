@@ -136,7 +136,9 @@ only the queue). The key is derived from the values, so running the same command
 error body is an older Planou without the route: a warning, not an error (exit 0). `--phases-from <output_file of the
 Agent tool, or the agent id>` also sends where the worker's time went (`phases`, seconds per phase, PLN0261), measured
 from the subagent's transcript by watch_core.phases; a transcript not found or unreadable is a warning and the delivery
-goes without phases. The phases stay out of the derived key, so a repeat with them is still `unchanged`.
+goes without phases. The phases stay out of the derived key, so a repeat with them is still `unchanged`. The same
+transcript gives the worker's usage per model (`usage`, PLN0101: input, output, cache writes and reads, once per message
+id), so Planou shows the delivery's real API price; it also stays out of the key, and an older Planou ignores the field.
 Comment with @ (Planou PLN0240, event `task_comment_mentioned`): a person calls the agent with @name in a task comment,
 on its own task or on any task of the workspace. Planou sends the event only to an agent that declares the
 `task_comment` capability (declared by every agent of this plugin with Planou on, AGENT_ONLY), so it is delivered like a
@@ -2503,7 +2505,26 @@ def _count(name, value, limit):
     return n
 
 
-def worker_delivery(ref, role, tokens, steps, duration_ms, result, model=None, now=None, key=None, phases=None):
+USAGE_KEYS = ('calls', 'input', 'cache_write_5m', 'cache_write_1h', 'cache_read', 'output')
+
+
+def _delivery_usage(usage):
+    """The usage as Planou takes it: up to 20 models (names up to 80 characters), each with the known counters as
+    non-negative integers; models with no tokens are left out."""
+    out = {}
+    for model, c in (usage or {}).items():
+        name = str(model or '').strip()[:80]
+        if not name or not isinstance(c, dict): continue
+        counters = {}
+        for k in USAGE_KEYS:
+            try: n = int(c.get(k) or 0)
+            except (TypeError, ValueError): n = 0
+            counters[k] = min(max(n, 0), 10 ** 12)
+        if any(counters[k] for k in USAGE_KEYS if k != 'calls'): out[name] = counters
+    return dict(sorted(out.items(), key=lambda x: -sum(v for k, v in x[1].items() if k != 'calls'))[:20])
+
+
+def worker_delivery(ref, role, tokens, steps, duration_ms, result, model=None, now=None, key=None, phases=None, usage=None):
     """`fila worker`: POST /agent/tasks/{id}/deliveries, one worker (subagent) that came back for the task (ref: pid,
     task_id or source_key), with what the session got from it: tokens, steps (tool uses), duration in ms, the result
     (feito, parcial, falhou) and the role (dev or integrator). Returns the server answer, or None when this Planou has
@@ -2513,7 +2534,9 @@ def worker_delivery(ref, role, tokens, steps, duration_ms, result, model=None, n
     else the one a delivery with these same values already closed (a repeat stays `unchanged`), else a key derived from
     the values (a worker never registered).
     phases (PLN0261): seconds per phase ({'model': 540.2, ...}, watch_core.phases), sent as `phases` and scaled down to the
-    duration when they add up to more; they stay out of the derived key (the same worker measured again is the same)."""
+    duration when they add up to more; they stay out of the derived key (the same worker measured again is the same).
+    usage (PLN0101): the worker's raw usage per model (watch_core.phases.usage), sent as `usage` for Planou to price;
+    also out of the key. A Planou without the field ignores it (unknown JSON members are skipped)."""
     if not ref: raise PlanouError(0, 'which_task', 'diga a tarefa (PID)')
     r = DELIVERY_ROLES.get(str(role or '').strip().lower())
     if not r: raise PlanouError(0, 'role', '--role: dev ou integrator')
@@ -2539,6 +2562,9 @@ def worker_delivery(ref, role, tokens, steps, duration_ms, result, model=None, n
         from . import phases as _phases
         fitted = _phases.fit({k: float(v) for k, v in phases.items() if k in _phases.KEYS and float(v) > 0}, body['duration_ms'])
         if fitted: body['phases'] = fitted
+    if usage:
+        sent = _delivery_usage(usage)
+        if sent: body['usage'] = sent
     try:
         _, out = _call('POST', f'/agent/tasks/{urllib.parse.quote(tid, safe="")}/deliveries', body)
     except PlanouError as e:
@@ -4002,13 +4028,17 @@ def _fila(a, ap):
     if sub == 'worker':
         if len(a.arg) < 2 or None in (a.role, a.tokens, a.steps, a.duration_ms, a.result):
             ap.error('use: fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--model M] [--key K] [--phases-from ARQ]')
-        measured = None
+        measured = used = None
         if a.phases_from:
             from . import phases as _phases
-            measured, why = _phases.from_ref(a.phases_from)
-            if why: print(f'AVISO (planou): tempo por fase nao medido ({why}); a entrega vai sem ele.', file=sys.stderr)
+            measured, used, why = _phases.measure(a.phases_from)
+            if why: print(f'AVISO (planou): tempo por fase e uso nao medidos ({why}); a entrega vai sem eles.', file=sys.stderr)
+            else:
+                if not measured: print('AVISO (planou): tempo por fase nao medido (registro do worker sem tempo medido); a entrega vai sem ele.', file=sys.stderr)
+                if not used: print('AVISO (planou): uso do worker nao medido (registro sem respostas com uso); a entrega vai sem custo.', file=sys.stderr)
         try:
-            res = worker_delivery(a.arg[1], a.role, a.tokens, a.steps, a.duration_ms, a.result, a.model, key=a.key, phases=measured)
+            res = worker_delivery(a.arg[1], a.role, a.tokens, a.steps, a.duration_ms, a.result, a.model, key=a.key, phases=measured,
+                                  usage=used)
         except PlanouError as e:
             print(f'AVISO (planou): {e.message}', file=sys.stderr)
             return 1
@@ -4635,7 +4665,7 @@ def main(argv=None):
     ap.add_argument('--result', help='fila worker, worker end: feito, parcial or falhou')
     ap.add_argument('--model', help='fila worker: the model of the worker (optional)')
     ap.add_argument('--key', help='fila worker: the key printed by fila worker-start (default: the one open here for the task and role)')
-    ap.add_argument('--phases-from', help="fila worker: the worker's transcript (the Agent tool's output_file) or its agent id: sends the time per phase")
+    ap.add_argument('--phases-from', help="fila worker: the worker's transcript (the Agent tool's output_file) or its agent id: sends the time per phase and the usage per model")
     ap.add_argument('--label', help='fila worker-start, worker start|ping: what the worker is doing, one line')
     ap.add_argument('--name', help='anexo: the file name shown in Planou (default: the file name)')
     ap.add_argument('--self', dest='take', action='store_true', help='pronta: the agent also takes the task (assignee self)')

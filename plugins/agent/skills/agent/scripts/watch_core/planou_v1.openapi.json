@@ -2469,6 +2469,15 @@
                     },
                     "default": null,
                     "nullable": true
+                  },
+                  "usage": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
+                    }
                   }
                 }
               }
@@ -3482,6 +3491,138 @@
         }
       }
     },
+    "/v1/join/status": {
+      "post": {
+        "tags": [
+          "provisioner"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinStatusV1"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/join/step": {
+      "post": {
+        "tags": [
+          "provisioner"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "step": {
+                    "enum": [
+                      "responded",
+                      "prereqs",
+                      "plugin",
+                      "paired"
+                    ],
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "running",
+                      "done",
+                      "error"
+                    ],
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "hint": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "computer": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "os": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "nullable": true
+                  },
+                  "test": {
+                    "type": "boolean",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinStatusV1"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/provisioner/agents": {
       "get": {
         "tags": [
@@ -3743,6 +3884,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InventoryResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "provisioner_key": []
+          }
+        ]
+      }
+    },
+    "/v1/provisioner/join": {
+      "post": {
+        "tags": [
+          "provisioner"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinClaimResponseV1"
                 }
               }
             }
@@ -4203,6 +4393,15 @@
             },
             "default": null,
             "nullable": true
+          },
+          "usage": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            }
           }
         }
       },
@@ -7967,6 +8166,198 @@
           }
         }
       },
+      "JoinClaimResponseV1": {
+        "required": [
+          "agent_id",
+          "name",
+          "computer_id"
+        ],
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "computer_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "JoinCodeRequestV1": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "JoinStatusV1": {
+        "required": [
+          "agent_id",
+          "name",
+          "display_name",
+          "roles",
+          "mode",
+          "expires_at",
+          "spent",
+          "computer",
+          "steps",
+          "done",
+          "failed"
+        ],
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "enum": [
+              "live",
+              "test"
+            ],
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "spent": {
+            "type": "boolean"
+          },
+          "computer": {
+            "type": "string",
+            "nullable": true
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JoinStepV1"
+            }
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "failed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JoinStepRequestV1": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "responded",
+              "prereqs",
+              "plugin",
+              "paired"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "done",
+              "error"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "hint": {
+            "type": "string",
+            "nullable": true
+          },
+          "computer": {
+            "type": "string",
+            "nullable": true
+          },
+          "os": {
+            "type": "string",
+            "nullable": true
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "test": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "JoinStepV1": {
+        "required": [
+          "step",
+          "state",
+          "detail",
+          "hint",
+          "at"
+        ],
+        "type": "object",
+        "properties": {
+          "step": {
+            "enum": [
+              "responded",
+              "prereqs",
+              "plugin",
+              "paired",
+              "key",
+              "instance",
+              "runner"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "todo",
+              "running",
+              "done",
+              "error"
+            ],
+            "type": "string"
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "hint": {
+            "type": "string",
+            "nullable": true
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "JsonArray": {
         "type": "array",
         "nullable": true
@@ -7977,6 +8368,11 @@
       },
       "JsonObject": {
         "type": "object",
+        "nullable": true
+      },
+      "JsonObject2": {
+        "type": "object",
+        "default": null,
         "nullable": true
       },
       "MessageIn": {

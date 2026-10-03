@@ -13,6 +13,13 @@ and, for each agent the person asked for:
      `terminal_open`; later, `runner_up` once cache/runner/runner.pid names a live runner of the instance. No runner
      `session_timeout_s` (120) after a live `terminal_open` it reported: `terminal_open` again, with NO_SESSION as the
      detail (PLN0217: the extension lost the agents.json change and nothing opened the terminal).
+     Without VS Code (PLN0296): no runner `session_fallback_s` (60) after that `terminal_open` and nobody holding the
+     launcher's lock, the provisioner starts the session itself, `team <name>` in a detached tmux (socket
+     agent-<name>, in a scope of its own under systemd so a restart of this service never kills it) and reports
+     `terminal_open` with FALLBACK_UP; no tmux, or still no runner `session_timeout_s` after it, NO_SESSION says what
+     to run. Pausing, removing or archiving closes that tmux session. After a reboot of the machine (another boot id),
+     an employee whose tmux this provisioner opened and whose runner, lock and tmux are gone gets `terminal_open` again,
+     once per boot, and the same steps run (VS Code first, then the tmux).
 
 Adopted agents (PLN0188): every pass also sends Planou the inventory of the machine (the agents of
 ~/.config/team/agents.json and the agent plugin's instances missing from it, through team_agents) with the state of
@@ -46,7 +53,7 @@ is https, or http on loopback only; HTTP proxies are ignored (Planou refuses the
 
   ~/.config/agent-provisioner/
     config.json        optional: base_url, interval_s, template, agents_file, snapshot_cmd, runner, retry_s,
-                       session_timeout_s
+                       session_timeout_s, session_fallback ("tmux" or "off"), session_fallback_s
     secrets/planou.env PLANOU_PROVISIONER_KEY=pl_pv_...   (0600)
     data/state.json    retry and terminal_open bookkeeping per agent id (never a key)
     removed/           instances taken out by a removal, without their secrets
@@ -78,7 +85,7 @@ STATUSES = ('creating', 'validated', 'terminal_open', 'runner_up', 'paused', 're
 PUBLIC_BASE_URL = 'https://app.planou.com/v1'
 DEFAULTS = {'base_url': 'http://127.0.0.1:5068/v1', 'interval_s': 30, 'retry_s': 600, 'template': None,
             'agents_file': '~/.config/team/agents.json', 'snapshot_cmd': 'config-snapshot', 'runner': None,
-            'timeout_s': 15, 'session_timeout_s': 120}
+            'timeout_s': 15, 'session_timeout_s': 120, 'session_fallback': 'tmux', 'session_fallback_s': 60}
 BASE_BEHAVIOR = 'planou-queue'
 DEFAULT_ROLES = ['dev-worker']
 MARKER = 'provisioned.json'
@@ -478,6 +485,87 @@ def stop_runner(cfg, name):
         raise Fail(f'nao consegui parar o runner de {name}')
 
 
+# ---------------------------------------------------------------- the session without VS Code (PLN0296)
+
+def tmux_socket(name): return f'agent-{name}'
+
+
+# per terminal_open cycle: the fallback was tried (fallback_at), it opened the tmux (fallback), the timeout was told
+CYCLE_KEYS = ('fallback_at', 'fallback', 'no_session_told')
+
+
+def boot_id():
+    """Which boot of this machine (Linux and WSL: the kernel's boot_id; macOS: kern.boottime); None when unknown.
+    PROVISIONER_BOOT_ID: tests."""
+    if os.environ.get('PROVISIONER_BOOT_ID'): return os.environ['PROVISIONER_BOOT_ID']
+    try:
+        with open('/proc/sys/kernel/random/boot_id') as f: return f.read().strip() or None
+    except OSError: pass
+    try:
+        r = subprocess.run(['sysctl', '-n', 'kern.boottime'], stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=5)
+        return (r.stdout.strip() or None) if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def session_cmd(name):
+    """(argv to see the session, argv to open it by hand) as text for the card."""
+    return f'tmux -L {tmux_socket(name)} attach -t {name}', f'team {name}'
+
+
+def launcher():
+    """The `team` launcher: the stub in ~/.local/bin (the plugin copy in use) or team.sh next to this file."""
+    stub = home('.local', 'bin', 'team')
+    return stub if os.path.isfile(stub) and os.access(stub, os.X_OK) else os.path.join(SCRIPTS, 'team.sh')
+
+
+def session_held(name):
+    """A `team <name>` already holds the launcher's lock (VS Code opened late, or someone ran it by hand)."""
+    import team_lock
+    try:
+        return team_lock.status(name)[0] != 'free'
+    except Exception:            # never a reason to start a second session: unknown counts as held
+        return True
+
+
+def tmux_has(name):
+    tmux = shutil.which('tmux')
+    if not tmux: return False
+    r = subprocess.run([tmux, '-L', tmux_socket(name), 'has-session', '-t', name], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    return r.returncode == 0
+
+
+def start_session(name):
+    """Opens `team <name>` in a detached tmux. True: the session is up (or already was). Under systemd the tmux server
+    goes in a scope of its own: in this service's cgroup a restart (Restart=always, the exit 75 of a new version) would
+    kill it. A login shell gives it the user's PATH (claude)."""
+    tmux = shutil.which('tmux')
+    if not tmux: return False
+    if tmux_has(name): return True
+    argv = [tmux, '-L', tmux_socket(name), 'new-session', '-d', '-s', name, '-x', '200', '-y', '50',
+            'bash', '-lc', 'umask 022; exec bash "$0" "$@"', launcher(), name]   # not the service's UMask=0077
+    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=30,
+              start_new_session=True)
+    if os.environ.get('INVOCATION_ID') and shutil.which('systemd-run'):
+        r = subprocess.run(['systemd-run', '--user', '--scope', '--quiet', '--collect',
+                            f'--unit=agent-session-{name}-{int(time.time())}'] + argv, **kw)
+        if r.returncode == 0: return True
+        log(f'aviso: systemd-run nao abriu a sessao de {name} ({one_line(r.stderr, 120)}); tento sem ele')
+    r = subprocess.run(argv, **kw)
+    if r.returncode != 0: log(f'aviso: tmux nao abriu a sessao de {name} ({one_line(r.stderr, 120)})')
+    return r.returncode == 0
+
+
+def close_session(name):
+    """Closes the tmux session this provisioner opened (pause, remove, archive); no tmux or none open: nothing."""
+    if not tmux_has(name): return
+    subprocess.run([shutil.which('tmux'), '-L', tmux_socket(name), 'kill-server'], stdin=subprocess.DEVNULL,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    log(f'{name}: sessao do terminal (tmux) fechada')
+
+
 def snapshot(cfg):
     cmd = cfg.get('snapshot_cmd')
     if not cmd: return
@@ -600,21 +688,68 @@ class Provisioner:
         # never starts its runner, and an adopted agent Planou lists as terminal_open was not opened by us)
         aid = str(a['agent_id'])
         st = self.state.get(aid) or {}
-        if opened and detail is None: st['terminal_open_at'] = int(time.time())
+        if opened and detail is None:
+            st['terminal_open_at'] = int(time.time())
+            for k in CYCLE_KEYS: st.pop(k, None)
         elif status != 'terminal_open':
-            st.pop('terminal_open_at', None); st.pop('no_session_told', None)
+            for k in ('terminal_open_at',) + CYCLE_KEYS: st.pop(k, None)
+        # the tmux this provisioner opened, kept through runner_up so a reboot can bring it back (after_reboot)
+        if status not in ('terminal_open', 'runner_up'): st.pop('tmux_boot', None)
         if st: self.state[aid] = st
         else: self.state.pop(aid, None)
 
-    def no_session(self, a):
-        """terminal_open without the runner: after session_timeout_s since this provisioner asked for the terminal, the
-        same status goes again with a readable cause. Once: the inventory answer has no `detail` to compare with."""
-        st = self.state.get(str(a['agent_id'])) or {}
+    def no_session(self, a, adopted=False):
+        """terminal_open without the runner. For an instance of ours, after session_fallback_s with nobody holding the
+        launcher's lock (no VS Code opened `team <name>`), the session goes up in a detached tmux (PLN0296) and the card
+        says so. After session_timeout_s (since the fallback, or since the terminal was asked for when there was none)
+        the same status goes again with what to run. Once: the inventory answer has no `detail` to compare with."""
+        aid, name = str(a['agent_id']), a['name']
+        st = self.state.get(aid) or {}
         since = st.get('terminal_open_at')
-        if not since or st.get('no_session_told') or time.time() - since < self.cfg['session_timeout_s']: return
-        self.report(a, 'terminal_open', NO_SESSION)
+        if not since or st.get('no_session_told'): return
+        now = time.time()
+        if (not adopted and not st.get('fallback_at') and self.cfg['session_fallback'] == 'tmux'
+                and ours(name, aid)):
+            if now - since < self.cfg['session_fallback_s']: return
+            st['fallback_at'] = int(now)
+            self.state[aid] = st
+            if not session_held(name) and start_session(name):
+                st['fallback'] = 'tmux'
+                boot = boot_id()
+                if boot: st['tmux_boot'] = boot
+                return self.report(a, 'terminal_open', FALLBACK_UP.format(see=session_cmd(name)[0]))
+        base = st.get('fallback_at') if st.get('fallback') else since
+        if now - base < self.cfg['session_timeout_s']: return
+        see, run = session_cmd(name)
+        self.report(a, 'terminal_open', (FALLBACK_NO_RUNNER.format(see=see, run=run) if st.get('fallback')
+                                         else NO_SESSION.format(run=run)))
         st['no_session_told'] = True
-        self.state[str(a['agent_id'])] = st
+        self.state[aid] = st
+
+    def after_reboot(self, a, status):
+        """The machine restarted since this provisioner opened the employee's tmux (PLN0296): the session and the runner
+        died with it and no VS Code is there to open `team <name>` again. Once per boot, the terminal is asked for again
+        (`terminal_open`, a fresh clock): VS Code gets session_fallback_s, then the tmux goes up as on the first time. A
+        runner, a held lock or a tmux already there (VS Code or a person took over) only forgets the mark. True: done."""
+        aid, name = str(a['agent_id']), a['name']
+        st = self.state.get(aid) or {}
+        opened = st.get('tmux_boot')
+        if not opened: return False
+        boot = boot_id()
+        if not boot or boot == opened: return False
+        st.pop('tmux_boot')
+        if st: self.state[aid] = st
+        else: self.state.pop(aid, None)
+        if (runner_alive(name) or tmux_has(name) or session_held(name) or a.get('mode') != 'live'
+                or self.cfg['session_fallback'] != 'tmux' or not ours(name, aid)):
+            return False
+        log(f'{name}: o computador reiniciou e a sessao do terminal (tmux) nao voltou; peco o terminal de novo')
+        if status == 'terminal_open':                   # a fresh clock, as a new terminal_open gets in report()
+            st['terminal_open_at'] = int(time.time())
+            for k in CYCLE_KEYS: st.pop(k, None)
+            self.state[aid] = st
+        self.report(a, 'terminal_open')
+        return True
 
     def pass_once(self):
         body = self.api.agents_body()       # a network error or a 401/403 leaves here: nothing below runs
@@ -657,6 +792,7 @@ class Provisioner:
         computer's now (a report here would be 404)."""
         root = instance_root(name)
         stop_runner(self.cfg, name)
+        close_session(name)
         if os.path.lexists(self.cfg['agents_file']):     # no team list at all: no entry to take out
             set_agent_entry(self.cfg['agents_file'], name, None)
         shutil.rmtree(os.path.join(root, 'secrets'), ignore_errors=True)
@@ -751,7 +887,7 @@ class Provisioner:
         turned_on = status in ('paused', 'error') and not agent['enabled'] and set_agent_entry(self.cfg['agents_file'], name, True)
         if r and pid_alive(r['pid'], r['arg']): return self.report(a, 'runner_up')
         if turned_on or status in ('paused', 'error'): return self.report(a, 'terminal_open')
-        if status == 'terminal_open' and agent['enabled']: self.no_session(a)
+        if status == 'terminal_open' and agent['enabled']: self.no_session(a, adopted=True)
 
     def fail(self, a, msg):
         st = self.state.setdefault(str(a['agent_id']), {})
@@ -783,6 +919,7 @@ class Provisioner:
         if status == 'paused':
             set_agent_entry(self.cfg['agents_file'], name, True)
             return self.report(a, 'terminal_open', None if a.get('mode') == 'live' else TEST_MODE)
+        if status in ('terminal_open', 'runner_up') and self.after_reboot(a, status): return
         if status == 'terminal_open':
             return self.report(a, 'runner_up') if runner_alive(name) else self.no_session(a)
 
@@ -833,6 +970,7 @@ class Provisioner:
 
     def pause(self, a):
         stop_runner(self.cfg, a['name'])
+        close_session(a['name'])
         set_agent_entry(self.cfg['agents_file'], a['name'], False)
         self.report(a, 'paused')
 
@@ -842,6 +980,7 @@ class Provisioner:
             raise Fail(f'{root} nao foi criada pelo provisionador para este funcionario; remova a mao')
         if os.path.lexists(root):
             stop_runner(self.cfg, name)
+            close_session(name)
         if ours(name, aid):
             set_agent_entry(self.cfg['agents_file'], name, None)
         if os.path.lexists(root):
@@ -857,8 +996,11 @@ class Provisioner:
 
 
 TEST_MODE = 'modo teste: o runner so sobe com "live": true no config.json'
-NO_SESSION = ('terminal pedido, mas nenhuma sessao subiu: confira se a janela do VS Code com a extensao Team Terminals '
-              'esta aberta ou rode "Team: abrir terminais"')
+NO_SESSION = ('nenhuma sessao subiu: abra o VS Code com a extensao Team Terminals '
+              '(ou rode "Team: abrir terminais") ou rode no computador: {run}')
+FALLBACK_UP = 'sem VS Code: subi a sessao pelo terminal (tmux). Para ver: {see}'
+FALLBACK_NO_RUNNER = ('subi a sessao pelo terminal (tmux), mas o runner nao subiu: veja o que ela espera com {see}, '
+                      'ou abra o VS Code com Team Terminals, ou rode no computador: {run}')
 
 
 # ---------------------------------------------------------------- CLI
@@ -971,15 +1113,29 @@ def pin(argv, current):
     os.execv(sys.executable, [sys.executable, script, 'run', *argv])
 
 
+def kept_exec(have, want):
+    """`want` with the ExecStart of `have` when that one runs another copy of the plugin that still exists (a clone of
+    development, say): the unit follows the template but never swaps the copy someone chose. Same rule as
+    install-provisioner.sh."""
+    def exec_line(text):
+        return next((ln for ln in text.splitlines() if ln.startswith('ExecStart=')), None)
+    h, w = exec_line(have), exec_line(want)
+    if not h or not w or h == w: return want
+    py = next((t for t in h[len('ExecStart='):].split() if t.endswith('provisioner.py')), None)
+    if not py or not os.path.isfile(py.replace('%h', os.path.expanduser('~'))): return want
+    return want.replace(w, h, 1)
+
+
 def maintain_unit():
     """The installed unit follows this version's template: rewritten and daemon-reload when it differs. Only a unit this
-    plugin installed (its first line) is touched."""
+    plugin installed (its first line) is touched; an ExecStart that runs another existing copy stays (kept_exec)."""
     unit = os.path.join(os.environ.get('XDG_CONFIG_HOME') or home('.config'), 'systemd', 'user', UNIT_NAME)
     try:
         with open(os.path.join(SKILL_DIR, 'provisioner', UNIT_NAME)) as f: want = f.read()
         with open(unit) as f: have = f.read()
     except OSError:
         return
+    want = kept_exec(have, want)
     if have == want or not have.startswith(UNIT_MARK): return
     write_atomic(unit, want, 0o644)
     ctl = os.environ.get('SYSTEMCTL') or 'systemctl'

@@ -41,10 +41,14 @@ ARQUIVO = os.path.expanduser(os.environ.get('ATA_ARQUIVO_DIR') or config.get('re
 MM_HOME = os.path.expanduser(os.environ.get('MEETING_MINUTES_HOME') or '~/.config/meeting-minutes')   # config e estado do meeting-minutes
 
 
-def configure(videos_dir=None, archive_dir=None):
+LANGUAGE = ''      # the instance's behavior_config.recordings.language: run.sh gets it as ATA_LANG (empty = whisper detects)
+
+
+def configure(videos_dir=None, archive_dir=None, language=None):
     """The instance's folders win (work-watch config.json "videos_dir"/"archive_dir"), over $ATA_VIDEOS_DIR and the shared
     recordings.* of ~/.config/watch-core. Without an archive folder anywhere the .mp4 stays in the videos folder."""
-    global VIDEOS, ARQUIVO
+    global VIDEOS, ARQUIVO, LANGUAGE
+    if isinstance(language, str): LANGUAGE = language.strip()
     if videos_dir: VIDEOS = os.path.expanduser(videos_dir)
     ARQUIVO = os.path.expanduser(archive_dir or os.environ.get('ATA_ARQUIVO_DIR') or config.get('recordings.archive_dir') or VIDEOS)
 
@@ -393,8 +397,10 @@ def lanca_transcricao(path):
     """run.sh em background (nohup); o proprio run.sh faz flock da GPU. Devolve o pid."""
     os.makedirs(os.path.join(MM_HOME, 'state'), exist_ok=True)
     log = open(os.path.join(MM_HOME, 'state', 'agent-run.log'), 'a')
+    env = dict(os.environ)
+    if LANGUAGE: env['ATA_LANG'] = LANGUAGE   # the instance's language wins over the shared meeting-minutes config.json
     p = subprocess.Popen(['nohup', 'bash', RUN_SH, path], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                         start_new_session=True, cwd=ATA_SKILL)
+                         start_new_session=True, cwd=ATA_SKILL, env=env)
     return p.pid
 
 

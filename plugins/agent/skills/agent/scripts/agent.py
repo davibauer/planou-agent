@@ -104,9 +104,10 @@ def load_config():
 def video_folders(cfg):
     """"videos_dir"/"archive_dir" of the instance win over $ATA_VIDEOS_DIR and the shared recordings.* of
     ~/.config/watch-core (the same rule as work-watch's watch.py since 0.30.2)."""
-    if isinstance(cfg.get('videos_dir'), str) or isinstance(cfg.get('archive_dir'), str):
+    lang = ((cfg.get('behavior_config') or {}).get('recordings') or {}).get('language')
+    if isinstance(cfg.get('videos_dir'), str) or isinstance(cfg.get('archive_dir'), str) or isinstance(lang, str):
         from watch_core import recordings
-        recordings.configure(cfg.get('videos_dir'), cfg.get('archive_dir'))
+        recordings.configure(cfg.get('videos_dir'), cfg.get('archive_dir'), lang)
         import workspace
         workspace.VIDEOS = recordings.VIDEOS
 

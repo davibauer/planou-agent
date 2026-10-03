@@ -150,7 +150,8 @@ Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `qa`.
 - `$PL sugestao ...`: sugestão de melhoria do Planou ou dos plugins (seção abaixo).
 - `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `planou-queue`). `$PL fila worker <PID>
   --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou --phases-from <output_file>`:
-  o uso de cada worker que volta e o tempo por fase, medido no registro dele (o `output_file` que o `Agent` devolveu).
+  o uso de cada worker que volta, o tempo por fase e o uso por modelo (o custo da entrega), medidos no registro dele (o
+  `output_file` que o `Agent` devolveu).
 - **Workers em andamento** (aba Fila do Planou, "Workers agora"): logo depois de cada `Agent(worker)`, registrar o início
   com `$PL fila worker-start <PID> [--task <PID2> ...] --role dev|integrator|other --label '<o que ele faz, uma linha>'`
   (sem tarefa: `$PL worker start --role other --label '...'`). A saída é só a key: guardar na conversa. Quando ele

@@ -32,10 +32,25 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
    só a tabela conhece, e a extensão fecharia os terminais deles). Arquivo quebrado nunca é regravado: vira `error`.
 6. Informa `runner_up` quando `cache/runner/runner.pid` aponta um runner vivo da instância. Em modo teste o runner
    não sobe (o `runner.sh` recusa), então o cartão fica em Terminal aberto com o aviso de modo teste.
-7. Terminal pedido e nenhum runner depois de `session_timeout_s` (2 min, PLN0217): informa `terminal_open` de novo, uma
-   vez, com o motivo "terminal pedido, mas nenhuma sessao subiu: confira se a janela do VS Code com a extensao Team
-   Terminals esta aberta ou rode "Team: abrir terminais"", que o cartão mostra. Vale para o terminal que o provisionador
-   pediu em modo ligado (criar, Retomar e o Ligar de um agente adotado); o modo teste fica com o aviso dele.
+7. Sem VS Code (PLN0296): terminal pedido em modo ligado, nenhum runner depois de `session_fallback_s` (60 s) e ninguém
+   com a trava do `team <nome>` (a extensão não abriu o terminal): o provisionador sobe a sessão sozinho, `team <nome>`
+   num tmux destacado (soquete `agent-<nome>`; sob systemd num escopo próprio, `systemd-run --user --scope`, para que o
+   reinício do serviço não derrube a sessão) e informa `terminal_open` com "sem VS Code: subi a sessao pelo terminal
+   (tmux). Para ver: tmux -L agent-<nome> attach -t <nome>". Pausar, remover e arquivar fecham essa sessão. Um VS Code
+   aberto depois encontra a trava e diz que o agente já está rodando. `"session_fallback": "off"` desliga.
+   Reinício do computador: o tmux e o runner morrem com ele. Na volta (outro boot id: `/proc/sys/kernel/random/boot_id`
+   no Linux e no WSL, `kern.boottime` no macOS), o funcionário cuja sessão o provisionador abriu pelo tmux, sem runner,
+   sem trava e sem tmux, recebe `terminal_open` de novo, com o relógio zerado: o VS Code tem os 60 s dele e depois o tmux
+   sobe outra vez, como da primeira vez. Isso vale também para quem estava em Runner no ar. Uma vez por boot: uma sessão
+   que cai de novo no mesmo boot (ou que a pessoa fechou à mão) fica fechada até o próximo reinício; para parar de vez,
+   Pausar. Sem como saber o boot (nenhuma das duas fontes), a sessão não volta sozinha: rode `team <nome>`.
+8. Nenhum runner depois de `session_timeout_s` (2 min, PLN0217), contados da sessão pelo tmux ou, sem ela (sem tmux, ou
+   a trava já tomada), do terminal pedido: informa `terminal_open` de novo, uma vez, com o que fazer, que o cartão e o
+   comando de Outro computador mostram: "nenhuma sessao subiu: abra o VS Code com a extensao Team Terminals (ou rode
+   "Team: abrir terminais") ou rode no computador: team <nome>"; quando a sessão do tmux subiu e o runner não, o motivo
+   diz também como ver aquele terminal (o Claude Code pode estar esperando uma resposta, como a confiança na pasta).
+   Vale para o terminal que o provisionador pediu em modo ligado (criar, Retomar e o Ligar de um agente adotado, este
+   sem o tmux); o modo teste fica com o aviso dele.
 
 **Pausar** para o runner, desliga a entrada no `agents.json` (`"enabled": false`, pelo `upsert`) e informa `paused`; **Retomar** liga
 de novo e informa `terminal_open`. **Remover** para o runner, tira a entrada do `agents.json` (`team_agents.remove`), apaga os segredos, move a
@@ -201,6 +216,11 @@ cópia instalada à parte, e segue o canário do time ([rollout](../../../docs/r
   outra unit, o provisionador regrava `~/.config/systemd/user/agent-provisioner.service` ao subir e pede
   `systemctl --user daemon-reload` (vale na próxima partida). Só mexe na unit que o instalador pôs (a primeira linha
   dela é a marca).
+- **A cópia escolhida fica**: o `ExecStart` padrão passa pelo link `~/.claude/skills/agent`, que o `install.sh` (e o
+  `join.sh`, que roda o `install.sh`) não troca quando aponta para outra cópia. Quem mudou o `ExecStart` para outra
+  cópia do plugin que existe (um clone de desenvolvimento, por exemplo) mantém essa linha: o `install-provisioner.sh` e
+  o provisionador regravam o resto da unit pelo modelo e deixam o `ExecStart`. Se aquela cópia não existe mais, volta o
+  `ExecStart` do modelo.
 
 ## Configuração
 
@@ -212,6 +232,8 @@ cópia instalada à parte, e segue o canário do time ([rollout](../../../docs/r
 | `interval_s` | 30 | segundos entre uma volta e a próxima (o Planou aceita 60 chamadas por minuto) |
 | `retry_s` | 600 | espera antes de tentar de novo um pedido em Erro sem chave nova |
 | `session_timeout_s` | 120 | espera pelo runner depois do `terminal_open`; passou dela, o motivo vai para o cartão |
+| `session_fallback` | `tmux` | sem VS Code, sobe a sessão num tmux destacado; `off` desliga |
+| `session_fallback_s` | 60 | espera pelo terminal do VS Code antes de subir a sessão pelo tmux |
 | `template` | `config-example/dev` do plugin | pasta com `config.json` e `instructions.md` do modelo |
 | `agents_file` | `~/.config/team/agents.json` | a lista do time (precisa ser a do `team_agents.py`) |
 | `snapshot_cmd` | `config-snapshot` | rodado depois de criar; vazio desliga |

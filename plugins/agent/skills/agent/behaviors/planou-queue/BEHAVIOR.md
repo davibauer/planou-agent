@@ -79,8 +79,9 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    `$PL fila worker <PID> --role dev --tokens <N> --steps <ferramentas> --duration-ms <ms> --result feito|parcial|falhou
    --key <key> --phases-from <output_file>` (`--model <modelo>` quando souber; sem `--key`, a aberta aqui para a tarefa
    e o papel). O `--phases-from` mede no registro do worker onde o tempo foi (modelo, testes, CI, git/publish, leitura,
-   edição, espera) e o Planou mostra a barra por fase na tarefa, na aba Fila e o gargalo da semana em Métricas; registro
-   que não aparece é só um aviso. Ela fecha o
+   edição, espera) e o Planou mostra a barra por fase na tarefa, na aba Fila e o gargalo da semana em Métricas; do mesmo
+   registro sai o uso por modelo (entrada, saída e cache), e o Planou mostra o custo da entrega; registro que não
+   aparece é só um aviso. Ela fecha o
    worker no Planou. Vira uma linha em Entregas na tarefa e entra na média de Métricas. Um worker,
    uma chamada: repetir o mesmo comando não duplica. `AVISO (planou): ... versao antiga` é um Planou sem a rota: seguir.
 3. Worker voltou pronto: `$PL fila in_review <PID> --pr-url <link> --remaining-h <H>` (sem PR: `--note "<branch ou

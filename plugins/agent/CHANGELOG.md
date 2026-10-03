@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.76.0 (2026-10-03)
+- Reuniões gravadas em um só idioma: a opção `language` em `behavior_config.recordings` (código curto, como `pt`) vai para a transcrição como `ATA_LANG`, só para essa instância, e evita que uma reunião em português com início silencioso seja detectada como inglês e saia traduzida. Sem a opção, nada muda. Valor inválido (como `pt-BR`) aparece no `--validate`.
+- Funcionário novo sobe sem VS Code: se a extensão Team Terminals não abrir o terminal em 1 minuto, o provisionador abre a sessão sozinho num tmux (`tmux -L agent-<nome> attach -t <nome>` para ver) e o cartão diz "sem VS Code: subi a sessao pelo terminal". Sem tmux, ou se o runner ainda não subir, o cartão diz o que fazer: abrir o VS Code com Team Terminals ou rodar `team <nome>` no computador. Pausar e remover fecham essa sessão.
+- Depois de reiniciar o computador sem VS Code, a sessão pelo tmux volta sozinha: o provisionador pede o terminal de novo e, sem VS Code em 1 minuto, abre o tmux outra vez (uma vez por reinício). Rodar o instalador ou o comando de adicionar funcionário num computador já conectado mantém o provisionador na cópia do plugin que já estava em uso.
+
+## 0.75.0 (2026-10-01)
+- Custo real de cada worker (PLN0101, par da entrega do Planou): `fila worker ... --phases-from <output_file>` agora também soma no registro do subagente o uso por modelo (entrada, saída, gravação de cache de 5 min e de 1 h, leitura de cache), contando cada resposta uma vez pelo id da mensagem, como os turnos de custo, e manda junto com a entrega; o Planou dá o preço pela mesma tabela dos turnos e mostra o custo em Entregas e em Últimos workers.
+- Planou que ainda não conhece o campo simplesmente o ignora; registro sem respostas com uso é só um aviso e a entrega vai sem custo. O uso fica fora da key, então repetir a entrega continua `unchanged`.
+- `python3 -m watch_core.phases <registro ou agentId>` mostra também o uso por modelo.
+- Cópia do contrato `/v1` do Planou sincronizada (campo `usage` da entrega).
+
 ## 0.74.0 (2026-10-01)
 - Uma instância só pode fazer o ciclo todo (dev, revisão e QA): com `dev-worker` junto de `code-review` e/ou `qa`, a tarefa que a própria instância desenvolveu chega à coluna de revisão ou de QA como `passada por voce mesmo (mesma instancia que desenvolve)`, com a PR e a branch, e a revisão ou o QA vai para um worker NOVO, de contexto limpo, nunca para o worker que entregou nem para a sessão. O parecer registra que foi revisão independente. Instâncias separadas por papel continuam valendo.
 - Ajuste pedido nessa revisão própria volta como retrabalho normal: `fila ajuste` responde `RETRABALHO PROPRIO` (o Planou não devolve ao próprio agente), um worker de dev atende na mesma branch e PR e outro worker novo confere o que mudou. `fila ver` mostra `mesma_instancia` (coluna, de onde veio, branch e ajustes).

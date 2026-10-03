@@ -233,9 +233,13 @@ if [ "$MODE" = auto ]; then
 fi
 case "$MODE" in
   systemd)
-    SYSTEMCTL=$SYSTEMCTL bash "$OURS/provisioner/install-provisioner.sh" >/dev/null \
+    # a unit whose ExecStart runs another copy of the plugin (a clone of development) keeps that ExecStart
+    out=$(SYSTEMCTL=$SYSTEMCTL bash "$OURS/provisioner/install-provisioner.sh") \
       || die "nao consegui gravar a unit do systemd"
-    say "servico: unit agent-provisioner gravada (systemd --user)";;
+    case "$out" in
+      *"ExecStart mantido"*) say "servico: unit agent-provisioner gravada; ExecStart mantido (roda outra copia do plugin)";;
+      *) say "servico: unit agent-provisioner gravada (systemd --user)";;
+    esac;;
   launchd)
     mkdir -p "$(dirname "$PLIST")" "$HOME/Library/Logs"
     xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }

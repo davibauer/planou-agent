@@ -50,8 +50,28 @@ if [ ! -f "$prov/config.json" ]; then
   printf '{\n  "base_url": "http://127.0.0.1:5068/v1",\n  "interval_s": 30\n}\n' > "$prov/config.json"
   echo "config criado: $prov/config.json (base_url da producao local; em desenvolvimento, a porta da API)"
 fi
-cp "$unit_src" "$unit.tmp" && chmod 644 "$unit.tmp" && mv "$unit.tmp" "$unit"
-echo "unit gravada: $unit (roda $script)"
+# an ExecStart that runs another copy of the plugin that still exists (a clone of development, say) stays: the unit
+# follows the template but never swaps the copy someone chose (the same rule as maintain_unit in provisioner.py)
+keep=
+if [ -f "$unit" ]; then
+  have=$(sed -n 's/^ExecStart=//p' "$unit" | head -n 1)
+  want=$(sed -n 's/^ExecStart=//p' "$unit_src" | head -n 1)
+  if [ -n "$have" ] && [ "$have" != "$want" ]; then
+    py=
+    for t in $have; do case "$t" in *provisioner.py) py=$t; break;; esac; done
+    py=${py//%h/$HOME}
+    if [ -n "$py" ] && [ -f "$py" ]; then keep=$have; fi
+  fi
+fi
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in
+    ExecStart=*) if [ -n "$keep" ]; then printf 'ExecStart=%s\n' "$keep"; else printf '%s\n' "$line"; fi;;
+    *) printf '%s\n' "$line";;
+  esac
+done < "$unit_src" > "$unit.tmp"
+chmod 644 "$unit.tmp" && mv "$unit.tmp" "$unit"
+if [ -n "$keep" ]; then echo "unit gravada: $unit (ExecStart mantido, outra copia do plugin: $keep)"
+else echo "unit gravada: $unit (roda $script)"; fi
 
 cred_ok=0
 if [ -f "$cred" ]; then

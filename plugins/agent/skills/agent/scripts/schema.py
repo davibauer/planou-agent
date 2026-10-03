@@ -87,7 +87,7 @@ BEHAVIOR_OPTIONS = {
                       'e2e_every_h': 'num', 'fragments': 'path', 'deploy_log': 'path', 'check_url': 'str',
                       'deploy_cmd': 'command'},
     'daily-report': {'language': 'str', 'closing_hour': 'int', 'speech_only': 'bool', 'tasks': 'bool'},
-    'recordings': {'calendar': 'str', 'query_hours': 'int', 'push': 'strs'},
+    'recordings': {'calendar': 'str', 'query_hours': 'int', 'push': 'strs', 'language': 'str'},
     'push-alert': {'prefix': 'str', 'max_chars': 'int', 'triggers': 'strs', 'quiet': 'strs'},
     'code-review': {'max_diff_lines': 'int', 'terms_file': 'command', 'public_repos': 'strs', 'require_tests': 'bool',
                     'pr_comment': 'bool'},
@@ -115,6 +115,9 @@ TRAVEL_AGENT_KEYS = {'currency', 'pause_seconds', 'min_drop_pct', 'rise_warn_pct
 REPO_STR_KEYS = ('name', 'worktrees', 'base', 'rules', 'map', 'gh_account', 'done', 'fragments')
 # options that take one of a few values: (behavior, option) -> the values
 OPTION_CHOICES = {('qa', 'send_back'): ('ajuste', 'pessoa')}
+# options that take free text of a given shape: (behavior, option) -> (pattern, what it looks like). recordings.language
+# goes to run.sh as ATA_LANG (whisper's short code: "pt", "en", "es"), so a locale like "pt-BR" would break the run
+OPTION_PATTERNS = {('recordings', 'language'): (re.compile(r'[a-z]{2,3}'), 'codigo curto do idioma, como pt, en ou es')}
 OPTION_TYPES = {'str': 'texto', 'int': 'inteiro', 'num': 'numero', 'bool': 'true ou false', 'strs': 'lista de textos',
                 'ints': 'lista de inteiros maiores que zero', 'command': 'texto', 'path': 'texto'}
 OPTION_SHORT = {'str': 'texto', 'int': 'inteiro', 'num': 'numero', 'bool': 'true/false', 'strs': 'lista de textos',
@@ -193,6 +196,8 @@ def option_problems(name, opts):
         elif not _option_ok(spec[k], v): err.append(f'"behavior_config.{name}.{k}" precisa ser {OPTION_TYPES[spec[k]]}')
         elif (name, k) in OPTION_CHOICES and v not in OPTION_CHOICES[name, k]:
             err.append(f'"behavior_config.{name}.{k}": {v!r} ({", ".join(OPTION_CHOICES[name, k])})')
+        elif (name, k) in OPTION_PATTERNS and not OPTION_PATTERNS[name, k][0].fullmatch(v):
+            err.append(f'"behavior_config.{name}.{k}": {v!r} ({OPTION_PATTERNS[name, k][1]})')
     return err, unknown
 
 

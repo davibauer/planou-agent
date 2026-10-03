@@ -23,7 +23,11 @@ tool calls are never counted twice. The state: a tool call waiting for its resul
 tool (the advisor) waiting, idle after an end_turn (a background command still running decides; with none, the worker
 was stopped between two runs, as when the session continues it by message, and that time is left out), or the model.
 
-  python3 -m watch_core.phases <transcript or agent id>     # prints the phases, to check a worker by hand
+The same transcript also gives the worker's usage (PLN0101): the raw tokens per model of its answers (input, output,
+cache writes 5 min / 1 h and cache reads, with the calls), counted once per message id the way the cost turns are
+(watch_core.turns.usage_of), so Planou prices the delivery with the table it uses for the turns.
+
+  python3 -m watch_core.phases <transcript or agent id>     # prints the phases and the usage, to check a worker by hand
 """
 import glob, json, os, re, sys
 from datetime import datetime
@@ -178,12 +182,33 @@ def resolve(ref, home=None):
     return found[0] if found else None
 
 
+def usage(entries):
+    """Raw usage per model of a worker's answers: {model: {'calls', 'input', 'cache_write_5m', 'cache_write_1h',
+    'cache_read', 'output'}}, the shape of the cost turns. An answer written in several lines (one per content block)
+    counts once, by its message id, taking its first line as the turns do. {} when no answer brought usage."""
+    from . import turns as _turns          # lazy: turns imports planou, which imports this module
+    out, seen = {}, set()
+    for e in entries:
+        u = _turns.usage_of(e)
+        if not u or u[0] in seen: continue
+        seen.add(u[0])
+        _turns._add(out, u[1], u[2])
+    return out
+
+
+def measure(ref, home=None):
+    """(phases, usage, None) or (None, None, why) for `fila worker --phases-from`; phases or usage may be empty."""
+    path = resolve(ref, home)
+    if not path: return None, None, f'registro do worker nao encontrado: {ref}'
+    try: entries = read(path)
+    except OSError as e: return None, None, f'registro do worker ilegivel: {e.strerror or e}'
+    return compute(entries), usage(entries), None
+
+
 def from_ref(ref, home=None):
     """(phases, None) or (None, why) for `fila worker --phases-from`."""
-    path = resolve(ref, home)
-    if not path: return None, f'registro do worker nao encontrado: {ref}'
-    try: phases = compute(read(path))
-    except OSError as e: return None, f'registro do worker ilegivel: {e.strerror or e}'
+    phases, _, why = measure(ref, home)
+    if why: return None, why
     if not phases: return None, 'registro do worker sem tempo medido'
     return phases, None
 
@@ -203,14 +228,21 @@ def main(argv=None):
     if not argv:
         print('uso: python3 -m watch_core.phases <registro do worker ou agent id>', file=sys.stderr)
         return 2
-    phases, why = from_ref(argv[0])
+    phases, used, why = measure(argv[0])
     if why:
         print(why, file=sys.stderr)
         return 1
-    total = sum(phases.values())
-    print(f'total medido {total / 60:.1f} min')
-    for k in sorted(phases, key=lambda k: -phases[k]):
-        print(f'  {LABELS[k]:14s} {phases[k] / 60:5.1f} min  {phases[k] / total:4.0%}')
+    if not phases and not used:
+        print('registro do worker sem tempo medido', file=sys.stderr)
+        return 1
+    total = sum((phases or {}).values())
+    if total:
+        print(f'total medido {total / 60:.1f} min')
+        for k in sorted(phases, key=lambda k: -phases[k]):
+            print(f'  {LABELS[k]:14s} {phases[k] / 60:5.1f} min  {phases[k] / total:4.0%}')
+    for model, c in sorted((used or {}).items()):
+        print(f'  uso {model}: {c["calls"]} respostas, entrada {c["input"]}, saida {c["output"]}, '
+              f'cache 5m {c["cache_write_5m"]}, cache 1h {c["cache_write_1h"]}, leitura de cache {c["cache_read"]}')
     return 0
 
 

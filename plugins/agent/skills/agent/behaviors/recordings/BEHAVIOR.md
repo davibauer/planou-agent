@@ -15,6 +15,9 @@ Opções em `behavior_config.recordings` (`$A --status` mostra):
 - `calendar`: comando de consulta da agenda desta instância, para cruzar convites e conflitos (ex.: `"--agenda"` na
   agenda em cache; sem a opção, o que o `instructions.md` disser).
 - `query_hours`: janela, em horas, da consulta do bloco (padrão 72).
+- `language`: idioma das reuniões desta instância, código curto (`pt`, `en`, `es`). Vai para o `run.sh` como
+  `ATA_LANG` e vale só para esta instância; sem a opção, vale o `language` do config do meeting-minutes e, sem ele, o
+  whisper detecta sozinho (uma reunião com início silencioso pode ser detectada como inglês e sair traduzida).
 - `push`: linhas do bloco que viram aviso ativo (padrão `["ATA PENDENTE", "ACAO SUA", "ERRO"]`).
 
 ## O bloco `== GRAVACOES`
