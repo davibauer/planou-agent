@@ -6,6 +6,8 @@
 #     to run, the same as Restart=always of the unit). Another provisioner already running makes it leave at once:
 #     the pause keeps that from spinning.
 SCRIPT="$HOME/.claude/skills/agent/scripts/provisioner.py"
+# the portable Python of the installer (PLN0297) first, when this computer has no python3 of its own
+PATH="$HOME/.local/share/planou/python/bin:$PATH"; export PATH
 while :; do
   if systemctl --user is-active --quiet agent-provisioner.service 2>/dev/null; then sleep 300; continue; fi
   if [ -f "$SCRIPT" ]; then python3 "$SCRIPT" run; else echo "provisionador: $SCRIPT nao existe" >&2; fi

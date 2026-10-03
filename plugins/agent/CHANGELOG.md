@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.80.0 (2026-10-03)
+- Funcionário na própria janela: `planou-agent <nome>` abre o Claude Code no terminal como o funcionário e religa a sessão na mesma janela quando ela acaba (rotação diária e versão nova só com a sessão parada, `/exit` religa em 10 s, Ctrl+C fecha, queda religa com espera crescente e 5 quedas em 10 min param). Uma janela por funcionário: a segunda diz onde ele está aberto e não abre outra. Pausar, remover ou arquivar no Planou fecha a janela.
+- O instalador precisa só de bash, curl e do Claude Code: sem python3 3.8 ou mais novo, baixa um Python portátil (CPython 3.12, SHA-256 fixado) em `~/.local/share/planou/python`; sem git, baixa o arquivo da última Release conferido pelo `.sha256` dela. A extensão do VS Code só entra com `--vscode` (o `install.ps1` continua ligando).
+- Atualização sem git: o provisionador traz sozinho a cópia instalada para a Release nova, conferida pelo SHA-256, e nunca mexe numa cópia git. Ligada por padrão (`auto_update`).
+- Sem VS Code, a sessão não sobe mais num tmux escondido por padrão (`session_fallback` passa a `off`); o aviso de "nenhuma sessao subiu" mostra o comando `planou-agent <nome>`.
+- Nova fase `session_restart` no sinal de vida quando a janela religa a sessão; Planou antigo recebe `session_closed`.
+
 ## 0.79.0 (2026-10-03)
 - Na instância que faz o ciclo todo, o pedido de ajuste da revisão ou do QA próprio segue o fluxo normal do Planou 0.76.0: `fila ajuste` responde `DEVOLVIDA` e a tarefa volta à coluna do dev, o `-- AJUSTE PEDIDO` chega dizendo que veio da própria revisão independente, espera a vaga e volta como retrabalho. O caminho local `RETRABALHO PROPRIO` (registro em `cache/planou/self_handoffs.json` e comentário do agente na tarefa) saiu.
 - A entrega desse retrabalho, e do ajuste que a pessoa pede nessa revisão, é `fila handoff` em vez de `fila in_review`, para a tarefa voltar à revisão e ir de novo para um worker novo.

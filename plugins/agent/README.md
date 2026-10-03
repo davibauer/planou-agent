@@ -105,8 +105,8 @@ navegador) e o que depende de uma ação pessoal do usuário continuam como pedi
 
 ## Instalar com um comando
 
-Num computador novo, um comando instala o plugin, a extensão Team Terminals do VS Code e o provisionador local como
-serviço do usuário, e no fim pede o código de pareamento do Planou (Configurações › Computadores › **Conectar este
+Num computador novo, um comando instala o plugin (e um Python portátil, se o computador não tiver o python3) e o
+provisionador local como serviço do usuário, e no fim pede o código de pareamento do Planou (Configurações › Computadores › **Conectar este
 computador**). Sem conta nova e sem segredo no terminal: o código é digitado oculto e vai para o
 `provisioner.py pair` pela entrada; a credencial vai do Planou direto para um arquivo 0600.
 
@@ -124,22 +124,30 @@ irm https://raw.githubusercontent.com/davibauer/planou-agent/main/install.ps1 | 
 
 | O quê | Linux e WSL | macOS | Windows |
 |---|---|---|---|
-| plugin agent | cópia do repositório em `~/.local/share/planou/claude-plugins` (git, ou o arquivo `.tar.gz` sem git), as skills `~/.claude/skills/agent` e `work-watch` apontando para ela, o `team` em `~/.local/bin` e o `~/.config/team/agents.json` vazio | igual | igual, dentro do WSL |
-| extensão Team Terminals | `extensions/vscode-team-terminals/dist/team-terminals.vsix` por `code --install-extension`; depois ela se atualiza sozinha da mesma cópia | igual | pelo `code` do WSL, que instala no VS Code das janelas do WSL |
+| Python | o `python3` do sistema (3.8 ou mais novo); sem ele, o CPython 3.12 portátil do python-build-standalone (versão e SHA-256 fixados no `install.sh`) em `~/.local/share/planou/python` | igual (sem as Command Line Tools, o `/usr/bin/python3` não conta) | igual, dentro do WSL |
+| plugin agent | cópia em `~/.local/share/planou/claude-plugins`: o `.tar.gz` da última Release do planou-agent, conferido pelo `.sha256` dela, sem git (uma cópia git continua git; `--git` pede git numa cópia nova), as skills `~/.claude/skills/agent` e `work-watch` apontando para ela, o `team` e o `planou-agent` em `~/.local/bin` e o `~/.config/team/agents.json` vazio | igual | igual, dentro do WSL |
+| extensão Team Terminals | só com `--vscode`: `extensions/vscode-team-terminals/dist/team-terminals.vsix` por `code --install-extension`; depois ela se atualiza sozinha da mesma cópia | igual | ligada pelo `install.ps1` (menos com `-NoVSCode`), pelo `code` do WSL |
 | provisionador | `systemd --user` (`agent-provisioner.service`) | `launchd` (`~/Library/LaunchAgents/app.planou.agent-provisioner.plist`, log em `~/Library/Logs/agent-provisioner.log`) | tarefa agendada do usuário, ao entrar no Windows, que roda o provisionador no WSL (`provisioner/wsl-provisioner.sh`) e mantém o WSL de pé; com o systemd ligado no WSL, a unit roda e a tarefa só mantém o WSL |
 
-- Rodar de novo atualiza tudo: `git pull --ff-only` na cópia, a extensão e o serviço. Computador já conectado mantém a
-  credencial e não pede código; o serviço reinicia na versão nova.
+- Rodar de novo atualiza tudo: a cópia (a Release nova, ou `git pull --ff-only` numa cópia git), a extensão e o
+  serviço. Computador já conectado mantém a credencial e não pede código; o serviço reinicia na versão nova. Sem rodar
+  de novo, o provisionador atualiza sozinho a cópia sem git (`auto_update`, ligado no `config.json` que o instalador
+  grava; [docs/provisioner.md](docs/provisioner.md#atualização-sem-git-pln0297)).
+- `planou-agent <nome>` abre o funcionário naquele terminal e religa a sessão na mesma janela quando ela acaba (rotação
+  diária, versão nova, `/exit`, queda); uma janela por funcionário. É onde o comando de adicionar funcionário do Planou
+  termina.
 - O que não é do instalador fica como está: uma skill `agent` que já aponta para outra cópia, um `team` que já existe
   e um `agents.json` que já existe.
 - O serviço só liga depois do pareamento. Sem terminal (ou com Enter vazio), o instalador mostra o comando para
   conectar depois: `python3 <cópia>/plugins/agent/skills/agent/scripts/provisioner.py pair --base-url <Planou>`
   (sem o código no comando: ele pergunta, oculto).
-- Opções: `curl ... | sh -s -- --base-url URL` (padrão `https://app.planou.com`), `--no-vscode`, `--no-pair`,
-  `--service none`, `--dir DIR`, `--ref REF`; no Windows, `-BaseUrl`, `-Distro`, `-NoVSCode`, `-NoPair` (com
+- Opções: `curl ... | sh -s -- --base-url URL` (padrão `https://app.planou.com`), `--vscode`, `--no-pair`,
+  `--service none`, `--dir DIR`, `--git`, `--ref REF`; no Windows, `-BaseUrl`, `-Distro`, `-NoVSCode`, `-NoPair` (com
   `& ([scriptblock]::Create((irm <url>))) -BaseUrl URL`). A lista inteira está no começo de cada script.
-- Pré-requisitos: `python3` 3.8 ou mais novo e `git` ou `curl`; o Claude Code (`claude`) para os agentes rodarem. No
-  WSL sem systemd, ligue `[boot] systemd=true` em `/etc/wsl.conf` ou instale pelo `install.ps1` do Windows.
+- Pré-requisitos: bash e `curl` (ou `wget`), e o Claude Code (`claude`) para os agentes rodarem; python3 e git são
+  opcionais. No WSL sem systemd, a janela do funcionário faz o papel do serviço enquanto estiver aberta; para o
+  serviço, ligue `[boot] systemd=true` em `/etc/wsl.conf` ou instale pelo `install.ps1` do Windows. Distribuições musl
+  (Alpine) precisam do python3 do sistema: o Python portátil é para glibc.
 - No macOS, o provisionador roda, mas a conferência de runner de pé lê `/proc`, que o macOS não tem: o estado do runner
   na tela Time não vale lá.
 

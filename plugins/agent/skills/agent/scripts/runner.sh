@@ -19,7 +19,8 @@
 # after tick.out was printed. The next heavy tick keeps its time (next_heavy): a light wake never pushes it.
 # Conversation: every 5 s a `stat` of the session transcript; only when it changed, `watch_core.transcript pump` sends
 # the new messages, the cost of each closed turn and the Remote Control link. Never wakes the session.
-# Session: on HUP/TERM/INT, or when the 5 s check finds the session process gone, heartbeat session_closed and leave.
+# Session: on HUP/TERM/INT, or when the 5 s check finds the session process gone, heartbeat session_closed and leave
+# (session_restart when the window loop of employee.sh closed it on purpose: ~/.config/team/<instance>.restart).
 # Stop: `runner.sh <instancia> stop` stops every runner of the instance (each one's process group and tree: the long
 # poll, the sleep, the heavy tick) and waits for them to go; relaunch = stop and up again.
 # One runner per instance (PLN0082): runner.lock beside runner.pid, held while the runner lives (see `trava`).
@@ -294,9 +295,15 @@ sessao_viva() {   # true without a known session (never close what we did not fi
 }
 fecha_sessao() {   # the session is gone: tell Planou (only with the light loop on) and leave without waking anyone
   stop_poll
-  [ "$planou" = 1 ] && PYTHONPATH="$S" timeout 8 python3 -m watch_core.planou --agent "$INST" --root "$ROOT" heartbeat session_closed \
+  # PLN0297: the window loop (employee.sh) closed the session on purpose and opens the next one right away: a fresh
+  # ~/.config/team/<instance>.restart says so, and Planou gets session_restart (the employee stays up)
+  local phase=session_closed rs="$HOME/.config/team/$INST.restart"
+  if [ -f "$rs" ] && [ -n "$(find "$rs" -mmin -2 2>/dev/null)" ]; then
+    case "$(head -n 1 "$rs" 2>/dev/null)" in pausado*|removido*|saiu*) ;; *) phase=session_restart;; esac
+  fi
+  [ "$planou" = 1 ] && PYTHONPATH="$S" timeout 8 python3 -m watch_core.planou --agent "$INST" --root "$ROOT" heartbeat "$phase" \
     ${SID:+--session-id "$SID"} >/dev/null 2>&1
-  printf '%s\t%s\n' "$(date +%FT%T)" "sessao $SID (pid $SPID) encerrada: session_closed" >> "$D/avisos.log"
+  printf '%s\t%s\n' "$(date +%FT%T)" "sessao $SID (pid $SPID) encerrada: $phase" >> "$D/avisos.log"
   [ "$(cat "$D/runner.pid" 2>/dev/null)" = "$$" ] && rm -f "$D/runner.pid"
   exit 0
 }

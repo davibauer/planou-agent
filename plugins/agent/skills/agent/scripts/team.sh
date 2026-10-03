@@ -21,6 +21,9 @@
 # extension) the launcher just returns to that shell, which stays idle so the extension can revive it; started as the
 # terminal's own command, it keeps the terminal open with a plain `bash -i`.
 # Per-agent environment (tokens etc.) in ~/.config/team/<agent>.env (chmod 600). Exports TEAM_AGENT=<agent>.
+# PLN0297: inside the window loop of employee.sh (TEAM_IN_LOOP=1) the launcher takes no lock (the loop holds both for
+# as long as the window lives) and just returns claude's exit code. A fresh ~/.config/team/<agent>.restart (the loop
+# closing the session on purpose: daily rotation, new version) turns the session_closed sign into session_restart.
 # Overrides for tests: TEAM_TMP_DIR (the /tmp lock), XDG_CACHE_HOME.
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 TA="${TEAM_AGENTS_PY:-$here/team_agents.py}"
@@ -39,6 +42,7 @@ if [ ! -f "$TA" ]; then echo "team: não achei $TA (plugin agent)" >&2; exit 1; 
 # Leaves the launcher without holding any lock. At a shell prompt, return to it; otherwise keep the terminal open.
 leave() {
   exec 8>&- 9>&-
+  [ "${TEAM_IN_LOOP:-}" = 1 ] && exit "${1:-0}"
   case "$(cat "/proc/$PPID/comm" 2>/dev/null)" in
     bash|zsh|sh|dash|fish|ksh) exit "${1:-0}" ;;
   esac
@@ -56,12 +60,14 @@ m=$(sed -n 1p <<< "$info"); dir=$(sed -n 2p <<< "$info"); skill=$(sed -n 3p <<< 
 agent_rotate=$(sed -n 4p <<< "$info"); agent_plugin=$(sed -n 5p <<< "$info")
 if [ "$dry" = 1 ]; then echo "$m|$dir|$skill|$agent_rotate|$agent_plugin"; exit 0; fi
 
-lockdir="${XDG_CACHE_HOME:-$HOME/.cache}/team/locks"; mkdir -p "$lockdir"
-exec 9>"${TEAM_TMP_DIR:-/tmp}/team-$m.lock" 8>"$lockdir/$m.lock"
-if ! flock -n 9 || ! flock -n 8; then
-  exec 8>&- 9>&-        # one of the two may be ours already: let it go before looking for the holder
-  python3 "$TL" explain "$m" 2>/dev/null || echo ">> $m já está rodando em outro terminal. Feche aquele antes de abrir de novo."
-  leave 1
+if [ "${TEAM_IN_LOOP:-}" != 1 ]; then
+  lockdir="${XDG_CACHE_HOME:-$HOME/.cache}/team/locks"; mkdir -p "$lockdir"
+  exec 9>"${TEAM_TMP_DIR:-/tmp}/team-$m.lock" 8>"$lockdir/$m.lock"
+  if ! flock -n 9 || ! flock -n 8; then
+    exec 8>&- 9>&-        # one of the two may be ours already: let it go before looking for the holder
+    python3 "$TL" explain "$m" 2>/dev/null || echo ">> $m já está rodando em outro terminal. Feche aquele antes de abrir de novo."
+    leave 1
+  fi
 fi
 
 [ -f "$HOME/.config/team/$m.env" ] && . "$HOME/.config/team/$m.env"
@@ -112,6 +118,12 @@ rc=$?
 # timeout, silent, without changing the exit code; an agent without the "planou" block (or in test mode) sends nothing.
 # Closing the terminal directly (without leaving claude) does not pass here.
 WATCH_CORE="$here"   # the agent plugin's own watch_core, for every agent (shared/watch-core left the repository in E6)
-[ -d "$WATCH_CORE/watch_core" ] && PYTHONPATH="$WATCH_CORE" timeout 8 python3 -m watch_core.planou --agent "$m" heartbeat session_closed --session-id "$sid" >/dev/null 2>&1
+phase=session_closed
+restart="$HOME/.config/team/$m.restart"     # written by the window loop (employee.sh) right before it closes claude
+if [ -f "$restart" ] && [ -n "$(find "$restart" -mmin -2 2>/dev/null)" ]; then
+  case "$(head -n 1 "$restart" 2>/dev/null)" in pausado*|removido*|saiu*) ;; *) phase=session_restart;; esac
+fi
+[ -d "$WATCH_CORE/watch_core" ] && PYTHONPATH="$WATCH_CORE" timeout 8 python3 -m watch_core.planou --agent "$m" heartbeat "$phase" --session-id "$sid" >/dev/null 2>&1
+[ "${TEAM_IN_LOOP:-}" = 1 ] && exit "$rc"
 echo; echo ">> claude saiu (código $rc). (team $m new = começar conversa do zero)"
 leave "$rc"

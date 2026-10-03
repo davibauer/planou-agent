@@ -13,13 +13,24 @@ and, for each agent the person asked for:
      `terminal_open`; later, `runner_up` once cache/runner/runner.pid names a live runner of the instance. No runner
      `session_timeout_s` (120) after a live `terminal_open` it reported: `terminal_open` again, with NO_SESSION as the
      detail (PLN0217: the extension lost the agents.json change and nothing opened the terminal).
-     Without VS Code (PLN0296): no runner `session_fallback_s` (60) after that `terminal_open` and nobody holding the
-     launcher's lock, the provisioner starts the session itself, `team <name>` in a detached tmux (socket
-     agent-<name>, in a scope of its own under systemd so a restart of this service never kills it) and reports
-     `terminal_open` with FALLBACK_UP; no tmux, or still no runner `session_timeout_s` after it, NO_SESSION says what
-     to run. Pausing, removing or archiving closes that tmux session. After a reboot of the machine (another boot id),
-     an employee whose tmux this provisioner opened and whose runner, lock and tmux are gone gets `terminal_open` again,
-     once per boot, and the same steps run (VS Code first, then the tmux).
+     PLN0297: the session lives in a terminal window, `planou-agent <name>` (employee.sh: Planou's join command
+     ends there), which holds the launcher's lock and opens the session again when it ends. Pausing, removing or
+     archiving an employee whose window is open writes ~/.config/team/<name>.restart ("pausado ...", "removido ...",
+     "saiu ..."): the window closes the session and leaves. No session `session_timeout_s` after `terminal_open`:
+     NO_SESSION gives the command that opens the window.
+     Optional, off by default since PLN0297 (`session_fallback`: "tmux", PLN0296): no runner `session_fallback_s` (60)
+     after that `terminal_open` and nobody holding the launcher's lock, the provisioner starts the session itself,
+     `team <name>` in a detached tmux (socket agent-<name>, in a scope of its own under systemd so a restart of this
+     service never kills it) and reports `terminal_open` with FALLBACK_UP. Pausing, removing or archiving closes that
+     tmux session. After a reboot of the machine (another boot id), an employee whose tmux this provisioner opened and
+     whose runner, lock and tmux are gone gets `terminal_open` again, once per boot, and the same steps run.
+
+Update without git (PLN0297, "auto_update", on unless false in config.json): when the plugin copy in use is the
+installer's archive copy (`.planou-install` at its root, no .git), every `update_every_s` (1800) the provisioner reads
+the latest release of davibauer/planou-agent (the tag from the redirect of releases/latest, no GitHub API), and for a
+newer version downloads planou-agent-vX.Y.Z.tar.gz, checks it against the .sha256 of the same release, unpacks it next
+to the copy and swaps the folder, like install.sh. The service then restarts on it (75) and the windows open new
+sessions on it when idle. A git copy (development) is never touched.
 
 Adopted agents (PLN0188): every pass also sends Planou the inventory of the machine (the agents of
 ~/.config/team/agents.json and the agent plugin's instances missing from it, through team_agents) with the state of
@@ -53,7 +64,9 @@ is https, or http on loopback only; HTTP proxies are ignored (Planou refuses the
 
   ~/.config/agent-provisioner/
     config.json        optional: base_url, interval_s, template, agents_file, snapshot_cmd, runner, retry_s,
-                       session_timeout_s, session_fallback ("tmux" or "off"), session_fallback_s
+                       session_timeout_s, session_fallback ("off" or "tmux"), session_fallback_s, auto_update,
+                       update_every_s, releases_url
+    data/update.json   when the release was last read and the last update (auto_update)
     secrets/planou.env PLANOU_PROVISIONER_KEY=pl_pv_...   (0600)
     data/state.json    retry and terminal_open bookkeeping per agent id (never a key)
     removed/           instances taken out by a removal, without their secrets
@@ -85,7 +98,8 @@ STATUSES = ('creating', 'validated', 'terminal_open', 'runner_up', 'paused', 're
 PUBLIC_BASE_URL = 'https://app.planou.com/v1'
 DEFAULTS = {'base_url': 'http://127.0.0.1:5068/v1', 'interval_s': 30, 'retry_s': 600, 'template': None,
             'agents_file': '~/.config/team/agents.json', 'snapshot_cmd': 'config-snapshot', 'runner': None,
-            'timeout_s': 15, 'session_timeout_s': 120, 'session_fallback': 'tmux', 'session_fallback_s': 60}
+            'timeout_s': 15, 'session_timeout_s': 120, 'session_fallback': 'off', 'session_fallback_s': 60,
+            'auto_update': True, 'update_every_s': 1800, 'releases_url': 'https://github.com/davibauer/planou-agent/releases'}
 BASE_BEHAVIOR = 'planou-queue'
 DEFAULT_ROLES = ['dev-worker']
 MARKER = 'provisioned.json'
@@ -518,8 +532,8 @@ def boot_id():
 
 
 def session_cmd(name):
-    """(argv to see the session, argv to open it by hand) as text for the card."""
-    return f'tmux -L {tmux_socket(name)} attach -t {name}', f'team {name}'
+    """(argv to see the tmux session, the command that opens the employee's window) as text for the card."""
+    return f'tmux -L {tmux_socket(name)} attach -t {name}', f'planou-agent {name}'
 
 
 def launcher():
@@ -566,8 +580,17 @@ def start_session(name):
     return r.returncode == 0
 
 
-def close_session(name):
-    """Closes the tmux session this provisioner opened (pause, remove, archive); no tmux or none open: nothing."""
+def close_session(name, why='pausado pelo Planou'):
+    """Closes the session of a paused, removed or archived employee. Its window (`planou-agent <name>`, holding the
+    launcher's lock) gets ~/.config/team/<name>.restart with the reason and closes it itself (PLN0297); the tmux session
+    this provisioner opened (session_fallback tmux) is killed. Nothing open: nothing."""
+    if session_held(name):
+        try:
+            os.makedirs(team_dir(), exist_ok=True)
+            write_atomic(os.path.join(team_dir(), f'{name}.restart'), why + '\n', 0o644)
+            log(f'{name}: janela do funcionario avisada ({why})')
+        except OSError as e:
+            log(f'aviso: {name}: nao consegui avisar a janela ({e.__class__.__name__})')
     if not tmux_has(name): return
     subprocess.run([shutil.which('tmux'), '-L', tmux_socket(name), 'kill-server'], stdin=subprocess.DEVNULL,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
@@ -799,7 +822,7 @@ class Provisioner:
         computer's now (a report here would be 404)."""
         root = instance_root(name)
         stop_runner(self.cfg, name)
-        close_session(name)
+        close_session(name, 'saiu deste computador')
         if os.path.lexists(self.cfg['agents_file']):     # no team list at all: no entry to take out
             set_agent_entry(self.cfg['agents_file'], name, None)
         shutil.rmtree(os.path.join(root, 'secrets'), ignore_errors=True)
@@ -987,7 +1010,7 @@ class Provisioner:
             raise Fail(f'{root} nao foi criada pelo provisionador para este funcionario; remova a mao')
         if os.path.lexists(root):
             stop_runner(self.cfg, name)
-            close_session(name)
+            close_session(name, 'removido pelo Planou')
         if ours(name, aid):
             set_agent_entry(self.cfg['agents_file'], name, None)
         if os.path.lexists(root):
@@ -1003,11 +1026,129 @@ class Provisioner:
 
 
 TEST_MODE = 'modo teste: o runner so sobe com "live": true no config.json'
-NO_SESSION = ('nenhuma sessao subiu: abra o VS Code com a extensao Team Terminals '
-              '(ou rode "Team: abrir terminais") ou rode no computador: {run}')
+NO_SESSION = 'nenhuma sessao subiu: abra o funcionario num terminal do computador com: {run}'
 FALLBACK_UP = 'sem VS Code: subi a sessao pelo terminal (tmux). Para ver: {see}'
 FALLBACK_NO_RUNNER = ('subi a sessao pelo terminal (tmux), mas o runner nao subiu: veja o que ela espera com {see}, '
-                      'ou abra o VS Code com Team Terminals, ou rode no computador: {run}')
+                      'ou abra o funcionario num terminal do computador com: {run}')
+
+
+# ---------------------------------------------------------------- update without git (PLN0297)
+
+INSTALL_MARK = '.planou-install'
+UPDATE_STATE = 'update.json'
+
+
+def install_root():
+    """The installer's archive copy holding the plugin in use (<root>/plugins/agent with <root>/.planou-install and no
+    .git), or None: a git clone or a copy of development is never updated here."""
+    live = live_dir()
+    if not live: return None
+    root = os.path.dirname(os.path.dirname(os.path.realpath(live)))
+    if os.path.isfile(os.path.join(root, INSTALL_MARK)) and not os.path.exists(os.path.join(root, '.git')): return root
+    return None
+
+
+def latest_release(base, timeout=30):
+    """The tag (vX.Y.Z) of the latest release, from where <base>/latest redirects (no GitHub API: no rate limit)."""
+    req = urllib.request.Request(base.rstrip('/') + '/latest', headers={'User-Agent': 'planou-agent-provisioner'})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        final = r.geturl()
+    tag = final.rstrip('/').rsplit('/', 1)[-1]
+    return tag if re.fullmatch(r'v\d+\.\d+\.\d+', tag) else None
+
+
+def fetch(url, dest, timeout=120):
+    req = urllib.request.Request(url, headers={'User-Agent': 'planou-agent-provisioner'})
+    with urllib.request.urlopen(req, timeout=timeout) as r, open(dest, 'wb') as f:
+        shutil.copyfileobj(r, f)
+
+
+def unpack(archive, dest):
+    """The archive's files under its single top folder go to `dest`. Only plain files and folders, with relative paths
+    that stay inside: anything else (a link, an absolute path, a ..) refuses the whole archive."""
+    import tarfile
+    with tarfile.open(archive, 'r:gz') as t:
+        members = []
+        for m in t.getmembers():
+            parts = m.name.split('/', 1)
+            if len(parts) < 2 or not parts[1].strip('/'): continue
+            rel = parts[1]
+            if (not (m.isfile() or m.isdir()) or rel.startswith('/') or '..' in rel.split('/')):
+                raise Fail(f'arquivo da versao nova com um caminho recusado ({one_line(m.name, 80)})')
+            m.name = rel
+            members.append(m)
+        for m in members:
+            target = os.path.join(dest, m.name)
+            if m.isdir():
+                os.makedirs(target, exist_ok=True)
+                continue
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with t.extractfile(m) as src, open(target, 'wb') as out:
+                shutil.copyfileobj(src, out)
+            os.chmod(target, 0o755 if m.mode & 0o111 else 0o644)
+
+
+def auto_update(cfg, now=None, force=False):
+    """Brings the installer's copy to the latest release when it is newer (see the docstring at the top). Returns the
+    new version, or None. Reads the release at most every update_every_s; a failure is logged and tried on the next
+    round. Never touches a git copy."""
+    if cfg.get('auto_update') is False: return None
+    root = install_root()
+    if not root: return None
+    from watch_core import rollout as ro
+    now = time.time() if now is None else now
+    path = prov_dir('data', UPDATE_STATE)
+    st = read_json(path, {})
+    if not isinstance(st, dict): st = {}
+    if not force and now - float(st.get('checked_at') or 0) < int(cfg['update_every_s']): return None
+    st['checked_at'] = int(now)
+    write_atomic(path, json.dumps(st))
+    _plugin, disk = ro.plugin_info(live_dir())
+    base = str(cfg['releases_url']).rstrip('/')
+    tag = latest_release(base)
+    if not tag or not disk or ro.vkey(tag[1:]) <= ro.vkey(disk): return None
+    url = f'{base}/download/{tag}/planou-agent-{tag}.tar.gz'
+    work = tempfile.mkdtemp(prefix='.planou-update.', dir=os.path.dirname(root))
+    try:
+        archive = os.path.join(work, 'plugin.tar.gz')
+        fetch(url, archive)
+        fetch(url + '.sha256', archive + '.sha256')
+        with open(archive + '.sha256') as f: want = (f.read().split() or [''])[0].lower()
+        import hashlib
+        h = hashlib.sha256()
+        with open(archive, 'rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''): h.update(chunk)
+        if not re.fullmatch(r'[0-9a-f]{64}', want) or h.hexdigest() != want:
+            raise Fail(f'a versao {tag} baixada nao confere com o .sha256 ({h.hexdigest()[:12]}...); nada foi trocado')
+        new = os.path.join(work, 'copy')
+        os.makedirs(new)
+        unpack(archive, new)
+        if not os.path.isfile(os.path.join(new, 'plugins', 'agent', 'skills', 'agent', 'scripts', 'provisioner.py')):
+            raise Fail(f'a versao {tag} baixada nao tem o plugin agent; nada foi trocado')
+        with open(os.path.join(new, INSTALL_MARK), 'w') as f: f.write(url + '\n')
+        old = os.path.join(work, 'old')
+        os.rename(root, old)
+        try:
+            os.rename(new, root)
+        except OSError:
+            os.rename(old, root)
+            raise
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    st['updated'] = {'from': disk, 'to': tag[1:], 'at': int(now)}
+    write_atomic(path, json.dumps(st))
+    log(f'plugin agent atualizado sozinho: {disk} -> {tag[1:]} (arquivo da versao conferido pelo SHA-256)')
+    return tag[1:]
+
+
+def try_update(cfg):
+    try:
+        return auto_update(cfg)
+    except Fail as e:
+        log(f'aviso: atualizacao: {e}')
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        log(f'aviso: atualizacao: nao consegui ler a versao nova ({e.__class__.__name__})')
+    return None
 
 
 # ---------------------------------------------------------------- CLI
@@ -1175,6 +1316,7 @@ def cmd_run(argv):
         try:
             told = told or tell_version(api, current)
             Provisioner(cfg, api).pass_once()
+            try_update(cfg)
             if last_err: log('Planou respondeu de novo')
             last_err, wait = None, every
         except ApiError as e:
@@ -1200,6 +1342,7 @@ def cmd_once(_argv):
     _lock = lock_or_exit()
     try:
         Provisioner(cfg, api).pass_once()
+        try_update(cfg)
     except ApiError as e:
         raise SystemExit(f'provisionador: {e}')
     except urllib.error.URLError as e:

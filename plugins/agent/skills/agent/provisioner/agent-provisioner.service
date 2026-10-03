@@ -15,7 +15,7 @@ RestartSec=5
 # files it creates are private by default; the key file is 0600 either way
 UMask=0077
 NoNewPrivileges=yes
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/share/planou/python/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1
 
 [Install]

@@ -27,17 +27,25 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
 4. Roda o `config-snapshot` (quando existe; falha não segura o fluxo).
 5. Põe o agente em `~/.config/team/agents.json` pelo `team_agents.upsert` (PLN0112: trava e troca atômica, os outros
    agentes e os campos deles ficam como estão), com `cwd`, `skill` (`agent <nome>`) e `rotate`, e informa
-   `terminal_open`; a extensão Team Terminals abre o terminal com `team <nome>`. Sem o arquivo, é erro até alguém rodar
+   `terminal_open`; a sessão abre na janela do funcionário (`planou-agent <nome>`, onde o comando de adicionar
+   funcionário termina) ou, com a extensão Team Terminals, num terminal do VS Code. Sem o arquivo, é erro até alguém rodar
    `team --list` uma vez (ele cria a lista a partir da tabela do launcher; criar aqui deixaria de fora os agentes que
    só a tabela conhece, e a extensão fecharia os terminais deles). Arquivo quebrado nunca é regravado: vira `error`.
 6. Informa `runner_up` quando `cache/runner/runner.pid` aponta um runner vivo da instância. Em modo teste o runner
    não sobe (o `runner.sh` recusa), então o cartão fica em Terminal aberto com o aviso de modo teste.
-7. Sem VS Code (PLN0296): terminal pedido em modo ligado, nenhum runner depois de `session_fallback_s` (60 s) e ninguém
+7. A janela do funcionário (PLN0297): `planou-agent <nome>` (`scripts/employee.sh`) abre o Claude Code ali como o
+   funcionário e religa a sessão na mesma janela quando ela acaba (rotação diária e versão nova só com a sessão parada,
+   `/exit` em 10 s, queda com espera crescente, 5 quedas em 10 min param o laço). Ela segura a trava do `team <nome>`
+   enquanto estiver aberta: uma segunda janela diz onde ele está e não abre outra. Pausar, remover e arquivar um
+   funcionário com a janela aberta gravam `~/.config/team/<nome>.restart` com o motivo ("pausado pelo Planou",
+   "removido pelo Planou", "saiu deste computador"): a janela fecha a sessão e sai. Sem o serviço (WSL sem systemd), a
+   janela roda `provisioner.py once` a cada 60 s enquanto estiver aberta.
+   Opcional, desligado por padrão desde a PLN0297 (`"session_fallback": "tmux"`, PLN0296): terminal pedido em modo ligado, nenhum runner depois de `session_fallback_s` (60 s) e ninguém
    com a trava do `team <nome>` (a extensão não abriu o terminal): o provisionador sobe a sessão sozinho, `team <nome>`
    num tmux destacado (soquete `agent-<nome>`; sob systemd num escopo próprio, `systemd-run --user --scope`, para que o
    reinício do serviço não derrube a sessão) e informa `terminal_open` com "sem VS Code: subi a sessao pelo terminal
    (tmux). Para ver: tmux -L agent-<nome> attach -t <nome>". Pausar, remover e arquivar fecham essa sessão. Um VS Code
-   aberto depois encontra a trava e diz que o agente já está rodando. `"session_fallback": "off"` desliga.
+   aberto depois encontra a trava e diz que o agente já está rodando.
    Reinício do computador: o tmux e o runner morrem com ele. Na volta (outro boot id: `/proc/sys/kernel/random/boot_id`
    no Linux e no WSL, `kern.boottime` no macOS), o funcionário cuja sessão o provisionador abriu pelo tmux, sem runner,
    sem trava e sem tmux, recebe `terminal_open` de novo, com o relógio zerado: o VS Code tem os 60 s dele e depois o tmux
@@ -46,8 +54,8 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
    Pausar. Sem como saber o boot (nenhuma das duas fontes), a sessão não volta sozinha: rode `team <nome>`.
 8. Nenhum runner depois de `session_timeout_s` (2 min, PLN0217), contados da sessão pelo tmux ou, sem ela (sem tmux, ou
    a trava já tomada), do terminal pedido: informa `terminal_open` de novo, uma vez, com o que fazer, que o cartão e o
-   comando de Outro computador mostram: "nenhuma sessao subiu: abra o VS Code com a extensao Team Terminals (ou rode
-   "Team: abrir terminais") ou rode no computador: team <nome>"; quando a sessão do tmux subiu e o runner não, o motivo
+   comando de Outro computador mostram: "nenhuma sessao subiu: abra o funcionario num terminal do computador com:
+   planou-agent <nome>"; quando a sessão do tmux subiu e o runner não, o motivo
    diz também como ver aquele terminal (o Claude Code pode estar esperando uma resposta, como a confiança na pasta).
    Vale para o terminal que o provisionador pediu em modo ligado (criar, Retomar e o Ligar de um agente adotado, este
    sem o tmux); o modo teste fica com o aviso dele.
@@ -222,6 +230,18 @@ cópia instalada à parte, e segue o canário do time ([rollout](../../../docs/r
   o provisionador regravam o resto da unit pelo modelo e deixam o `ExecStart`. Se aquela cópia não existe mais, volta o
   `ExecStart` do modelo.
 
+## Atualização sem git (PLN0297)
+
+Na cópia que o instalador baixou como arquivo (`.planou-install` na raiz, sem `.git`), o provisionador mantém o plugin
+na versão publicada, sem git e sem a API do GitHub: a cada `update_every_s` (30 min), e também no `once` da janela do
+funcionário, ele lê a versão de `releases/latest` do davibauer/planou-agent (pelo redirecionamento para a tag) e, se
+for maior que a em disco, baixa o `planou-agent-vX.Y.Z.tar.gz` e o `.sha256` da mesma Release, confere, extrai ao lado
+(só arquivos e pastas comuns, nada fora da pasta) e troca a pasta inteira, como o `install.sh`. Depois, o serviço
+reinicia na versão nova (75) e as janelas abrem a sessão seguinte nela quando a atual estiver parada. Falha (rede,
+conferência) fica no log e tenta de novo na volta seguinte; a cópia não muda. Uma cópia git (desenvolvimento) nunca é
+tocada aqui: segue com `git pull` ou com o gancho `tag_pull`. O `.sha256` vem da mesma Release: confere que o arquivo
+chegou inteiro e certo, não quem o publicou.
+
 ## Configuração
 
 `~/.config/agent-provisioner/config.json` (todas as chaves são opcionais):
@@ -232,8 +252,11 @@ cópia instalada à parte, e segue o canário do time ([rollout](../../../docs/r
 | `interval_s` | 30 | segundos entre uma volta e a próxima (o Planou aceita 60 chamadas por minuto) |
 | `retry_s` | 600 | espera antes de tentar de novo um pedido em Erro sem chave nova |
 | `session_timeout_s` | 120 | espera pelo runner depois do `terminal_open`; passou dela, o motivo vai para o cartão |
-| `session_fallback` | `tmux` | sem VS Code, sobe a sessão num tmux destacado; `off` desliga |
-| `session_fallback_s` | 60 | espera pelo terminal do VS Code antes de subir a sessão pelo tmux |
+| `session_fallback` | `off` | `tmux`: sem janela nem VS Code, sobe a sessão num tmux destacado (o caminho da PLN0296) |
+| `session_fallback_s` | 60 | espera por um terminal antes de subir a sessão pelo tmux |
+| `auto_update` | `true` | atualização sem git da cópia do instalador (acima); `false` desliga |
+| `update_every_s` | 1800 | intervalo entre duas leituras da versão publicada |
+| `releases_url` | `https://github.com/davibauer/planou-agent/releases` | de onde vem a versão publicada |
 | `template` | `config-example/dev` do plugin | pasta com `config.json` e `instructions.md` do modelo |
 | `agents_file` | `~/.config/team/agents.json` | a lista do time (precisa ser a do `team_agents.py`) |
 | `snapshot_cmd` | `config-snapshot` | rodado depois de criar; vazio desliga |

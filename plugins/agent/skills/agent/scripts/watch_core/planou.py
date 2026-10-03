@@ -5,7 +5,7 @@ agent API (/v1): a small REST client, standard library only, that runs inside th
 
   sync(items)        full-state upsert of the agent's task list (the same list that renders the Notion section);
                      whatever is missing from a batch is never deleted on the server
-  heartbeat(phase)   sign of life (poll, tick, woke, working, turn_end, session_open, session_closed), with the session
+  heartbeat(phase)   sign of life (poll, tick, woke, working, turn_end, session_open, session_closed, session_restart), with the session
                      id and its Remote Control link when the runner found them (watch_core.transcript)
   poll()             events waiting for this agent (the person completed, reopened, changed, deleted, restored or
                      assigned a task, wrote to
@@ -289,7 +289,10 @@ WAIT_HEADER = 'Planou-Wait'                # sent only by a server that honoured
 POLL_LONG, POLL_SHORT, POLL_FAILED = 0, 3, 4   # exit codes of `poll --wait`
 BROKEN_AFTER = timedelta(minutes=60)
 CLOSED_WINDOW = timedelta(days=2)          # closed older than this: sent only while Planou still has it open (the server does not create it)
-PHASES = ('poll', 'tick', 'woke', 'working', 'turn_end', 'session_open', 'session_closed')
+# session_restart (PLN0297): the window loop closed the session on purpose and opens the next one right away (daily
+# rotation, new version); Planou keeps the employee up and its workers open. A Planou that does not know the phase yet
+# (422) gets session_closed instead.
+PHASES = ('poll', 'tick', 'woke', 'working', 'turn_end', 'session_open', 'session_closed', 'session_restart')
 
 # Status labels produced by watch_core.tasks (data values of the task engine) -> Planou state and resolution.
 STATE_OF = {
@@ -1173,6 +1176,8 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
         if links and e.status == 422 and e.code == LINKS_REFUSED:
             if due: _save('tools_sent.json', {'sig': due[0], 'at': now.isoformat()})   # checked first: it was taken
             return reaped + _links_refused(e, links[0], now)
+        if phase == 'session_restart' and e.status == 422 and 'phase' in (e.fields or {}):
+            return reaped + heartbeat('session_closed', next_tick, broken_sources, session_id, now)
         return reaped + [_failed(e.message if e.status else e)]
     _ok()
     if phase == 'session_closed': _workers_session_closed(session_id or _session_now(), now)
