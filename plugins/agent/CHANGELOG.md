@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.80.1 (2026-10-03)
+- copy-removed rollout test no longer races the heavy tick on a stepping wall clock (PLN0313) (#184)
+
 ## 0.80.0 (2026-10-03)
 - Funcionário na própria janela: `planou-agent <nome>` abre o Claude Code no terminal como o funcionário e religa a sessão na mesma janela quando ela acaba (rotação diária e versão nova só com a sessão parada, `/exit` religa em 10 s, Ctrl+C fecha, queda religa com espera crescente e 5 quedas em 10 min param). Uma janela por funcionário: a segunda diz onde ele está aberto e não abre outra. Pausar, remover ou arquivar no Planou fecha a janela.
 - O instalador precisa só de bash, curl e do Claude Code: sem python3 3.8 ou mais novo, baixa um Python portátil (CPython 3.12, SHA-256 fixado) em `~/.local/share/planou/python`; sem git, baixa o arquivo da última Release conferido pelo `.sha256` dela. A extensão do VS Code só entra com `--vscode` (o `install.ps1` continua ligando).
