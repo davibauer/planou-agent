@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.81.0 (2026-10-03)
+- QA grava o roteiro em vídeo como evidência: o `qa_kit.cjs` grava o vídeo do contexto numa largura só (`video_width`, 1360 por padrão; `0` desliga), o parecer `qa-<pid>.md` cita o `roteiro-1360.webm` e o QA o anexa na tarefa por `attach` explícito, só com dados de teste. O vídeo sai reduzido a 800 px (cerca de 0,75 MB por minuto); acima do limite de 50 MB do anexo ele é apagado e o QA segue só com as capturas, dizendo isso no parecer.
+- Tick pesado preso: o runner só deixa o tick para trás depois do limite inteiro. Antes, o tempo era lido em segundos inteiros e o abandono podia vir até 1 s antes do combinado.
+
 ## 0.80.1 (2026-10-03)
 - copy-removed rollout test no longer races the heavy tick on a stepping wall clock (PLN0313) (#184)
 

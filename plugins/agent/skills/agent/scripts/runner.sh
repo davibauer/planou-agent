@@ -183,9 +183,10 @@ vivo() {   # $1 = pid: alive and not a zombie. Only stat, by the builtin: cmdlin
 }
 espera() {   # $1 = child pid, $2 = limit in s: 0 = it ended (its exit code in ESPERA_RC), 1 = still alive after the limit
   local up t0 d=0.05
-  read -r up _ < /proc/uptime; t0=${up%.*}          # monotonic: the WSL wall clock steps
+  # monotonic (the WSL wall clock steps), in hundredths: whole seconds cut a limit short by up to 1 s (PLN0307)
+  read -r up _ < /proc/uptime; t0=$(( 10#${up%.*}${up#*.} ))
   while vivo "$1"; do
-    read -r up _ < /proc/uptime; [ $(( ${up%.*} - t0 )) -ge "$2" ] && return 1
+    read -r up _ < /proc/uptime; [ $(( 10#${up%.*}${up#*.} - t0 )) -ge $(( $2 * 100 )) ] && return 1
     sleep "$d" & SONO=$!; wait "$SONO" || kill "$SONO" 2>/dev/null; SONO=   # a trapped signal cuts it at once
     case $d in 0.05) d=0.1;; 0.1) d=0.2;; 0.2) d=0.5;; *) d=1;; esac
   done

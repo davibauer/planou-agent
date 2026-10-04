@@ -32,6 +32,8 @@ Opções em `behavior_config.qa` (conferidas pelo `--validate`):
 - `widths`: larguras testadas, em px (padrão `[1360, 834, 390]`). Abaixo de 1024 é toque; abaixo de 600, celular.
 - `min_target_px`: altura mínima dos alvos de toque nas larguras de toque (padrão 44).
 - `axe_tags`: regras do axe (padrão `["wcag2a", "wcag2aa", "wcag21aa"]`).
+- `video_width`: a única largura em que o roteiro é gravado em vídeo como evidência (padrão 1360 quando está em
+  `widths`, senão a maior; `0` = sem vídeo). Precisa ser uma das `widths`.
 - `up_timeout_s`: tempo máximo de cada comando (padrão 600).
 - `pr_comment`: `true` = o parecer vai como comentário na PR (`gh pr comment`), que precisa estar em `can`.
 - `send_back`: como devolver. `ajuste` (padrão) = `fila ajuste`, que volta direto a quem fez o trabalho (o dev), também
@@ -70,7 +72,13 @@ Opções em `behavior_config.qa` (conferidas pelo `--validate`):
    - Em cada largura de `widths` (`kit.pageAt(browser, largura)`), nas telas que a entrega muda:
      `await kit.screens(page, r, '<tela>-<largura>', qa)`, que grava a captura e confere o axe (`axe_tags`), os alvos de
      `min_target_px` nas larguras de toque e a rolagem horizontal.
-   - Fim: `process.exit(r.finish())` (grava `resultado.json`).
+   - **Vídeo do roteiro** (PLN0279): `kit.pageAt(browser, largura, {}, r)` grava o vídeo do contexto só na largura de
+     `video_width` (uma por vez, nunca todas); o roteiro inteiro roda nela, do começo ao fim, e as outras larguras só
+     conferem as telas. Feche cada página com `await kit.closePage(page, r)` num `finally` (também quando o caso falha:
+     é aí que o vídeo mais vale), antes do `browser.close()`: ele salva `<pasta>/roteiro-<largura>.webm`. O Playwright
+     reduz o vídeo para 800 px (VP8), cerca de 0,75 MB por minuto; acima do limite do anexo (50 MB) o kit apaga o vídeo
+     e o QA segue só com as capturas. Vídeo nunca reprova nem aprova: é evidência.
+   - Fim: `process.exit(r.finish())` (grava `resultado.json`, com o vídeo ou o motivo de não ter).
    Rodar com a linha `RODAR:`, com `| tail -n 40`. Um caso que falhou roda de novo uma vez: falhou nas duas, é defeito;
    passou na segunda, vai como "instável" no parecer e não reprova sozinho.
 6. **Olhar as capturas uma a uma** (Read), comparando com o que o roteiro pede e com as regras visuais do repositório
@@ -78,12 +86,16 @@ Opções em `behavior_config.qa` (conferidas pelo `--validate`):
 7. **Veredito**: aprovado quando todo caso do roteiro passou, o axe não achou nada, não há alvo abaixo de
    `min_target_px` nem rolagem horizontal. Qualquer outra coisa é ajuste, com o caso, o passo e a largura.
 8. **Registro**: `<pasta>/qa-<pid>.md` com o parecer (abaixo), e `$PL attach <PID> <pasta>/qa-<pid>.md` mais as capturas
-   que provam o parecer (até 6). Só dados de teste nas capturas.
+   que provam o parecer (até 6). Só dados de teste nas capturas. O vídeo vai por anexo explícito, à parte das capturas:
+   `$PL attach <PID> <pasta>/roteiro-<largura>.webm` (vídeo nunca sobe por citação, PLN0302; só dados de teste nele).
+   O parecer cita o vídeo pelo nome e pelo tamanho, nunca pelo caminho da pasta. Sem vídeo (`video_width` 0, apagado
+   pelo tamanho ou não salvo), o parecer diz o motivo que o `resultado.json` traz.
    ```
    QA de <PID> (<sha7>): aprovado | ajuste pedido
    Ambiente: <branch> @ <sha7>; larguras <widths>; axe <axe_tags>
    Casos: N/M ok. 1. <caso>: ok | FALHA: <passo> -> <esperado>, veio <o quê> (<largura>)
    Tela: axe <ok | violações>; alvos <ok | lista>; rolagem <ok | px>
+   Vídeo: roteiro-<largura>.webm (<N> MB, anexo na tarefa) | sem vídeo: <motivo>; só capturas
    Instáveis: ...                                            (se houver)
    ```
    Com `pr_comment`: `gh pr comment <N> -R <dono/nome> --body-file <pasta>/qa-<pid>.md` (o `env` da ferramenta `gh`
@@ -140,7 +152,8 @@ worker de QA nunca é o worker que entregou, nem continuação dele por SendMess
    Logo depois: `KEY=$($PL fila worker-start <PID> --role other --label 'QA independente de <PID>')` e, quando ele voltar,
    `$PL worker end <key> --result feito|parcial|falhou` (o `fila worker` de entregas só aceita `dev` e `integrator`).
 3. O parecer começa com `QA independente (worker novo) de <PID> (<sha7>): aprovado | ajuste pedido`. Com `pr_comment`, quem comenta na PR é o worker; `fila ...` e o `$PL attach` do
-   parecer e das capturas (os caminhos vêm na volta do worker) são só da sessão.
+   parecer, das capturas e do vídeo (os caminhos vêm na volta do worker, com o `roteiro-<largura>.webm` ou o motivo de
+   não ter vídeo) são só da sessão.
 4. Aprovado: `$PL fila done <PID> --note "QA independente aprovado (<sha7>): N casos, axe ok, <widths> [ver anexo: qa-<pid>.md]"` (handoff para a próxima coluna, como em Aprovar). Sem `fila worker-start <PID> --role other` aberto depois do
    a tarefa chegar na coluna, o `fila done` avisa (`AVISO`, não recusa): a aprovação tem de ser do worker novo.
 5. Ajuste pedido: o mesmo `fila ajuste <PID> --text -` de "Devolver com pedido de ajuste", e o Planou devolve como

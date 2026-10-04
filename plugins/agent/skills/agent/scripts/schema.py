@@ -104,7 +104,7 @@ BEHAVIOR_OPTIONS = {
     'qa': {'setup': 'command', 'env_up': 'command', 'env_down': 'command', 'env_url': 'command', 'url': 'str',
            'served_urls': 'strs',
            'node_dir': 'path', 'widths': 'ints', 'min_target_px': 'int', 'axe_tags': 'strs', 'up_timeout_s': 'int', 'pr_comment': 'bool',
-           'send_back': 'str'},
+           'send_back': 'str', 'video_width': 'int'},
     'prototype': {'node_dir': 'path', 'widths': 'ints', 'themes': 'strs', 'reference': 'str', 'tokens': 'str'},
     'tech-radar': {'project': 'str', 'column': 'str', 'per_task': 'int', 'max_hours': 'num', 'max_tasks': 'int',
                    'stacks': 'strs', 'weekday': 'int', 'hour': 'int', 'window_days': 'int'},
@@ -468,6 +468,10 @@ def validate(c, behavior_file=None, adapter_exists=None):
                 for k in ('url', 'served_urls') if name == 'qa' else ():
                     why = _qa_url_error(k, opts.get(k))
                     if why: err.append(f'"behavior_config.qa.{k}": {why}')
+                vw = opts.get('video_width') if name == 'qa' else None
+                if _is_int(vw) and vw < 0: err.append('"behavior_config.qa.video_width": precisa ser 0 (sem video) ou uma largura')
+                elif _is_int(vw) and vw > 0 and vw not in (opts.get('widths') or [1360, 834, 390]):
+                    warn.append(f'"behavior_config.qa.video_width": {vw} nao esta em "widths"; o QA nao grava video')
                 if name == 'qa' and opts.get('env_url') and opts.get('url'):
                     warn.append('"behavior_config.qa": "env_url" e "url" juntos; vale o "env_url" (o "url" fica sem efeito)')
     same = [x for x in ('code-review', 'qa') if isinstance(b, list) and x in b and 'dev-worker' in b]

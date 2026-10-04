@@ -10,7 +10,7 @@ the worktree is the QA's own and goes away with `down`.
 
 `up` prints:
   QA AMBIENTE <PID>: <url> (<branch> @ <sha7>, worktree <path>)
-  RODAR: QA_URL=<url> QA_WIDTHS=1360,834,390 QA_MIN_TARGET=44 QA_AXE_TAGS=... QA_SERVED=... QA_KIT=<qa_kit.cjs>
+  RODAR: QA_URL=<url> QA_WIDTHS=1360,834,390 QA_MIN_TARGET=44 QA_AXE_TAGS=... QA_SERVED=... QA_VIDEO_WIDTH=1360 QA_KIT=<qa_kit.cjs>
          NODE_PATH=<worktree>/<node_dir> node <script>
 Exit 0 = up; 1 = a command failed, or `env_url` exited non-zero or printed nothing (the environment did not come up)
 (its last lines on stderr, secrets masked, the environment brought down); 2 = bad
@@ -88,9 +88,16 @@ def served(url, patterns):
     return any(re.search(p, url, re.I) for p in patterns)
 
 
+def video_width(o):
+    """The one width whose run qa_kit records (PLN0279): `video_width`, else 1360 when tested, else the largest; 0 = none."""
+    w = o.get('video_width')
+    if w is None: w = 1360 if 1360 in o['widths'] else max(o['widths'])
+    return w if w in o['widths'] else 0
+
+
 def run_line(url, o, wt):
     env = [f'QA_URL={url}', f'QA_WIDTHS={",".join(map(str, o["widths"]))}', f'QA_MIN_TARGET={o["min_target_px"]}',
-           f'QA_AXE_TAGS={",".join(o["axe_tags"])}', f'QA_SERVED={json.dumps(o["served_urls"])}', f'QA_KIT={KIT}']
+           f'QA_AXE_TAGS={",".join(o["axe_tags"])}', f'QA_SERVED={json.dumps(o["served_urls"])}', f'QA_VIDEO_WIDTH={video_width(o)}', f'QA_KIT={KIT}']
     if o.get('node_dir'): env.append(f'NODE_PATH={os.path.join(wt, o["node_dir"])}')
     return ' '.join(shlex.quote(e) for e in env) + ' node <script>'
 

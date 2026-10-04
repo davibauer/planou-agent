@@ -51,13 +51,14 @@ descartáveis, um por worktree, em portas livres):
       "axe_tags": ["wcag2a", "wcag2aa", "wcag21aa"],
       "up_timeout_s": 600,
       "pr_comment": true,
-      "send_back": "ajuste"
+      "send_back": "ajuste",
+      "video_width": 1360
     }
   },
   "tools": [{"kind": "cli", "name": "gh", "env": {"GH_CONFIG_DIR": "~/.config/gh-<conta>"}}],
   "autonomy": {
     "can": ["ler PR e diff", "subir e derrubar o ambiente de teste", "rodar script de QA no ambiente descartável",
-            "comentar o parecer na PR", "anexar parecer e capturas na tarefa"],
+            "comentar o parecer na PR", "anexar parecer, capturas e o vídeo do roteiro (dados de teste) na tarefa"],
     "ask_first": ["qualquer coisa fora do ambiente descartável"],
     "never": ["escrever código", "commit", "push", "merge", "deploy", "suíte completa", "entrar com a conta do usuário"]
   },

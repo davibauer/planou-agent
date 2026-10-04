@@ -43,7 +43,8 @@ REVIEW_ROLES = {
         'what': 'revisao'},
     'qa': {
         'worktree': 'a do qa_env.py (<worktrees>/qa-<pid>, destacada da branch), que ele cria e remove; nunca direto em {path}',
-        'done': 'o parecer do qa (qa-<pid>.md: casos, axe, larguras) com as capturas, comentado na PR quando pr_comment; '
+        'done': 'o parecer do qa (qa-<pid>.md: casos, axe, larguras) com as capturas e o video do roteiro '
+                '(roteiro-<largura>.webm, ou o motivo de nao ter), os caminhos na volta, comentado na PR quando pr_comment; '
                 'ambiente derrubado (qa_env.py down); sem commit, sem push',
         'what': 'QA'},
 }
