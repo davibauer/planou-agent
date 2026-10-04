@@ -154,6 +154,11 @@
                             }
                           },
                           "nullable": true
+                        },
+                        "question": {
+                          "type": "string",
+                          "default": null,
+                          "nullable": true
                         }
                       }
                     },
@@ -486,6 +491,11 @@
                               }
                             }
                           },
+                          "nullable": true
+                        },
+                        "question": {
+                          "type": "string",
+                          "default": null,
                           "nullable": true
                         }
                       }
@@ -5669,6 +5679,11 @@
                     }
                   },
                   "nullable": true
+                },
+                "question": {
+                  "type": "string",
+                  "default": null,
+                  "nullable": true
                 }
               }
             },
@@ -6453,6 +6468,11 @@
                     }
                   },
                   "nullable": true
+                },
+                "question": {
+                  "type": "string",
+                  "default": null,
+                  "nullable": true
                 }
               }
             },
@@ -6620,7 +6640,9 @@
               "max_suggestions",
               "suggestion_kinds",
               "max_parts",
-              "max_estimate_h"
+              "max_estimate_h",
+              "scope_checklist",
+              "max_question"
             ],
             "type": "object",
             "properties": {
@@ -6639,6 +6661,16 @@
               },
               "max_estimate_h": {
                 "type": "number"
+              },
+              "scope_checklist": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "max_question": {
+                "type": "integer"
               }
             }
           },
@@ -6806,7 +6838,8 @@
                       "reason",
                       "estimate_h",
                       "agent_can_do",
-                      "parts"
+                      "parts",
+                      "question"
                     ],
                     "type": "object",
                     "properties": {
@@ -6851,6 +6884,10 @@
                           },
                           "nullable": true
                         }
+                      },
+                      "question": {
+                        "type": "string",
+                        "nullable": true
                       }
                     },
                     "nullable": true
@@ -6897,7 +6934,9 @@
               "max_suggestions",
               "suggestion_kinds",
               "max_parts",
-              "max_estimate_h"
+              "max_estimate_h",
+              "scope_checklist",
+              "max_question"
             ],
             "type": "object",
             "properties": {
@@ -6916,6 +6955,16 @@
               },
               "max_estimate_h": {
                 "type": "number"
+              },
+              "scope_checklist": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "max_question": {
+                "type": "integer"
               }
             }
           },
@@ -10105,6 +10154,11 @@
                 }
               }
             },
+            "nullable": true
+          },
+          "question": {
+            "type": "string",
+            "default": null,
             "nullable": true
           }
         }

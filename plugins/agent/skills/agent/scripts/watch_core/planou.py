@@ -1298,6 +1298,13 @@ CEREMONY_GUIDE = 'behaviors/retro/BEHAVIOR.md do plugin agent'
 REFINE_GUIDE = 'behaviors/refinement/BEHAVIOR.md do plugin agent'
 DAILY_GUIDE = 'behaviors/daily/BEHAVIOR.md do plugin agent'
 DAILY_TEXT_MAX = 300
+# the scope question of the refinement (Planou PLN0128): asked in `refino sugerir|lista`, approved by the person, it opens
+# an ask the agent did not open itself; its answer is tied back to the task by pid (cache/planou/scope_questions.json)
+SCOPE_FILE = 'scope_questions.json'
+SCOPE_KEPT = 200
+SCOPE_PREFIX = '-- ESCOPO'
+QUESTION_MAX = 300
+ANSWER_STATE = 'A fazer'
 DAILY_LINES = 12          # blocked tasks listed under the -- CERIMONIA daily line; the rest with `daily ver`
 TOKENS_MAX = 100_000_000
 CEREMONIES_KEPT = 20
@@ -1751,6 +1758,11 @@ def line(ev):
         return f'{QUEUE_PREFIX} SAIU {one_line(p.get("pid"), 20)}: {one_line(p.get("title"))} ({why}) -> parar o trabalho nela'
     ref = ' '.join(x for x in (p.get('code'), p.get('task_pid')) if x)
     who = f'(voce, {_when(p)}' + (', confirmado)' if p.get('confirmed') else ')')
+    if kind == 'decision_answered' and scope_question_of(ev) is not None:
+        # the answer to a scope question of the refinement: the heavy tick comments and moves the task
+        return (f'{SCOPE_PREFIX} {one_line(p.get("task_pid"), 20)} respondida ({one_line(p.get("code"), 20)}): '
+                f'"{one_line(_answer_text(p), 300)}" {who} -> o tick registra a resposta como comentario na tarefa e a '
+                f'move de {REFINEMENT} para {ANSWER_STATE}; guia: {REFINE_GUIDE}')
     if kind == 'decision_answered':
         # a question the session asked (pergunta): not an action of the daily page, nothing to close with --acao
         if ask_ref(ev).startswith('q-'): who += ' (pergunta da sessao)'
@@ -2001,7 +2013,8 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             # runners), with only the fields of its `changed` (the rest of the payload would erase local values)
             kind = 'task_changed'
         if kind not in TASK_EVENTS:
-            handled = bool(on_ask and on_ask(ev))
+            scope = scope_question_of(ev) is not None
+            handled = bool(on_ask and not scope and on_ask(ev))
             if kind in ASK_ANSWERS:
                 _answered(p.get('code'))
                 # the answer to a refinement ask: Planou brings the task back to A fazer; the sync stops holding it
@@ -2012,6 +2025,9 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
                     lines.append(f'PLANOU: {p.get("pid")} atribuida a voce pelo usuario: {p.get("title")}')
                 elif kind in WAKE_TYPES:
                     lines.append(line(ev) + (' -> aplicado' if handled else ''))
+            if scope:
+                done = scope_answered(ev, tasks)
+                if done: lines.append(done)
             pause_note(ev)              # after its line: the resume line reads the tasks held by the pause
             proposal_note(ev)
             ib['printed'][str(last)] = datetime.now(timezone.utc).isoformat()
@@ -2065,6 +2081,9 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             if view['state'] == 'backlog': tasks[code]['backlog'] = True
             else: tasks[code].pop('backlog', None)
             if view['state'] != 'waiting' or (ps and state_key(ps) != state_key(REFINEMENT)): tasks[code].pop('refining', None)
+            elif ps and not tasks[code].get('refining') and _scope_entry(p.get('pid')) is not None:
+                # a scope question of the refinement, approved: the sync holds it in "Em refinamento" until the answer
+                tasks[code]['refining'] = {'ask': None, 'scope': True, 'since': datetime.now(timezone.utc).isoformat()}
         elif kind == 'task_deleted':
             tasks.pop(code, None)
         what = {'task_completed': 'concluida', 'task_reopened': 'reaberta', 'task_changed': 'alterada', 'task_deleted': 'apagada',
@@ -4482,8 +4501,9 @@ def ceremony_line(kind, p):
         total = p.get('backlog_total')
         total = total if isinstance(total, int) else len(p.get('backlog') or [])
         return (f'{CEREMONY_PREFIX} {head}: sugestoes ate {due} ({total} tarefa{"" if total == 1 else "s"} no backlog'
-                + (f', facilita {fac}' if fac else '') + f') -> `refino ver {mid}` para o backlog, estimativa, quebra ou '
-                f'selo agent_can_do so onde houver motivo real, e `refino sugerir {mid} --text -` ([] = nada a sugerir); '
+                + (f', facilita {fac}' if fac else '') + f') -> `refino ver {mid}` para o backlog, estimativa, quebra, '
+                f'selo agent_can_do ou pergunta de escopo (scope_checklist) so onde houver motivo real, e '
+                f'`refino sugerir {mid} --text -` ([] = nada a sugerir); '
                 f'guia: {REFINE_GUIDE}')
     if kind == 'ceremony_refine_facilitate':
         n = len(p.get('contributions') or [])
@@ -4682,7 +4702,9 @@ def _retro(a, ap):
 def _refino(a, ap):
     """refino ver|sugerir|lista <meeting_id>: the agent's part in the backlog refinement (Planou PLN0210). `ver` shows the
     meeting and the cached event (the backlog, and for the facilitator every suggestion); `sugerir` sends this agent's
-    suggestions (a resend replaces them); `lista` sends the facilitator's merged list, which the person approves."""
+    suggestions (a resend replaces them); `lista` sends the facilitator's merged list, which the person approves. A scope
+    question (PLN0128, kind `question`) is checked here first (1 to QUESTION_MAX characters) and remembered by pid, so its
+    answer comes back to the task (scope_answered); `lista` drops the questions on tasks that left the backlog."""
     sub, mid = (a.arg + ['', ''])[:2]
     if sub not in ('ver', 'sugerir', 'lista') or not mid:
         ap.error('use: refino ver <meeting_id>; refino sugerir|lista <meeting_id> --text <json> (ou --text - do stdin)')
@@ -4694,15 +4716,26 @@ def _refino(a, ap):
         if sub == 'sugerir':
             body = _json_arg(a.text, ap, 'refino sugerir <meeting_id> --text \'{"suggestions": [...], "cost_usd": 0.1}\'')
             if not isinstance(body.get('suggestions'), list): ap.error('use: refino sugerir: "suggestions" e uma lista ([] = nada a sugerir)')
+            bad = _question_problem(body['suggestions'])
+            if bad:
+                print(f'RECUSADA: {bad}')
+                return 3
             _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions',
                            {k: body[k] for k in ('suggestions', 'cost_usd', 'tokens') if k in body})
+            remember_scope_questions(mid, body['suggestions'])
             print(json.dumps(res, ensure_ascii=False))
             print(f'ENVIADAS: {len(body["suggestions"])} sugest{"ao" if len(body["suggestions"]) == 1 else "oes"} '
                   f'({"atualizadas" if res.get("result") == "updated" else "registradas"}; reuniao {res.get("status")}).')
             return 0
         body = _json_arg(a.text, ap, 'refino lista <meeting_id> --text \'{"summary": "...", "suggestions": [...]}\'')
-        _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/minutes',
-                       {k: body[k] for k in ('summary', 'decisions', 'suggestions', 'cost_usd') if k in body})
+        if not isinstance(body.get('suggestions', []), list): ap.error('use: refino lista: "suggestions" e uma lista')
+        bad = _question_problem(body.get('suggestions') or [])
+        if bad:
+            print(f'RECUSADA: {bad}')
+            return 3
+        body = {k: body[k] for k in ('summary', 'decisions', 'suggestions', 'cost_usd') if k in body}
+        res, dropped = send_refinement_list(mid, body)
+        for line_ in dropped: print(line_)
         print(json.dumps(res, ensure_ascii=False))
         print(f'LISTA ENVIADA: {res.get("suggestions") or 0} sugestoes esperando a aprovacao do usuario em Cerimonias.'
               if res.get('result') != 'unchanged' else 'LISTA JA ESTAVA LA: nada mudou.')
@@ -4715,6 +4748,190 @@ def _refino(a, ap):
             return 3
         print(f'AVISO (planou): {e.message}' + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''), file=sys.stderr)
         return 1
+
+
+# ---------------------------------------------------------------- the scope question of the refinement (PLN0128)
+
+def _questions(suggestions):
+    return [x for x in suggestions or [] if isinstance(x, dict) and x.get('kind') == 'question']
+
+
+def _question_problem(suggestions):
+    """What Planou would refuse in the scope questions of a list of suggestions ('' = nothing): the text from 1 to
+    QUESTION_MAX characters and one question per task."""
+    seen = set()
+    for i, x in enumerate(suggestions or []):
+        if not isinstance(x, dict) or x.get('kind') != 'question': continue
+        q = ' '.join(str(x.get('question') or '').split())
+        pid = str(x.get('pid') or '').strip().upper()
+        if not q or len(q) > QUESTION_MAX:
+            return f'a pergunta de escopo de {pid or "?"} tem de 1 a {QUESTION_MAX} caracteres. Campos: suggestions[{i}].question.'
+        if pid in seen: return f'uma pergunta de escopo por tarefa ({pid} tem duas). Campos: suggestions[{i}].pid.'
+        seen.add(pid)
+    return ''
+
+
+def _scope_cache():
+    c = _load(SCOPE_FILE, {})
+    return c if isinstance(c, dict) else {}
+
+
+def _scope_entry(pid):
+    return _scope_cache().get(str(pid or '').strip().upper())
+
+
+def remember_scope_questions(meeting_id, suggestions, now=None):
+    """Keeps by pid the scope questions this agent sent (`refino sugerir`, or the facilitator's `refino lista`): Planou
+    opens the ask in the name of who asked it (the first guest, else the facilitator), and the decision_answered that
+    brings the answer is tied back to the task only by its task_pid. The newest SCOPE_KEPT pids stay."""
+    qs = [x for x in _questions(suggestions) if x.get('pid')]
+    if not qs: return
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    ev = ceremony(meeting_id)
+    number = ((ev.get('facilitate') or ev.get('started') or {}).get('number'))
+    with _locked(SCOPE_FILE):
+        c = _scope_cache()
+        for x in qs:
+            pid = str(x['pid']).strip().upper()
+            old = c.get(pid) or {}
+            if old.get('meeting') != str(meeting_id): old = {}
+            c[pid] = {**old, 'meeting': str(meeting_id), 'number': number, 'question': one_line(x.get('question'), QUESTION_MAX),
+                      'at': old.get('at') or stamp}
+        for k in sorted(c, key=lambda k: c[k].get('at') or '')[:-SCOPE_KEPT]:
+            c.pop(k, None)
+        _save(SCOPE_FILE, c)
+
+
+def scope_question_of(ev):
+    """The scope question (cache entry) a decision_answered answers, or None: an ask this agent did not open itself
+    (no idempotency key of its own, not one of its open asks) about a task it asked a scope question on."""
+    if (ev or {}).get('type') != 'decision_answered': return None
+    p = ev.get('payload') or {}
+    if ask_ref(ev) or not p.get('task_pid'): return None
+    code = p.get('code')
+    if code and any(v.get('code') == code for v in (_load('open_asks.json', {}) or {}).values() if isinstance(v, dict)):
+        return None
+    return _scope_entry(p.get('task_pid'))
+
+
+def _answer_text(p):
+    """The person's answer in words: the free text, or the option with its note."""
+    if p.get('value') == 'other': return ' '.join(str(p.get('note') or '').split())
+    opt = p.get('option_text') or p.get('value') or ''
+    return ' '.join(str(opt).split()) + (f' ({" ".join(str(p["note"]).split())})' if p.get('note') else '')
+
+
+def _scope_to_todo(pid, tasks, now=None):
+    """Moves the agent's own task (its source_key) from "Em refinamento" to A fazer in a one-task sync with
+    `project_state` (and `state: todo`, for a project that renamed A fazer). (moved, note). A task the person created
+    cannot be moved by the agent: Planou takes a state only from the sync of the task's own agent."""
+    code = next((c for c, v in tasks.items() if str((v or {}).get('pid') or '').upper() == pid), None)
+    if code is None:
+        return False, (f'{pid} nao e tarefa deste agente: o Planou nao deixa o agente mover; o usuario move de '
+                       f'{REFINEMENT} para {ANSWER_STATE} na tela')
+    entry = tasks[code]
+    ps = entry.get('project_state')
+    held = (entry.get('refining') or {}).get('scope')
+    if not held and (entry.get('state') != 'waiting' or (ps and state_key(ps) != state_key(REFINEMENT))):
+        return False, f'ja tinha saido de {REFINEMENT} ({ps or entry.get("state") or "?"}): fica onde esta'
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    body = _load('sent.json', {}).get(code) or {}
+    t = {k: v for k, v in body.items() if k not in ('state', 'resolution', 'completed_at', 'waiting', 'ready_reason',
+                                                    'project_state', 'assignee')}
+    t.update({'source_key': f'{_S["agent"]}:{code}', 'state': 'todo', 'project_state': ANSWER_STATE,
+              'base_version': entry.get('version')})
+    if not t.get('title') and entry.get('title'): t['title'] = entry['title']
+    if _S['project'] and not t.get('project'): t['project'] = _S['project']
+    try:
+        _, res = _call('POST', '/agent/sync', {'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
+    except PlanouError as e:
+        return False, f'nao deu para mover ({e.message}): o usuario move na tela'
+    r = next((x for x in (res or {}).get('tasks') or [] if x.get('source_key') == t['source_key']), None) or {}
+    ignored = r.get('ignored_fields') or []
+    if r.get('result') not in ('created', 'updated', 'unchanged') or 'state' in ignored:
+        why = r.get('reason') or r.get('result') or 'sem resposta'
+        return False, f'o Planou nao moveu ({one_line(why, 200)}): o usuario move na tela'
+    entry.update(version=r.get('version'), state='todo', project_state=ANSWER_STATE)
+    entry.pop('refining', None)
+    entry.pop('backlog', None)
+    return True, f'movida de {REFINEMENT} para {ANSWER_STATE}'
+
+
+def scope_answered(ev, tasks=None, now=None):
+    """Heavy tick: the person answered a scope question of the refinement (an ask Planou opened in this agent's name when
+    she approved the question). The answer goes to the task as a comment and the agent's own task moves from "Em
+    refinamento" to A fazer. Delivery is at least once: the same answer again does nothing; a changed answer is commented
+    again (the task is not moved twice). `tasks` is the state.json tasks apply_events holds (saved by it); without it
+    state.json is read and saved here. Returns the tick line, or None (not a scope answer, or already handled)."""
+    q = scope_question_of(ev)
+    if q is None: return None
+    p = ev.get('payload') or {}
+    pid = str(p.get('task_pid')).strip().upper()
+    code = str(p.get('code') or '')
+    answer = _answer_text(p)
+    own = tasks is None
+    st = _load('state.json', {}) if own else None
+    if own: tasks = st.setdefault('tasks', {})
+    done = (q.get('answers') or {}).get(code) or {}
+    if done.get('text') == answer and done.get('comment'): return None
+    out, notes = {'text': answer}, []
+    head = 'Resposta mudou na' if done.get('text') else 'Resposta da'
+    text = (f'{head} pergunta de escopo do refinamento' + (f' #{q["number"]}' if q.get('number') else '')
+            + f' ({code}): {q.get("question") or p.get("title") or ""}\n\nResposta: {answer}')
+    try:
+        post_comment(pid, text)
+        out['comment'] = True
+        notes.append('resposta registrada como comentario')
+    except PlanouError as e:
+        out['comment'] = False
+        notes.append(f'sem comentario ({one_line(e.message, 200)})')
+    if 'moved' in done:
+        out['moved'] = done['moved']
+    else:
+        out['moved'], note = _scope_to_todo(pid, tasks, now)
+        notes.append(note)
+    if own: _save('state.json', st)
+    with _locked(SCOPE_FILE):
+        c = _scope_cache()
+        if pid in c:
+            c[pid].setdefault('answers', {})[code] = out
+            _save(SCOPE_FILE, c)
+    return f'{SCOPE_PREFIX} {pid} ({code}): ' + '; '.join(notes)
+
+
+def send_refinement_list(meeting_id, body):
+    """`refino lista`: POST /minutes with the facilitator's list. A scope question is valid only on a task still in the
+    backlog, and one refused makes Planou refuse the whole list (422): the questions on tasks out of the facilitate
+    event's backlog are dropped first (only when that backlog came whole: it brings up to 30 of backlog_total), and a 422
+    on the pid of a question drops it and sends again. Returns (response, lines about what was dropped)."""
+    body = dict(body)
+    sugg = list(body.get('suggestions') or [])
+    dropped = []
+    fac = ceremony(meeting_id).get('facilitate') or {}
+    backlog = fac.get('backlog')
+    if isinstance(backlog, list) and isinstance(fac.get('backlog_total'), int) and len(backlog) >= fac['backlog_total']:
+        pids = {str((t or {}).get('pid') or '').upper() for t in backlog}
+        keep = []
+        for x in sugg:
+            if isinstance(x, dict) and x.get('kind') == 'question' and str(x.get('pid') or '').strip().upper() not in pids:
+                dropped.append(f'TIRADA: a pergunta de escopo de {one_line(x.get("pid"), 20)} (a tarefa ja saiu do Backlog).')
+            else:
+                keep.append(x)
+        sugg = keep
+    path = f'/agent/ceremonies/{urllib.parse.quote(meeting_id)}/minutes'
+    for _ in range(len(_questions(sugg)) + 1):
+        body['suggestions'] = sugg
+        try:
+            _, res = _call('POST', path, body)
+            remember_scope_questions(meeting_id, sugg)
+            return res or {}, dropped
+        except PlanouError as e:
+            m = re.match(r'^suggestions\[(\d+)\]\.pid$', (e.fields or [''])[0]) if e.status == 422 and e.fields else None
+            i = int(m.group(1)) if m else -1
+            if not (0 <= i < len(sugg)) or not isinstance(sugg[i], dict) or sugg[i].get('kind') != 'question': raise
+            dropped.append(f'TIRADA: a pergunta de escopo de {one_line(sugg[i].get("pid"), 20)} ({one_line(e.message, 200)})')
+            sugg = sugg[:i] + sugg[i + 1:]
+    raise PlanouError(422, 'validation', 'a lista continua recusada depois de tirar as perguntas de escopo')
 
 
 DAILY_REFUSALS = {

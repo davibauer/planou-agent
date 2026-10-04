@@ -55,6 +55,28 @@
       ],
       "decision": "faz",
       "expected": "Não leva o selo do épico para a lista (o Planou recusa); sugere quebrar ou marcar as tarefas filhas que estão claras."
+    },
+    {
+      "id": "refinement-06",
+      "source": "exemplo",
+      "task": "Perguntar o escopo no refinamento",
+      "description": "Chegou -- CERIMONIA refinement; uma tarefa do Backlog diz só \"Exportar a lista\", sem dizer o formato nem o que conta como pronto.",
+      "needs": [
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Passa a tarefa pelo scope_checklist e manda refino sugerir com uma sugestão question (até 300 caracteres) sobre o que falta, com o item do checklist no reason, em vez de estimar no escuro."
+    },
+    {
+      "id": "refinement-07",
+      "source": "exemplo",
+      "task": "Resposta da pergunta de escopo",
+      "description": "Chegou -- ESCOPO ABC0016 respondida (d-9) com a resposta do usuário, e depois a linha do tick dizendo que registrou o comentário e moveu a tarefa para A fazer.",
+      "needs": [
+        "planou.note"
+      ],
+      "decision": "faz",
+      "expected": "Não procura um pedido local para fechar (o Planou abriu o pedido); confere a linha do tick e diz ao usuário em uma linha o que a resposta muda no escopo; se a tarefa é do usuário, lembra que é ele quem move de Em refinamento para A fazer."
     }
   ]
 }

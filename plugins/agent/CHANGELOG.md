@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.84.0 (2026-10-04)
+- Refinamento do backlog: o agente agora pode fazer a pergunta de escopo (`question`, até 300 caracteres) sobre uma tarefa ainda no Backlog, guiado pelo `scope_checklist` do evento (objetivo, entregável, pronto, restrições e acessos). O `refino sugerir` confere a pergunta antes de mandar e guarda o PID para ligar a resposta à tarefa.
+- Quem facilita mantém as perguntas na lista final, e o `refino lista` tira sozinho as perguntas sobre tarefas que já saíram do Backlog (que fariam o Planou recusar a lista inteira), com uma linha `TIRADA` para cada uma.
+- A resposta do usuário chega como `-- ESCOPO <PID> respondida`: o tick registra a resposta como comentário na tarefa e move a tarefa do próprio agente de "Em refinamento" para "A fazer". A tarefa criada pelo usuário continua sendo movida por ele na tela.
+
 ## 0.83.1 (2026-10-04)
 - Instalador: quando mantém o link da skill `agent` ou `work-watch` apontando para outra cópia do plugin (um clone de desenvolvimento), mostra a versão dessa cópia e a recém instalada; se a mantida for mais antiga, avisa com destaque e mostra como atualizar (`git -C <clone> pull --ff-only`) ou como trocar o link para a cópia instalada.
 - Instalador: avisa quando o serviço agent-provisioner roda uma cópia mais antiga que a recém instalada (pelo link da skill ou por um ExecStart mantido), com o comando para atualizar e reiniciar o serviço.
