@@ -9,7 +9,8 @@ Plan (JSON, keys in English; texts in the instance language):
 
   {"goal": {"ref": "PLN0200", "title": "A pessoa exporta a lista em CSV"},   ref: the goal task's PID, or a short slug
    "project": "PLN",              optional; default: the instance's planou.project
-   "epic": true | "PLN0150",      optional; true creates an epic named after the goal, a PID links the tasks to that one
+   "epic": true | "PLN0150" | false,  optional; true creates an epic named after the goal, a PID links the tasks to that
+                                  one, false: no epic; absent: the epic is picked by the goal (watch_core.epics, PLN0275)
    "column": "A fazer",           optional; the project state for tasks that go out of backlog (autonomous project only)
    "tasks": [{"code": "csv-model", "title": "...", "what": "...", "why": "...", "done_when": ["...", "..."],
               "priority": "P2", "depends_on": ["other-code" | "PLN0123"], "agent_can_do": "why an agent can do it" | false,
@@ -293,6 +294,26 @@ def run(agent, plan_raw, dry=False, max_tasks=None, update=False, now=None):
             for k in ('state', 'ready_reason', 'project_state', 'origin'): x.pop(k, None)
             x['base_version'] = e.get('version')
     send = [x for x in body if x['source_key'] not in skip]
+    picker = None
+    if plan['epic'] is None:
+        # no "epic" in the plan: the tasks are born under an epic by the rule every path shares (PLN0275,
+        # watch_core.epics): the goal is the area; only the tasks created now get it, an update never moves one
+        from watch_core import epics as E
+        ep, al, _ = E.settings(P._S['root'], P=P if P.active() else None, project=project)
+        picker = E.Picker(agent, ep, al, E.load_own(P))
+        hit = picker.place(g['title'] or g['ref'], g['title'] or g['ref'], f'meta-{g["slug"]}')
+        new = [x for x in send if 'base_version' not in x]
+        if hit['epic'] and new:
+            for x in new: x['epic'] = hit['epic']
+            rows = picker.rows([hit['own']], project) if hit['own'] else []
+            for r in rows: r['priority'] = 3
+            send = rows + send; body = rows + body
+            lines.append(f'ÉPICO: {(picker.own.get(hit["own"] or "") or {}).get("pid") or hit["epic"]} "{hit["title"]}"'
+                         + (' (novo, criado junto)' if rows else ''))
+        elif new and hit['no_epics']:
+            lines.append(f'AVISO: sem epics no config: as tarefas ficam sem épico; {E.NO_EPICS_HINT}')
+        elif new and hit['deleted']:
+            lines.append('AVISO: a pessoa apagou o épico desta área: as tarefas ficam sem épico')
     if dry:
         for x in body:
             dest = 'épico' if x.get('kind') == 'epic' else STATE_LABEL[x.get('state')] + (f' / {x["project_state"]}' if x.get('project_state') else '')
@@ -308,7 +329,12 @@ def run(agent, plan_raw, dry=False, max_tasks=None, update=False, now=None):
             lines.append(f'FALHOU: o Planou não recebeu o plano ({e.message if e.status else e}); nada foi criado, rode de novo')
             return 1, lines
         results = {r.get('source_key'): r for r in (res or {}).get('tasks') or []}
-        _record(agent, plan, send, results, now)
+        if picker is not None:
+            for sk in [x['source_key'] for x in send if x.get('kind') == 'epic' and picker.is_epic(x['source_key'])]:
+                if sk in results: picker.result(results[sk])
+            from watch_core import epics as E
+            E.save_own(P, picker.own)
+        _record(agent, plan, [x for x in send if not (picker and picker.is_epic(x['source_key']))], results, now)
     pid_of = {sk: e.get('pid') for sk, e in skip.items()}
     pid_of.update({sk: r.get('pid') for sk, r in results.items() if r.get('pid')})
     rc, made, counts = 0, [], {}

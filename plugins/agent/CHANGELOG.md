@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.82.0 (2026-10-03)
+- Toda tarefa nova que o agente cria no Planou nasce sob um épico, com a mesma regra das sugestões (PLN0275): o sync das fontes (a área é a fonte do item), o backlog do comportamento product (plano sem `"epic"`; `"epic": false` deixa sem épico) e o gancho health (área "saúde dos agentes", ou `epic_subject`). Um apelido como `"saude"` põe a checagem de saúde quebrada sob o épico de Agentes.
+- Os épicos agora ficam em `planou.epics` e `planou.epic_aliases` do config da instância; o `epics`/`aliases` do gancho suggestions continua valendo quando não há `planou.epics`. Sem épicos no config, nada muda: a tarefa fica sem épico e o aviso é o mesmo.
+- Os épicos novos que o agente cria ficam em `cache/planou/epics.json`, os mesmos para todos esses caminhos. Quando o Planou passar a listar os épicos do projeto (`GET /v1/agent/projects/<projeto>/epics`) e o contrato do plugin tiver a rota, essa lista vale primeiro.
+
 ## 0.81.0 (2026-10-03)
 - QA grava o roteiro em vídeo como evidência: o `qa_kit.cjs` grava o vídeo do contexto numa largura só (`video_width`, 1360 por padrão; `0` desliga), o parecer `qa-<pid>.md` cita o `roteiro-1360.webm` e o QA o anexa na tarefa por `attach` explícito, só com dados de teste. O vídeo sai reduzido a 800 px (cerca de 0,75 MB por minuto); acima do limite de 50 MB do anexo ele é apagado e o QA segue só com as capturas, dizendo isso no parecer.
 - Tick pesado preso: o runner só deixa o tick para trás depois do limite inteiro. Antes, o tempo era lido em segundos inteiros e o abandono podia vir até 1 s antes do combinado.

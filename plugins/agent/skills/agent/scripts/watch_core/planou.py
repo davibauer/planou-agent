@@ -661,14 +661,16 @@ def open_codes():
 
 def payload(items, now=None, autonomy=None, default_project=None):
     """The sync batch for {code: item} from watch_core.tasks.itens(). Pure: reads only local files (the version map,
-    ready.json). `autonomy` is the project's (sync() reads it): manual never sends a reason; a task Planou keeps in
+    ready.json, cache/planou/epics.json; once the /v1 contract lists a project's epics, that GET too, once per process:
+    watch_core.epics). `autonomy` is the project's (sync() reads it): manual never sends a reason; a task Planou keeps in
     backlog goes without state (autonomous: with a reason, the state goes and takes it out)."""
     now = now or datetime.now(timezone.utc)
     today = now.astimezone().date().isoformat()
     known = _load('state.json', {}).get('tasks') or {}
     marked = _load('ready.json', {})
     _S['cited'] = {}
-    out = []
+    _S['epic_picker'] = None
+    out, picker, new_epics = [], None, []
     for code, it in items.items():
         state, resolution = STATE_OF.get(it.get('status'), ('todo', None))
         completed = _date(it.get('concluida'))
@@ -714,6 +716,19 @@ def payload(items, now=None, autonomy=None, default_project=None):
         if it.get('project_state'): task['project_state'] = str(it['project_state'])[:200]
         # the epic of the item (pid or source key, PLN0250): absent keeps Planou's (never null: that would take it out)
         if it.get('epic'): task['epic'] = str(it['epic'])[:200]
+        elif not kt.get('pid') and proj and proj == _S['project']:
+            # a new task of the instance's project is born under an epic (PLN0275, watch_core.epics): the area is
+            # the source (never the item's text: a new epic is named after it), the title only picks an existing one
+            from . import epics as E
+            if picker is None:
+                ep, al, _ = E.settings(_S['root'], P=sys.modules[__name__], project=proj)
+                picker = E.Picker(_S['agent'], ep, al, E.load_own(sys.modules[__name__]))
+            hit = picker.place(it.get('area') or it.get('origem') or 'fontes', it.get('titulo') or code, code)
+            if hit['epic']:
+                task['epic'] = hit['epic']
+                if hit['own']: new_epics.append((hit['own'], proj))
+            elif hit['no_epics']:
+                _S.setdefault('no_epics', []).append(code)
         mk = marked.get(code) if isinstance(marked.get(code), dict) else None
         reason = None if autonomy == 'manual' else ready_reason(code, it, state, due, mk)
         if reason: task['ready_reason'] = reason
@@ -729,6 +744,13 @@ def payload(items, now=None, autonomy=None, default_project=None):
                 and (not kt.get('pid') or autonomy == 'autonomous')):
             task['assignee'] = 'self'           # the agent takes it: at creation, or on an update in an autonomous project
         out.append(task)
+    if picker is not None:
+        # the new epics go first in the same batch (Planou resolves `epic` after the whole batch)
+        rows = [r for slug, proj in new_epics for r in picker.rows([slug], proj)]
+        seen = set()
+        rows = [r for r in rows if not (r['source_key'] in seen or seen.add(r['source_key']))]
+        out = rows + out
+        _S['epic_picker'] = picker
     return {'agent': _S['agent'], 'generated_at': now.isoformat(), 'tasks': out}
 
 
@@ -758,7 +780,7 @@ def note_warnings(code, notes, now=None):
 
 def sync(items, now=None):
     """Sends the whole list. Returns lines for the tick output (empty when all went well and nothing needs attention)."""
-    _S['warnings'] = []
+    _S['warnings'], _S['no_epics'] = [], []
     if not active(): return []
     alloc = allocation(now)
     aut = autonomy(_S['project'] or (alloc or {}).get('default'), now)
@@ -778,6 +800,13 @@ def sync(items, now=None):
                 continue
             return lines + [_failed(e.message if e.status else e, now)]
     _ok()
+    picker = _S.get('epic_picker')
+    epic_rows = {t['source_key'] for t in body['tasks'] if t.get('kind') == 'epic'}
+    if picker is not None:
+        from . import epics as E
+        for r in (res or {}).get('tasks') or []:
+            if r.get('source_key') in epic_rows: picker.result(r)
+        E.save_own(sys.modules[__name__], picker.own)
     with _locked('state.json'):     # the answer is in: state.json is loaded, changed and saved under its lock
         st = _load('state.json', {})
         tasks = st.setdefault('tasks', {})
@@ -785,6 +814,7 @@ def sync(items, now=None):
         sent = {t['source_key']: t for t in body['tasks']}
         kept = _load('sent.json', {})
         for r in (res or {}).get('tasks') or []:
+            if r.get('source_key') in epic_rows: continue        # an epic created here: watch_core.epics keeps it
             code = (r.get('source_key') or '')[len(prefix):]
             t = sent.get(r.get('source_key')) or {}
             warnings = list(r.get('warnings') or [])
@@ -812,6 +842,9 @@ def sync(items, now=None):
             elif r.get('result') == 'error':
                 lines.append(f'AVISO (planou): {code} recusada: {r.get("reason")}')
             # conflict: the version is NOT stored; the event carries it once the agent applied the person's change
+            if code in (_S.get('no_epics') or []) and r.get('result') == 'created':
+                from .epics import NO_EPICS_HINT
+                notes = notes + [f'sem epics no config: ficou sem epico; {NO_EPICS_HINT}']
             note_warnings(code, notes, now)
             for w in warnings:
                 _S['warnings'].append(f'{code}: {w}')

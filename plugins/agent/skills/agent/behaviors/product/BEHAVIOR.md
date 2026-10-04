@@ -58,7 +58,9 @@ Opções em `behavior_config.product`:
   tarefa `Decidir: ...`, com o que decidir, as opções e o que cada uma muda em `what`. As tarefas que dependem da
   decisão levam `depends_on` nela. O Planou nunca entrega `Decidir:` a um agente.
 - **Épico** (`"epic": true`): com 3 tarefas ou mais, um épico com o nome da meta agrupa tudo e mostra o progresso. Se a
-  pessoa já tem um épico para isso, `"epic": "<PID>"`.
+  pessoa já tem um épico para isso, `"epic": "<PID>"`. Sem `"epic"` no plano, as tarefas novas nascem sob um épico
+  pela regra do gancho suggestions (apelido, palavras em comum com a meta, ou um épico novo da área; PLN0275) e a saída
+  diz `ÉPICO: ...`; sem épicos no config (`planou.epics`) ficam sem épico, com um `AVISO`. `"epic": false`: sem épico.
 - **Limite**: até `max_tasks` tarefas por meta. Mais que isso: `$PL pergunta --title "A meta <ref> deu <n> tarefas:
   crio todas?" --option "A=Crio todas" --option "B=Crio só as <k> do caminho principal" --option "C=Reviso a quebra"
   --recommended B --task <PID>`, com a lista curta em `--context`, e rodar com `--max <n>` só depois do OK.

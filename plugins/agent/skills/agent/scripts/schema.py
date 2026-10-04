@@ -46,10 +46,13 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    changelog text, e.g. plugins/<plugin>/changelog.d/<branch>.md), done (the done criterion of a dev worker), public (bool: a
                    public repository; code-review holds it to the no-client-data rule, --brief tells the worker; the old
                    behavior_config.code-review.public_repos still counts, see public_repos())
-  planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles}; roles [str]
+  planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles, epics,
+                   epic_aliases}; roles [str]
                    replaces the roles the heartbeat declares (Planou PLN0284, column owned by a role; default: from the
                    behaviors, watch_core.planou.ROLE_OF_BEHAVIOR; [] declares none): lower case letters, digits, - and
-                   _, up to 40 characters, at most 10
+                   _, up to 40 characters, at most 10; epics [{pid, title}] are the open epics of the project and
+                   epic_aliases {"phrase": "pid or title"}; every new task the agent creates is born under one of them
+                   (watch_core.epics)
   runtime          {python: system|venv, requirements}
 
   python3 schema.py <config.json>   prints the normalized config and the problems (exit 1 on errors)
@@ -538,6 +541,13 @@ def validate(c, behavior_file=None, adapter_exists=None):
                     if len(rr) > ROLES_MAX: err.append(f'"planou.roles": no maximo {ROLES_MAX} papeis')
                     dup = sorted({x for x in rr if isinstance(x, str) and rr.count(x) > 1})
                     if dup: warn.append(f'"planou.roles": repetido {", ".join(dup)}')
+            if 'epics' in p and (not isinstance(p['epics'], list) or not all(
+                    isinstance(e, dict) and isinstance(e.get('pid'), str) and isinstance(e.get('title'), str) and
+                    e['pid'].strip() and e['title'].strip() for e in p['epics'])):
+                err.append('"planou.epics" precisa ser uma lista de {"pid": "ABC0001", "title": "..."}')
+            if 'epic_aliases' in p and (not isinstance(p['epic_aliases'], dict) or not all(
+                    isinstance(v, str) and v.strip() for v in p['epic_aliases'].values())):
+                err.append('"planou.epic_aliases" precisa ser um objeto {"apelido": "pid ou titulo do epico"}')
             if p.get('task_queue') is True and c.get('live') is not True:
                 warn.append('"planou.task_queue" so vale com "live": true (em modo teste a fila fica desligada)')
     rt = c.get('runtime')

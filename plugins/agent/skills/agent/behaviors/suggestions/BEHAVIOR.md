@@ -17,20 +17,31 @@ primeiro um apelido da tabela `aliases` do config, depois as palavras em comum c
 do assunto valem mais; palavras genéricas como planou, plugin e agente não decidem sozinhas). Sem épico que sirva, ele
 cria um épico novo da área ("Plugins: <área>", "Planou: <área>") no mesmo sync, e as próximas sugestões da mesma área
 entram nele. O "+1" nunca troca o épico, e a pessoa pode mudar o épico na tela.
-- `epics` no config lista os épicos abertos do projeto com o pid (a /v1 ainda não tem rota que liste épicos). Épico
-  novo que a pessoa criou na tela: incluir em `epics`; épico concluído: tirar. Apelido novo: em `aliases`
-  (`"<apelido>": "<título ou pid do épico>"`). Exemplo (dados fictícios):
+- **A mesma regra vale para toda tarefa nova que a instância cria (PLN0275)**: o sync das fontes (a área é a fonte
+  do item, só para tarefa nova do `planou.project`), o backlog do comportamento product (plano sem `"epic"`: a área é
+  a meta) e o gancho health (a área é `epic_subject`, padrão "saúde dos agentes"). A regra fica em
+  `scripts/watch_core/epics.py`, e os épicos novos que ela cria ficam em `cache/planou/epics.json`, os mesmos para
+  todos esses caminhos.
+- **De onde vêm os épicos**: primeiro a lista de épicos abertos que o Planou dá para o projeto
+  (`GET /v1/agent/projects/<projeto>/epics`, PLN0274), usada só quando o contrato /v1 do plugin já tem essa rota e
+  ela responde; senão `planou.epics` do config da instância; senão `epics` deste gancho (onde ficavam antes). Os
+  apelidos: `planou.epic_aliases`, senão `aliases` deste gancho. Épico novo que a pessoa criou na tela: incluir em
+  `epics`; épico concluído: tirar. Apelido novo: `"<apelido>": "<título ou pid do épico>"`. Exemplo (dados fictícios):
   ```json
-  {"type": "suggestions",
-   "epics": [{"pid": "ABC0001", "title": "Relatórios e exportação"},
-             {"pid": "ABC0002", "title": "Login e permissões"}],
-   "aliases": {"exportar csv": "ABC0001", "senha": "Login e permissões"}}
+  {"planou": {"project": "ABC",
+              "epics": [{"pid": "ABC0001", "title": "Relatórios e exportação"},
+                        {"pid": "ABC0002", "title": "Agentes"}],
+              "epic_aliases": {"exportar csv": "ABC0001", "saude": "ABC0002"}}}
   ```
+  Com isso, a checagem de saúde quebrada abre a tarefa sob "Agentes" (o apelido "saude" casa com a área "saúde dos
+  agentes"; "agentes" sozinho é palavra genérica e não decide). O mesmo `epics`/`aliases` dentro do gancho
+  suggestions continua valendo quando não há `planou.epics`.
   O apelido é procurado como frase no assunto e no título da sugestão (o mais longo vence); o valor é o pid ou o
-  título de um épico de `epics`.
+  título de um épico conhecido.
 - **Sem `epics` (ausente ou vazio), nenhum épico é criado**: um épico da área duplicaria os épicos que a pessoa já tem.
   A tarefa nasce sem épico e a saída diz `-- sem epics no config: PLNxxxx ficou sem epico; ...`: dizer ao usuário e
-  sugerir preencher `epics` com os épicos abertos do projeto (o config da instância é da sessão). Épico novo só nasce
+  sugerir preencher `planou.epics` com os épicos abertos do projeto (o config da instância é da sessão). O health
+  diz o mesmo na saída; o sync das fontes só anota em `cache/planou/warnings.log` (uma vez por dia e tarefa). Épico novo só nasce
   quando há `epics` e nenhum serve.
 - `-- nova PLNxxxx: ... (...; epico [novo] PLNyyyy "<título>")`: dizer ao usuário em que épico entrou; com "novo",
   dizer também que o épico foi criado. `aviso do Planou: ...` abaixo da linha (épico desconhecido ou que não é

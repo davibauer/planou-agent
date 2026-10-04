@@ -16,6 +16,10 @@ Config ({"type": "health", ...}):
   reopen_h        a check that breaks again within this many hours of its recovery reuses the same task (default 12)
   report_hour     local hour of the daily report (== SAUDE DIARIA), first heavy tick at or after it; null = no report
   task_note       a line added to the end of every task description (e.g. what the person decides)
+  epic_subject    the area a new task is filed under (default "saúde dos agentes"; a check may give its own): the task
+                  is born under an epic by the rule of watch_core.epics (PLN0275), e.g. the alias
+                  `"saude": "<pid of the agents epic>"` in planou.epic_aliases puts it there; without epics in the
+                  config it goes without one and the output says so
   timeout_s       seconds per check (default 20)
 
 Check kinds (options besides id, kind and label; every check also takes "after", "priority" and "every_h": run at most
@@ -82,6 +86,9 @@ def _safe(text, limit=240):
     except Exception:
         t = None
     return t or '[linha omitida]'
+
+
+DEFAULT_EPIC_SUBJECT = 'saúde dos agentes'
 
 
 def _planou():
@@ -342,6 +349,8 @@ class Gancho(Base):
         self.open_tasks = c.get('open_tasks', True) is not False
         self.project = c.get('project') if isinstance(c.get('project'), str) else None
         self.note = c.get('task_note') if isinstance(c.get('task_note'), str) else ''
+        self.epic_subject = c.get('epic_subject') if isinstance(c.get('epic_subject'), str) and c['epic_subject'].strip() \
+            else DEFAULT_EPIC_SUBJECT
 
     def label(self, ch):
         return ch.get('label') or ch['id']
@@ -508,12 +517,30 @@ class Gancho(Base):
         retry = {k: t for k, t in st['tasks'].items() if (t.get('retry') or t.get('pending')) and not t.get('deleted')}
         batch.update({k: t for k, t in retry.items() if k not in batch})
         if not batch: return out
-        body = []
+        from watch_core import epics as E
+        own = E.load_own(p)
+        picker = None
+        for key, t in batch.items():
+            if t.get('pid') is None:
+                # a new task is born under an epic (PLN0275), picked again on a retry (same answer); only at creation:
+                # a reopen never moves it
+                if picker is None:
+                    ep, al, _ = E.settings(paths.ROOT, P=p, project=project)
+                    picker = E.Picker(paths.NAME, ep, al, own)
+                ch = by_id.get(t.get('check')) or {}
+                subj = ch.get('epic_subject') if isinstance(ch.get('epic_subject'), str) and ch['epic_subject'].strip() else self.epic_subject
+                hit = picker.place(subj, t['title'], key)
+                t['epic'], t['epic_title'], t['epic_own'] = hit['epic'], hit['title'], hit['own'] if hit['epic'] else None
+                if hit['no_epics']: t['no_epics'] = True
+                else: t.pop('no_epics', None)
+        rows = picker.rows([t.get('epic_own') for t in batch.values() if t.get('pid') is None], project) if picker else []
+        body = list(rows)
         for key, t in batch.items():
             b = {'source_key': self.source_key(key), 'project': project, 'title': t['title'],
                  'priority': t['priority'], 'reporter': paths.NAME}
             if not t.get('frozen'): b['description'] = t['description']
             if t.get('version') is not None: b['base_version'] = t['version']
+            if t.get('pid') is None and t.get('epic'): b['epic'] = t['epic']
             body.append(b)
         try:
             _, res = p._call('POST', '/agent/sync', {'agent': paths.NAME, 'generated_at': now.isoformat(), 'tasks': body})
@@ -524,6 +551,10 @@ class Gancho(Base):
             st['err'] = msg
             return out
         st.pop('err', None)
+        epic_keys = {x['source_key'] for x in rows}
+        for r in (res or {}).get('tasks') or []:
+            if r.get('source_key') in epic_keys: picker.result(r)
+        if picker: E.save_own(p, own)
         by_sk = {self.source_key(k): k for k in batch}
         for r in (res or {}).get('tasks') or []:
             key = by_sk.get(r.get('source_key'))
@@ -537,7 +568,11 @@ class Gancho(Base):
                 if 'description' in (r.get('ignored_fields') or []): t['frozen'] = True
                 if t.pop('new', None):
                     st['days'][day] = st['days'].get(day, 0) + 1
-                    out['lines'].append(f'-- tarefa {t["pid"]} aberta no backlog: {t["title"]}')
+                    ep = own.get(t.get('epic_own') or '') or {}
+                    where = (f'; epico {ep.get("pid") or t["epic"]} "{t.get("epic_title")}"' if t.get('epic') else '')
+                    out['lines'].append(f'-- tarefa {t["pid"]} aberta no backlog: {t["title"]}{where}')
+                    if t.get('no_epics'):
+                        out['lines'].append(f'-- sem epics no config: {t["pid"]} ficou sem epico; {E.NO_EPICS_HINT}')
                 elif t.get('recovered'):
                     out['lines'].append(f'-- tarefa {t["pid"]} anotada: {self.T["task_back"]}')
                 elif note == 'changed':
