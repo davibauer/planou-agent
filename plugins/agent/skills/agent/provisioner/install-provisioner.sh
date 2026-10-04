@@ -7,8 +7,10 @@
 #
 #   --enable  systemctl --user daemon-reload + enable --now (without it, the commands are printed)
 #
-# The unit runs ~/.claude/skills/agent/scripts/provisioner.py (the plugin copy in use), never a copy of its own: new
-# versions arrive with the plugin (see the unit and docs/provisioner.md).
+# The unit runs ~/.claude/skills/agent/scripts/provisioner.py (the plugin copy in use), never a snapshot of its own: new
+# versions arrive with the plugin (see the unit and docs/provisioner.md). Exception, PROVISIONER_SCRIPT=<path> (install.sh,
+# PLN0336: the skill's copy is older or has no provisioner): the unit runs that provisioner.py, the installed copy's,
+# until a run without it; %h stands for the home folder.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -51,7 +53,10 @@ if [ ! -f "$prov/config.json" ]; then
   echo "config criado: $prov/config.json (base_url da producao local; em desenvolvimento, a porta da API)"
 fi
 # an ExecStart that runs another copy of the plugin that still exists (a clone of development, say) stays: the unit
-# follows the template but never swaps the copy someone chose (the same rule as maintain_unit in provisioner.py)
+# follows the template but never swaps the copy someone chose (the same rule as maintain_unit in provisioner.py). This
+# copy's own provisioner.py (written by PROVISIONER_SCRIPT) is no choice: it is decided again on every run
+own=$(cd "$here/../scripts" && pwd -P)/provisioner.py
+alt=${PROVISIONER_SCRIPT:-}
 keep=
 if [ -f "$unit" ]; then
   have=$(sed -n 's/^ExecStart=//p' "$unit" | head -n 1)
@@ -60,17 +65,21 @@ if [ -f "$unit" ]; then
     py=
     for t in $have; do case "$t" in *provisioner.py) py=$t; break;; esac; done
     py=${py//%h/$HOME}
-    if [ -n "$py" ] && [ -f "$py" ]; then keep=$have; fi
+    real=$(cd "$(dirname "$py")" 2>/dev/null && pwd -P)/provisioner.py || real=
+    if [ -n "$py" ] && [ -f "$py" ] && [ "$real" != "$own" ]; then keep=$have; fi
   fi
 fi
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
-    ExecStart=*) if [ -n "$keep" ]; then printf 'ExecStart=%s\n' "$keep"; else printf '%s\n' "$line"; fi;;
+    ExecStart=*) if [ -n "$keep" ]; then printf 'ExecStart=%s\n' "$keep"
+                 elif [ -n "$alt" ]; then printf '%s\n' "${line/\%h\/.claude\/skills\/agent\/scripts\/provisioner.py/$alt}"
+                 else printf '%s\n' "$line"; fi;;
     *) printf '%s\n' "$line";;
   esac
 done < "$unit_src" > "$unit.tmp"
 chmod 644 "$unit.tmp" && mv "$unit.tmp" "$unit"
 if [ -n "$keep" ]; then echo "unit gravada: $unit (ExecStart mantido, outra copia do plugin: $keep)"
+elif [ -n "$alt" ]; then echo "unit gravada: $unit (roda a copia instalada: $alt)"
 else echo "unit gravada: $unit (roda $script)"; fi
 
 cred_ok=0

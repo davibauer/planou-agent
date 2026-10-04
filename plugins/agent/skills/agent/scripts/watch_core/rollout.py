@@ -471,7 +471,8 @@ def cmd_start(scripts, agent, rdir):
 
 
 def cmd_tick(scripts, live, agent, rdir, rc, tick_file):
-    """ACTION=none|released|relaunch|refused, then ALERT=<title> (refused) and the block for tick.out."""
+    """ACTION=none|released|relaunch|refused|warn, then ALERT=<title> (refused) and the block for tick.out (warn: the
+    canary reads an older copy than the installed one, see stale_copy)."""
     running_dir = plugin_dir(scripts)
     plugin, running = plugin_info(running_dir) if running_dir else (None, None)
     data = load()
@@ -508,6 +509,9 @@ def cmd_tick(scripts, live, agent, rdir, rc, tick_file):
             out.append(f'-- rollout: {plugin} {running} liberada pelo canario {agent} ({now()})')
             _version_file(rdir, plugin, running, 'released')
     disk = plugin_info(live)[1]
+    stale, lines = stale_copy(scripts, live, plugin, running, disk, rdir, is_canary(load(), plugin, agent))
+    if stale:
+        return [f'ACTION={stale}'] + out + lines
     if disk:
         target, mode = decide(load(), plugin, agent, disk)
         if target and target != running:
@@ -516,6 +520,82 @@ def cmd_tick(scripts, live, agent, rdir, rc, tick_file):
                     '-- versao nova para este agente: relancar o runner como sempre (stop e start); nada mais a fazer.']
             action = 'relaunch'
     return [f'ACTION={action}'] + out
+
+
+# ---------------------------------------------------------------- the copy in use moved (PLN0336)
+STALE_FILE = 'rollout.stale'
+
+
+def skill_name(scripts):
+    """The skill folder of the runner's scripts (skills/<name>/scripts inside the plugin), or None."""
+    pdir = plugin_dir(scripts) if scripts else None
+    if not pdir: return None
+    parts = os.path.relpath(os.path.realpath(scripts), pdir).split(os.sep)
+    return parts[1] if len(parts) >= 2 and parts[0] == 'skills' else None
+
+
+def installed_dir(plugin):
+    """The plugin folder of the installer's copy (install.sh: ~/.local/share/planou/claude-plugins), or None."""
+    root = os.environ.get('PLANOU_INSTALL_DIR') or os.path.expanduser('~/.local/share/planou/claude-plugins')
+    d = os.path.join(root, 'plugins', plugin)
+    return d if os.path.isfile(os.path.join(d, '.claude-plugin', 'plugin.json')) else None
+
+
+def _git_root(d):
+    while d and d != os.path.dirname(d):
+        if os.path.exists(os.path.join(d, '.git')): return d
+        d = os.path.dirname(d)
+    return None
+
+
+def stale_copy(scripts, live, plugin, running, disk, rdir, canary):
+    """(action, lines) when this runner reads an older copy than the one in use (PLN0336, 04/10/2026: the canary read a
+    clone stopped at 0.72.0 while the installer had put 0.85.0 in place; no version was released for 3 days and the
+    provisioner stayed pinned on 0.73.0). ROLLOUT_LIVE is resolved once, at start:
+      - the skill link (~/.claude/skills/<skill>) now resolves to another copy, newer than `live`: relaunch. The extra
+        `-- ` lines keep the runner from relaunching itself (that exec goes back to `live`): the session's start, through
+        the link, reads the new copy. Once per pair of versions, like the warning: a session that has not relaunched
+        yet is not woken again on every heavy tick;
+      - only the canary: the link still points at `live` (a clone kept on purpose) but the installer's copy is newer: one
+        warning per pair of versions, with the way out. Nothing is switched (the clone may hold someone's work).
+    (None, []) otherwise."""
+    if not live or not disk: return None, []
+    mark = os.path.join(rdir, STALE_FILE)
+
+    def first(key):   # True the first time this key is seen (kept in rollout.stale)
+        if _read(mark).strip() == key: return False
+        try:
+            os.makedirs(rdir, exist_ok=True)
+            with open(mark, 'w') as f: f.write(key + '\n')
+        except OSError: pass
+        return True
+    live_r = os.path.realpath(live)
+    skill = skill_name(scripts)
+    link = os.path.join(os.path.expanduser('~/.claude/skills'), skill) if skill else None
+    use = plugin_dir(link) if link and os.path.isdir(link) else None
+    if use and os.path.realpath(use) != live_r:
+        v = plugin_info(use)[1]
+        if v and vkey(v) > vkey(disk):
+            if not first(f'relaunch {disk} {v}'): return None, []
+            return 'relaunch', [
+                f'== RELANCAR ({plugin} {running} -> {v}, copia em uso mudou)',
+                f'-- a copia em uso ({link}) agora e {os.path.realpath(use)}, na {v}; este runner ainda le {live_r} ({disk}).',
+                '-- relancar o runner como sempre (stop e start), pelo link: o relancamento sozinho voltaria para a copia velha.']
+    if not canary: return None, []
+    inst = installed_dir(plugin)
+    if not inst or os.path.realpath(inst) == live_r: return None, []
+    v = plugin_info(inst)[1]
+    if not v or vkey(v) <= vkey(disk): return None, []
+    if not first(f'warn {disk} {v}'): return None, []
+    lr = last_released(load(), plugin)
+    lines = [f'== CANARIO NUMA COPIA VELHA ({plugin} {disk} em {live_r}; a instalada e a {v})',
+             f'-- enquanto o canario le esta copia, nenhuma versao nova de {plugin} e liberada: o provisionador e os outros '
+             f'agentes ficam na {lr or disk}.']
+    root = _git_root(live_r)
+    if root: lines.append(f'-- atualizar o clone (se nao tiver trabalho local): git -C "{root}" pull --ff-only')
+    if link: lines.append(f'-- ou usar a copia instalada: ln -sfn "{os.path.join(inst, "skills", skill)}" "{link}"')
+    lines.append('-- depois relancar o runner (stop e start); avisar o usuario, nada foi trocado sozinho.')
+    return 'warn', lines
 
 
 # ---------------------------------------------------------------- CLI

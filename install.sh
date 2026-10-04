@@ -27,7 +27,11 @@
 #   4. last, it asks for the pairing code of Planou (Configuracoes > Computadores > Conectar este computador), hidden, and
 #      turns the service on once this computer is connected. A computer already connected keeps its credential.
 # No account is created and no secret is shown: the code goes to `provisioner.py pair` on stdin, the credential goes
-# from Planou straight to a 0600 file. Existing links, launchers or copies that are not this installer's stay as they are.
+# from Planou straight to a 0600 file. Existing links, launchers or copies that are not this installer's stay as they are,
+# with one exception (PLN0336): a skill link to an older copy of the plugin that is not a git clone, or is a clone with
+# no local work (no change, no stash, every commit on a remote), moves to the installed copy; the line printed says how
+# to go back. The planou-agent launcher runs the installed copy when the one in use has no employee.sh or is older, and
+# so does the service (the unit's ExecStart, the launchd plist) when it is older or has no provisioner.py.
 #
 # Options (each one also as an environment variable):
 #   --base-url URL     Planou (PLANOU_BASE_URL, default https://app.planou.com)
@@ -292,12 +296,36 @@ PYEOF
 # how to bring a kept copy up to date: git pull when it is a clone, and the link swap to the installed copy
 stale_hint() {
   root=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null || true)
-  [ -z "$root" ] || warn "  para atualizar a copia mantida: git -C $root pull --ff-only"
-  [ -z "${2:-}" ] || warn "  ou, para usar a copia instalada: ln -sfn $3 $2"
+  [ -z "$root" ] || warn "  para atualizar a copia mantida: git -C \"$root\" pull --ff-only"
+  [ -z "${2:-}" ] || warn "  ou, para usar a copia instalada: ln -sfn \"$3\" \"$2\""
+}
+
+# git_root <dir>: the folder above <dir> (itself included) holding a .git, by looking only (no git: a clone git refuses
+# to read, "dubious ownership" on a Windows drive for one, is still a clone); empty when there is none
+git_root() {
+  d=$1
+  while [ -n "$d" ] && [ "$d" != / ]; do
+    if [ -e "$d/.git" ]; then printf '%s' "$d"; return; fi
+    d=$(dirname "$d")
+  done
+}
+# no_local_work <root>: true only when git says, without an error, that the clone has nothing of its own: no change
+# (untracked files count), no stash and no commit that no remote has (a clone without a remote always has some)
+no_local_work() {
+  git --version >/dev/null 2>&1 || return 1
+  st=$(git -C "$1" status --porcelain 2>/dev/null) || return 1
+  [ -z "$st" ] || return 1
+  ! git -C "$1" rev-parse -q --verify refs/stash >/dev/null 2>&1 || return 1
+  n=$(git -C "$1" rev-list --count HEAD --branches --not --remotes 2>/dev/null) || return 1
+  [ "$n" = 0 ]
 }
 
 # skills: a link this installer made (or a broken one) follows the copy; anything else stays (a clone of development);
-# a kept link shows both versions and warns when it is older than the copy just installed (PLN0326)
+# a kept link shows both versions and warns when it is older than the copy just installed (PLN0326). Older and with
+# nothing that could be lost (not a clone, or a clone with no local work), it moves to the installed copy on its own
+# (PLN0336: a link to a clone stopped at 0.72.0 kept the employee from opening); the old target goes to a file outside
+# the skills folder (a second link there would be a second skill) and the line says how to go back.
+PREV_LINKS="$HOME/.local/share/planou/previous-links"
 link_skill() {
   name=$1 target=$2 link="$SKILLS/$1"
   mkdir -p "$SKILLS"
@@ -306,10 +334,22 @@ link_skill() {
     if [ "$cur" = "$target" ]; then say "skill $name: ok ($target)"
     else
       kept=$(copy_version "$link")
+      real=$(cd "$link" 2>/dev/null && pwd -P) || real=   # a link to a file: kept, never swapped
+      root=$(git_root "$real")
+      if [ -n "$real" ] && older "$kept" "$VERSION" && { [ -z "$root" ] || no_local_work "$root"; }; then
+        mkdir -p "$PREV_LINKS"
+        printf '%s\n' "$cur" > "$PREV_LINKS/$name"
+        ln -sfn "$target" "$link"
+        if [ -z "$root" ]; then what="uma copia sem git"; else what="um clone sem mudanca local ($root)"; fi
+        say "skill $name: trocada para a copia instalada $VERSION ($target); a anterior, $cur na versao $kept, era $what. Para voltar: ln -sfn \"$cur\" \"$link\" (guardado em $PREV_LINKS/$name)"
+        return
+      fi
       say "skill $name: mantida (aponta para $cur, outra copia do plugin, versao $kept; a instalada em $DEST e a $VERSION)"
       if older "$kept" "$VERSION"; then
         warn "ATENCAO: a skill $name usa a copia em $cur, na versao $kept, mais antiga que a $VERSION recem instalada"
-        stale_hint "$(cd "$link" && pwd -P)" "$link" "$target"
+        if [ -z "$real" ]; then warn "  nao troquei sozinho: $cur nao e uma pasta"
+        else warn "  nao troquei sozinho: $root tem trabalho local (mudancas, stash ou commits fora do origin) ou o git nao respondeu"; fi
+        stale_hint "$real" "$link" "$target"
       fi
     fi
   elif [ -e "$link" ]; then
@@ -321,6 +361,13 @@ link_skill() {
 link_skill agent "$OURS"
 link_skill work-watch "$DEST/plugins/agent/skills/work-watch"
 ACTIVE="$SKILLS/agent"
+# PLN0336: the service runs the installed copy, not the skill's, while the skill's (a kept clone with local work) is
+# older or has no provisioner; the next run of this installer, with the skill up to date, follows the skill again
+SVC_WHY=
+if [ ! -f "$ACTIVE/scripts/provisioner.py" ]; then SVC_WHY="nao tem o provisionador"
+else svc_kept=$(copy_version "$ACTIVE"); if older "$svc_kept" "$VERSION"; then SVC_WHY="esta na versao $svc_kept"; fi; fi
+SVC_DIR=$ACTIVE; [ -z "$SVC_WHY" ] || SVC_DIR=$OURS
+SVC_BACK="Para voltar a seguir a skill: atualize a copia dela e rode o instalador de novo"
 
 # the team launcher: a stub that runs team.sh of the copy in use (never replaces a launcher of someone else)
 mkdir -p "$BIN"
@@ -338,14 +385,42 @@ else
   say "launcher: mantido ($BIN/team ja existe)"
 fi
 # planou-agent <name>: the employee in this terminal (employee.sh of the copy in use), reopened when the session ends
+# PLN0336: when the copy in use has no employee.sh or is older than the installed one, the stub runs the installed one
+# (its path written in PLANOU_INSTALLED_AGENT, which join.sh looks for) and says so in one line; PLANOU_EMPLOYEE_SH wins
 if [ ! -e "$BIN/planou-agent" ] || grep -q "$MARK" "$BIN/planou-agent" 2>/dev/null; then
-  cat > "$BIN/planou-agent.tmp.$$" <<'EOF'
-#!/usr/bin/env bash
-# planou-install: planou-agent launcher stub. Runs employee.sh of the agent plugin copy in use; rewritten by install.sh.
-E="${PLANOU_EMPLOYEE_SH:-$HOME/.claude/skills/agent/scripts/employee.sh}"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' \
+      '# planou-install: planou-agent launcher stub. Runs employee.sh of the agent plugin copy in use; rewritten by install.sh.'
+    printf "PLANOU_INSTALLED_AGENT='%s'\n" "$(printf '%s' "$OURS" | sed "s/'/'\\\\''/g")"
+    cat <<'EOF'
+ver() { sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$(dirname "$1")/../../../.claude-plugin/plugin.json" 2>/dev/null | head -n 1; }
+older() {   # version $1 older than $2; an unknown one never is
+  [[ $1 =~ ^[0-9]+(\.[0-9]+)*$ && $2 =~ ^[0-9]+(\.[0-9]+)*$ ]] || return 1
+  local IFS=. i; local -a a=($1) b=($2)
+  for i in 0 1 2 3; do
+    [ "${a[i]:-0}" -lt "${b[i]:-0}" ] && return 0
+    [ "${a[i]:-0}" -gt "${b[i]:-0}" ] && return 1
+  done
+  return 1
+}
+E="${PLANOU_EMPLOYEE_SH:-}"
+if [ -z "$E" ]; then
+  E="$HOME/.claude/skills/agent/scripts/employee.sh"
+  I="$PLANOU_INSTALLED_AGENT/scripts/employee.sh"
+  if [ -f "$I" ] && [ "$(cd "$(dirname "$E")" 2>/dev/null && pwd -P)" != "$(cd "$(dirname "$I")" && pwd -P)" ]; then
+    why=
+    if [ ! -f "$E" ]; then why="nao tem employee.sh"
+    elif older "$(ver "$E")" "$(ver "$I")"; then why="esta na versao $(ver "$E")"; fi
+    if [ -n "$why" ]; then
+      echo "planou-agent: a copia em ~/.claude/skills/agent $why; abrindo pela instalada ($(ver "$I")). A skill /agent ainda vem da outra; para trocar: ln -sfn \"$PLANOU_INSTALLED_AGENT\" ~/.claude/skills/agent" >&2
+      E=$I
+    fi
+  fi
+fi
 if [ ! -f "$E" ]; then echo "planou-agent: nao achei $E (plugin agent)" >&2; exit 1; fi
 exec bash "$E" "$@"
 EOF
+  } > "$BIN/planou-agent.tmp.$$"
   chmod 755 "$BIN/planou-agent.tmp.$$"; mv "$BIN/planou-agent.tmp.$$" "$BIN/planou-agent"
   say "launcher: $BIN/planou-agent"
 else
@@ -401,9 +476,18 @@ fi
 case "$MODE" in
   systemd)
     # a unit whose ExecStart runs another copy of the plugin (a clone of development) keeps that ExecStart
-    out=$(SYSTEMCTL=$SYSTEMCTL bash "$OURS/provisioner/install-provisioner.sh") \
+    svc_script=   # %h for the home folder; a path systemd would split or expand keeps the skill's (and its warning)
+    if [ -n "$SVC_WHY" ]; then
+      case "$OURS" in
+        *[[:space:]%\"\'\\\&]*) ;;   # & too: bash 5.2 expands it in install-provisioner.sh's replacement
+        "$HOME"/*) svc_script="%h/${OURS#"$HOME"/}/scripts/provisioner.py";;
+        *) svc_script="$OURS/scripts/provisioner.py";;
+      esac
+    fi
+    out=$(SYSTEMCTL=$SYSTEMCTL PROVISIONER_SCRIPT=$svc_script bash "$OURS/provisioner/install-provisioner.sh") \
       || die "nao consegui gravar a unit do systemd"
     case "$out" in
+      *"roda a copia instalada"*) say "servico: unit agent-provisioner gravada pela copia instalada ($VERSION, $OURS): a skill agent em $ACTIVE $SVC_WHY. $SVC_BACK, ou: PROVISIONER_SCRIPT= bash \"$OURS/provisioner/install-provisioner.sh\" && systemctl --user daemon-reload && systemctl --user restart agent-provisioner.service";;
       *"ExecStart mantido"*) say "servico: unit agent-provisioner gravada; ExecStart mantido (roda outra copia do plugin)";;
       *) say "servico: unit agent-provisioner gravada (systemd --user)";;
     esac
@@ -428,6 +512,8 @@ case "$MODE" in
     mkdir -p "$(dirname "$PLIST")" "$HOME/Library/Logs"
     xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
     h=$(xml "$HOME")
+    svc_py="$h/.claude/skills/agent/scripts/provisioner.py"
+    [ -z "$SVC_WHY" ] || svc_py=$(xml "$OURS/scripts/provisioner.py")
     cat > "$PLIST.tmp" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -439,7 +525,7 @@ case "$MODE" in
   <array>
     <string>/usr/bin/env</string>
     <string>python3</string>
-    <string>$h/.claude/skills/agent/scripts/provisioner.py</string>
+    <string>$svc_py</string>
     <string>run</string>
   </array>
   <key>EnvironmentVariables</key>
@@ -457,14 +543,15 @@ case "$MODE" in
 </plist>
 EOF
     chmod 644 "$PLIST.tmp"; mv "$PLIST.tmp" "$PLIST"
-    say "servico: $PLIST gravado (launchd)";;
+    say "servico: $PLIST gravado (launchd)"
+    [ -z "$SVC_WHY" ] || say "servico: roda a copia instalada ($VERSION, $OURS): a skill agent em $ACTIVE $SVC_WHY. $SVC_BACK";;
   wsl-task) say "servico: fica com a tarefa agendada do Windows (install.ps1)";;
   none) say "servico: pulado (--service none)";;
   manual)
     if [ "$OS" = wsl ]; then
       warn "o WSL esta sem systemd: enquanto a janela do funcionario (planou-agent) estiver aberta, ela faz o papel do servico; para o servico, ligue em /etc/wsl.conf ([boot] systemd=true)"
     else
-      warn "systemctl --user nao responde: enquanto a janela do funcionario (planou-agent) estiver aberta, ela faz o papel do servico; ou rode: $PY $ACTIVE/scripts/provisioner.py run"
+      warn "systemctl --user nao responde: enquanto a janela do funcionario (planou-agent) estiver aberta, ela faz o papel do servico; ou rode: $PY \"$SVC_DIR/scripts/provisioner.py\" run"
     fi;;
 esac
 

@@ -225,7 +225,11 @@ cópia instalada à parte, e segue o canário do time ([rollout](../../../docs/r
   `systemctl --user daemon-reload` (vale na próxima partida). Só mexe na unit que o instalador pôs (a primeira linha
   dela é a marca).
 - **A cópia escolhida fica**: o `ExecStart` padrão passa pelo link `~/.claude/skills/agent`, que o `install.sh` (e o
-  `join.sh`, que roda o `install.sh`) não troca quando aponta para outra cópia. Quem mudou o `ExecStart` para outra
+  `join.sh`, que roda o `install.sh`) não troca quando aponta para um clone com trabalho local. Enquanto essa cópia é
+  mais antiga que a instalada ou não tem o `provisioner.py` (PLN0336), o `install.sh` grava o `ExecStart` (e o plist
+  do launchd) pela cópia instalada, com `PROVISIONER_SCRIPT` no `install-provisioner.sh`, e diz como voltar; na
+  próxima instalação com a skill em dia, a unit volta ao modelo (esse `ExecStart` da própria cópia nunca conta como
+  escolha). Quem mudou o `ExecStart` para outra
   cópia do plugin que existe (um clone de desenvolvimento, por exemplo) mantém essa linha: o `install-provisioner.sh` e
   o provisionador regravam o resto da unit pelo modelo e deixam o `ExecStart`. Se aquela cópia não existe mais, volta o
   `ExecStart` do modelo.

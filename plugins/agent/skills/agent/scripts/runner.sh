@@ -667,7 +667,7 @@ while true; do
     RA=$(PYTHONPATH="$S" timeout "$rt" python3 -m watch_core.rollout tick --scripts "$S" --live "$ROLLOUT_LIVE" --agent "$INST" \
       --runner-dir "$D" --rc "$rc" --tick "$D/tick.tmp" 2>> "$D/rollout.err")
     case "$(printf '%s\n' "$RA" | sed -n 's/^ACTION=//p')" in
-      relaunch|refused) forca=1; printf '%s\n' "$RA" | grep -v -e '^ACTION=' -e '^ALERT=' >> "$D/tick.tmp";;
+      relaunch|refused|warn) forca=1; printf '%s\n' "$RA" | grep -v -e '^ACTION=' -e '^ALERT=' >> "$D/tick.tmp";;
       released) printf '%s\n' "$RA" | grep '^-- rollout' | sed "s/^/$(date +%FT%T)\t/" >> "$D/avisos.log";;
     esac
     al=$(printf '%s\n' "$RA" | sed -n 's/^ALERT=//p')

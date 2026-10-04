@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.85.1 (2026-10-04)
+- Instalador: o link da skill que aponta para uma cópia mais antiga do plugin passa para a cópia instalada sozinho quando nada se perde (cópia sem git, ou clone sem mudança local, sem stash e sem commit fora do origin). O destino antigo fica guardado em `~/.local/share/planou/previous-links/` e a linha do instalador diz como voltar. Clone com trabalho local continua mantido, com o aviso de cópia velha (PLN0336).
+- `planou-agent`: quando a cópia em uso não tem a janela do funcionário (employee.sh) ou é mais antiga que a instalada, abre pela cópia instalada e avisa numa linha; `PLANOU_EMPLOYEE_SH` continua mandando.
+- Serviço do provisionador (unit do systemd e plist do launchd): enquanto a cópia do link da skill é mais antiga que a instalada ou não tem o provisionador (clone mantido com trabalho local), ele roda pela cópia instalada; a linha do instalador diz como voltar, e a próxima instalação, com a skill em dia, volta a seguir a skill. Um ExecStart escolhido à mão para outra cópia continua mantido.
+- Canário: o runner que lê uma cópia diferente da que o link da skill aponta agora, e mais antiga, pede para a sessão relançar (uma vez por par de versões); o canário que lê um clone mantido mais antigo que a cópia instalada avisa uma vez, com o comando para atualizar. Vale para o runner que já roda esta versão: um canário parado numa cópia anterior volta a andar quando o instalador troca o link e a sessão relança como sempre.
+
 ## 0.85.0 (2026-10-04)
 - Na tarefa de uma pessoa liberada por um pedido do agente (Planou 0.84), o agente muda a coluna com `tarefa estado <PID> "<coluna>"` e lê os anexos com `anexo ver <PID>` e `anexo baixar <PID> <anexo> [--out <caminho>]`. Cada recusa do Planou sai em palavras: coluna com dono, concluir ou reabrir, backlog, tarefa na fila do próprio agente (mudar pelo `fila`) e pedido fechado há mais de 24 h.
 - A resposta da pergunta de escopo do refinamento não é mais comentada nem movida pelo agente: desde a v0.83.1 o Planou faz isso sozinho, em qualquer tarefa. Some o aviso "o usuário move na tela" e não sai comentário em dobro.
