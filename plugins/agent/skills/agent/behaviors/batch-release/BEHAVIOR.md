@@ -1,4 +1,6 @@
 ---
+name: batch-release
+description: "Junta as branches prontas, roda os testes completos, publica a versão e avisa de cada deploy. Use quando um worker volta com PRONTA PARA RELEASE, a saida traz == RELEASE ou == DEPLOY, ou vai disparar o integrador."
 title: Release em lote
 summary: Junta as branches prontas, roda os testes completos, publica a versão e avisa de cada deploy.
 layer: skill
@@ -34,7 +36,7 @@ integrador, para colar no pedido ao integrador (sem o `--role`, o bloco é o do 
 ## A fila de release
 
 - Worker de desenvolvimento voltou com `PRONTA PARA RELEASE: <branch>`: `$A --release-queue add <branch> <PID>` (o
-  `<PID>` da tarefa, quando houver) e `fila in_review <PID> --note "<branch>"` (planou-queue). A vaga fica livre.
+  `<PID>` da tarefa, quando houver) e `fila in_review <PID> --note "<branch>"` (task-queue). A vaga fica livre.
 - **Com revisão por outro agente** (comportamento `code-review`: a coluna do dev tem como próximo a coluna do revisor):
   a branch só entra na fila de release depois de aprovada. O dev passa a tarefa com `fila handoff <PID> --note
   "<branch>"`, sem `--release-queue add`; a tarefa volta a este agente como tarefa da coluna de release (dono dela) e
@@ -49,7 +51,7 @@ integrador, para colar no pedido ao integrador (sem o `--role`, o bloco é o do 
 - O gancho `release_due` acorda a sessão com `== RELEASE DEVIDO` quando há `min_branches` ou mais prontas, ou uma
   esperando há mais de `max_wait_min` minutos (regras do Planou; as opções do gancho são a reserva). Nunca editar o
   arquivo da fila à mão.
-- O gancho `fila_parada` (comportamento planou-queue, seção "Fila parada") cobre também a coluna de release: tarefa
+- O gancho `fila_parada` (comportamento task-queue, seção "Fila parada") cobre também a coluna de release: tarefa
   parada nela, sem liberar com vaga livre, acorda a sessão com `== FILA PARADA <PID> (<motivo>)`.
 - Cada `add`, `start`, `drop`, `done` e `abort` espelha a fila inteira no Planou (a pessoa vê em Release). Falhou:
   `AVISO (planou): fila de release nao espelhada`, o comando vale do mesmo jeito e o próximo tick manda de novo.
@@ -58,7 +60,7 @@ integrador, para colar no pedido ao integrador (sem o `--role`, o bloco é o do 
 
 1. `$A --release-queue start`: marca as branches da fila como em integração e o gancho fica quieto. Um integrador por
    vez; branch que fica pronta durante a integração entra na fila e vai no próximo lote.
-2. Um worker em background (dev-worker) com o pedido: papel INTEGRADOR, as branches, a worktree de integração em
+2. Um worker em background (delegate-to-worker) com o pedido: papel INTEGRADOR, as branches, a worktree de integração em
    `<worktrees>/release-<AAAAMMDD-HHMM>`, o bloco do `$A --brief <repo> --role batch-release`, a linha `regras (...)` do
    `$A --release-queue` e esta lista, que ele cumpre:
    - junta as branches numa branch de integração, com rebase na principal;
@@ -120,7 +122,7 @@ Sem a conversa ligada (`"conversation"` falso): o mesmo texto também em `$PL al
 
 Depois do aviso:
 - Tarefas da fila que entraram nessa versão (os `<PID>` que o `--release-queue done` listou): `$PL fila done <PID>
-  --note "no ar na vX.Y.Z"` (planou-queue, passo 4).
+  --note "no ar na vX.Y.Z"` (task-queue, passo 4).
 - Deploy que não saiu desta sessão (feito na mão ou por outra sessão): avisar do mesmo jeito, dizendo que veio de fora,
   e não fechar tarefa nenhuma por ele sem conferir que a entrega dela está na versão.
 - `== DEPLOY: log de deploys ilegivel`: dizer a causa em uma linha; o gancho avisa de novo só se o erro mudar.

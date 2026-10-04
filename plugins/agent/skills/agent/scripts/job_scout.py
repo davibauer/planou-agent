@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The job-scout instance on the agent plugin (E4 of docs/agent-plugin-design.md).
 
-job-scout's engine moved over as it was: its scripts live in behaviors/job-scout/scripts (scout.py, criteria.py,
+job-scout's engine moved over as it was: its scripts live in behaviors/job-search/scripts (scout.py, criteria.py,
 matrix.py, application.py...), with their own paths.py and schema.py, and the watch_core they import is this plugin's
-(behaviors/job-scout/scripts/watch_core only points at scripts/watch_core). Two modules named `paths` and `schema` can
+(behaviors/job-search/scripts/watch_core only points at scripts/watch_core). Two modules named `paths` and `schema` can
 not live in one process, so agent.py runs scout.py in a process of its own:
 
   agent.py job-scout                  the heavy tick (the runner's call): scout.py, which syncs with Planou and sends the
@@ -20,8 +20,10 @@ resolver as this plugin's paths.py). The heavy tick is never shorter than MIN_IN
 import os, subprocess, sys
 
 import paths
+from watch_core import behavior_names
 
-BEHAVIOR = 'job-scout'
+BEHAVIOR = 'job-search'       # old name: job-scout, still the name of the instance
+INSTANCE = 'job-scout'
 MIN_INTERVAL_S = 1800        # the LinkedIn account is personal and the site detects automation (the old runner's floor)
 SCRIPTS = os.path.join(paths.BEHAVIORS_DIR, BEHAVIOR, 'scripts')
 SCOUT = os.path.join(SCRIPTS, 'scout.py')
@@ -30,14 +32,14 @@ _TICK_OPTIONS = ('--since', '--so', '--only')
 
 
 def on(cfg):
-    """True when the instance has the job-scout behavior on."""
-    return BEHAVIOR in (cfg.get('behaviors') or [])
+    """True when the instance has the job-search behavior on (the job-scout engine)."""
+    return BEHAVIOR in behavior_names.current(cfg.get('behaviors'))
 
 
 def not_migrated(cfg):
-    """A job-scout folder the migration has not touched yet (no "behaviors"): read as the job-scout behavior, the one
+    """A job-scout folder the migration has not touched yet (no "behaviors"): read as the job-search behavior, the one
     --migrate adds, so agent.py answers for it as scout.py does (the old engine keeps working on its folder)."""
-    if paths.NAME == BEHAVIOR and not cfg.get('behaviors'): cfg['behaviors'] = [BEHAVIOR]
+    if paths.NAME == INSTANCE and not cfg.get('behaviors'): cfg['behaviors'] = [BEHAVIOR]
     return cfg
 
 

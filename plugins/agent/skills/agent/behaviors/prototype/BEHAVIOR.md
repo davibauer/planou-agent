@@ -1,4 +1,6 @@
 ---
+name: prototype
+description: "Tarefa que muda tela com o desenho em aberto ganha um protótipo em PNG anexado ao card e só vai para o dev com a aprovação do usuário. Use quando uma tarefa da fila vai para o dev, muda tela e deixa o desenho em aberto, ou uma tarefa espera aprovação de protótipo (revisão do Aguardando ou o -- DECISAO dela)."
 title: Protótipo antes do dev
 summary: Tarefa que muda tela com o desenho em aberto ganha um protótipo em PNG anexado ao card e só vai para o dev com a aprovação do usuário.
 layer: skill
@@ -7,7 +9,7 @@ when: uma tarefa da fila vai para o dev, muda tela e deixa o desenho em aberto, 
 ---
 # prototype: protótipo em PNG anexado ao card antes do dev
 
-Na análise de cada tarefa liberada (`-- FILA LIBERADA <PID>` ou `-- FILA <PID>`), antes do `dev-worker`, a sessão vê se
+Na análise de cada tarefa liberada (`-- FILA LIBERADA <PID>` ou `-- FILA <PID>`), antes do `delegate-to-worker`, a sessão vê se
 ela muda tela e deixa o desenho em aberto. Se sim: primeiro o protótipo, renderizado em PNG e anexado ao card, e a
 tarefa espera a aprovação do usuário; só depois o dev. Não há funcionário de UI/UX à parte: quem faz é o próprio
 agente de desenvolvimento, por um worker. `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou --agent <instância>"`.
@@ -45,9 +47,9 @@ Na dúvida se o desenho está em aberto, faça o protótipo: é mais barato que 
 
 ## Passo a passo
 
-1. `$PL fila ver`: título, descrição e critério de pronto. Escopo sem clareza segue o `planou-queue` (`fila refinar`).
+1. `$PL fila ver`: título, descrição e critério de pronto. Escopo sem clareza segue o `task-queue` (`fila refinar`).
 2. `$PL fila started <PID> --estimate-h <H>` (a estimativa conta o protótipo e o dev) e delegar a um worker em
-   background (`dev-worker`), com `$A --brief <repo> --role prototype` (o PODE fica só com o que este papel faz: nada
+   background (`delegate-to-worker`), com `$A --brief <repo> --role prototype` (o PODE fica só com o que este papel faz: nada
    de código, commit, push nem PR; sem worktree, o critério de pronto são os PNGs) e, em cima do bloco, o pedido
    abaixo. Logo depois do `Agent(worker)`: `$PL fila worker-start <PID> --role dev --label 'protótipo <PID>'`. O
    papel é `dev`, e não `other`, de propósito: a volta pelo `fila worker` (que só aceita `dev` ou `integrator`) leva o
@@ -69,9 +71,9 @@ Na dúvida se o desenho está em aberto, faça o protótipo: é mais barato que 
    que o protótipo espera aprovação.
 5. A resposta chega como `-- DECISAO`; siga a opção que o usuário escolheu (resposta em texto livre: a que ela
    descreve; na dúvida entre B e C, pergunte de novo com `fila blocked`, nunca escolha sozinho):
-   - **A) aprovar**: `$PL fila started <PID>` e o dev pelo `dev-worker`, com os PNGs aprovados no pedido (caminhos e
+   - **A) aprovar**: `$PL fila started <PID>` e o dev pelo `delegate-to-worker`, com os PNGs aprovados no pedido (caminhos e
      o que cada um mostra). O dev segue o protótipo; o que divergir dele vai na volta, com o motivo.
-   - **B) aprovar com ajustes**: não refaz o protótipo. `$PL fila started <PID>` e o dev pelo `dev-worker`, com os PNGs
+   - **B) aprovar com ajustes**: não refaz o protótipo. `$PL fila started <PID>` e o dev pelo `delegate-to-worker`, com os PNGs
      aprovados e, em cima deles no pedido, os ajustes do usuário, literais, numa linha `AJUSTES DO PROTOTIPO:`
      (valem sobre o PNG onde os dois divergirem).
    - **C) refazer**: refazer o protótipo com o pedido (o mesmo nome de arquivo: o `attach` só sobe de novo o que
@@ -113,7 +115,7 @@ os PNGs ficam no computador, o caminho e a pergunta vão na sessão e a aprovaç
 
 O que este papel usa (conferido pelo `--validate` contra o `autonomy` e o `tools` da instância; o `--brief` só passa ao
 worker o que o papel permite). Ler é sempre permitido. Os PNGs vão como anexo e a tarefa espera em `blocked`; o código
-é do `dev-worker`, depois da aprovação.
+é do `delegate-to-worker`, depois da aprovação.
 
 ```permissions
 tools: subagent:worker

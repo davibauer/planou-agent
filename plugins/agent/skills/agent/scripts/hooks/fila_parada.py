@@ -105,6 +105,6 @@ class Gancho(Base):
             out.append(f'== FILA PARADA {t["pid"]} ({t["reason"]})')
             out.append(f'-- na fila, nao liberada ha {t["minutes"]:.0f} min com vaga livre (busy {t["busy"]} de WIP {t["wip"]})'
                        + (f': {t["title"]}' if t.get('title') else ''))
-        out.append('-- seguir "Fila parada" do comportamento planou-queue: conferir a categoria da coluna, o dono e a sessao, '
+        out.append('-- seguir "Fila parada" do comportamento task-queue: conferir a categoria da coluna, o dono e a sessao, '
                    'e corrigir pela /api quando for configuracao')
         return '\n'.join(out)

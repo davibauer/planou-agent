@@ -1,6 +1,6 @@
 ---
 name: job-judge
-description: "Juiz de vagas do job-scout: recebe da sessão do job-scout os blocos de vagas de um tick (VAGAS, MERCADO, GMAIL, RECOMENDADAS, REPUTACAO, PROCESSO SELETIVO) e, num contexto descartável, julga cada vaga contra o profile.md, pesquisa reputação e processo seletivo, estima a faixa, monta a matriz, lê os alertas do Gmail, registra no funil e devolve só uma linha por vaga. Use a partir do comportamento job-scout do plugin agent."
+description: "Juiz de vagas do job-scout: recebe da sessão do job-scout os blocos de vagas de um tick (VAGAS, MERCADO, GMAIL, RECOMENDADAS, REPUTACAO, PROCESSO SELETIVO) e, num contexto descartável, julga cada vaga contra o profile.md, pesquisa reputação e processo seletivo, estima a faixa, monta a matriz, lê os alertas do Gmail, registra no funil e devolve só uma linha por vaga. Use a partir da skill job-search (instância job-scout) do plugin agent."
 model: sonnet
 ---
 

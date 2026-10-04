@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Throwaway test environment of the qa behavior (PLN0116): a detached worktree of the delivery's branch, the
+"""Throwaway test environment of the acceptance-testing behavior (old name qa; PLN0116): a detached worktree of the delivery's branch, the
 instance's `setup` and `env_up` commands run in it and the app URL read by the `env_url` command (PLN0197; plan B: the
 first http(s) URL in the output of `setup`/`env_up`, or the fixed `url`). It never commits, pushes or edits the branch:
 the worktree is the QA's own and goes away with `down`.
@@ -15,7 +15,7 @@ the worktree is the QA's own and goes away with `down`.
 Exit 0 = up; 1 = a command failed, or `env_url` exited non-zero or printed nothing (the environment did not come up)
 (its last lines on stderr, secrets masked, the environment brought down); 2 = bad
 call or config (no repository, no env_up, unknown branch); 3 = the URL is the served app or not http(s) (refused and
-brought down). The options are in behavior_config.qa (BEHAVIOR.md of qa). Each run is kept in cache/qa/<PID>.json of
+brought down). The options are in behavior_config.acceptance-testing (its BEHAVIOR.md; the old key qa still counts). Each run is kept in cache/qa/<PID>.json of
 the instance, so `down` finds it after a restarted session.
 """
 import argparse, json, os, re, shlex, subprocess, sys, time
@@ -47,7 +47,8 @@ def masked(text):
 
 def options(cfg):
     o = dict(DEFAULTS)
-    o.update((cfg.get('behavior_config') or {}).get('qa') or {})
+    from watch_core import behavior_names
+    o.update(behavior_names.options(cfg, schema.QA))
     return o
 
 
@@ -104,7 +105,7 @@ def run_line(url, o, wt):
 
 def up(cfg, pid, branch, repo_path=None):
     o = options(cfg)
-    if not o.get('env_up'): raise Refused(2, '"behavior_config.qa.env_up" vazio: nada para subir')
+    if not o.get('env_up'): raise Refused(2, f'"behavior_config.{schema.QA}.env_up" vazio: nada para subir')
     repo, base = repo_of(cfg, repo_path)
     wt = os.path.join(base, f'qa-{pid.lower()}')
     git(repo, 'fetch', '-q', 'origin', branch)
@@ -197,7 +198,7 @@ def status():
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description='ambiente de teste do comportamento qa')
+    ap = argparse.ArgumentParser(description='ambiente de teste do comportamento acceptance-testing')
     ap.add_argument('instance')
     ap.add_argument('action', choices=('up', 'down', 'status'))
     ap.add_argument('pid', nargs='?')

@@ -1,4 +1,6 @@
 ---
+name: code-review
+description: "Revisa a PR antes do release e aprova ou devolve com o que precisa mudar. Sempre ativa na instância que a liga em \"behaviors\"."
 title: Revisão de código
 summary: Revisa a PR antes do release e aprova ou devolve com o que precisa mudar.
 layer: skill
@@ -8,8 +10,8 @@ kind: always
 
 O agente revisor é dono de uma coluna do projeto no Planou (ex.: "Revisão de código", "Ao terminar, vai para" o estado
 de release). O dev passa a tarefa para essa coluna quando a PR está aberta com os testes; a tarefa chega na fila do
-revisor como qualquer outra (`planou-queue`) e ele confere a entrega com um contexto que não é o do dev. Vale com
-`planou-queue` ligado. `PL` é o do `planou-queue`; `S` é a pasta da skill.
+revisor como qualquer outra (`task-queue`) e ele confere a entrega com um contexto que não é o do dev. Vale com
+`task-queue` ligado. `PL` é o do `task-queue`; `S` é a pasta da skill.
 
 **Autonomia fixa do revisor:** lê, confere e comenta. Nunca escreve código, nunca faz commit ou push numa branch, nunca
 faz merge, nunca roda deploy, nunca aprova pelo botão do GitHub no lugar da pessoa. Achou o conserto: descreve no
@@ -133,7 +135,7 @@ Quando o dev entregar de novo, a tarefa volta para esta coluna e vale o parágra
 
 ## Mesma instância que desenvolve
 
-Quando esta instância também tem `dev-worker` e é dona da coluna do dev e da coluna de revisão (PLN0281: uma instância
+Quando esta instância também tem `delegate-to-worker` e é dona da coluna do dev e da coluna de revisão (PLN0281: uma instância
 faz o ciclo todo; instâncias separadas por papel continuam valendo), ou é a única no ar com o papel da coluna de revisão
 (coluna por papel, PLN0284: o Planou devolve a tarefa a quem a desenvolveu quando não há outra instância com o papel),
 a tarefa que ela mesma desenvolveu chega aqui como
@@ -160,7 +162,7 @@ worker de revisão nunca é o worker que entregou, nem continuação dele por Se
    entre agentes: a saída é `DEVOLVIDA: <PID> voltou para <coluna do dev> (<esta instância>, este mesmo agente)` (exit 0)
    e a entrada da revisão termina. Daí em diante é o retrabalho normal: chega `-- AJUSTE PEDIDO <PID> (<papel> <nome>,
    voce mesmo: revisao independente)` (também quando a pessoa usa "Pedir ajuste" nesta coluna), espera a vaga e volta
-   como `-- FILA LIBERADA <PID>: ... -> RETRABALHO (ajuste pedido)`: worker de dev (`dev-worker`) na mesma branch e na
+   como `-- FILA LIBERADA <PID>: ... -> RETRABALHO (ajuste pedido)`: worker de dev (`delegate-to-worker`) na mesma branch e na
    mesma PR atendendo o parecer e, na volta dele, **`fila handoff <PID>`** (não `fila in_review`: com o mesmo dono na
    coluna seguinte o `in_review` não vira passagem). A tarefa volta a esta coluna pela fila e outro worker NOVO de revisão
    confere só o que mudou desde o `sha7` do parecer, e o passo 4 ou 5 de novo.

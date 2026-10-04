@@ -1,4 +1,6 @@
 ---
+name: tech-radar
+description: "Acompanha as novidades das stacks do time e devolve como sugestão, nunca como código. Sempre ativa na instância que a liga em \"behaviors\"."
 title: Radar técnico
 summary: Acompanha as novidades das stacks do time e devolve como sugestão, nunca como código.
 layer: skill
@@ -7,7 +9,7 @@ kind: always
 # tech-radar: novidades das stacks viram sugestões
 
 O agente de radar técnico (instância `tech-scout`) acompanha o que sai de novo nas stacks do time e devolve isso como
-sugestão, nunca como código. Vale com `planou-queue` ligado. `PL` é o do `planou-queue`; `S` é a pasta da skill;
+sugestão, nunca como código. Vale com `task-queue` ligado. `PL` é o do `task-queue`; `S` é a pasta da skill;
 `R="python3 $S/scripts/radar.py <instância>"`; `BL="python3 $S/scripts/backlog.py <instância>"`.
 
 ## Fontes (uma por família, no `sources` do config)
@@ -49,7 +51,7 @@ Quando chega `== RADAR ...` (uma vez por semana):
 ## Modo coluna: até 3 sugestões por tarefa
 
 A coluna `column` de um projeto tem este agente como dono e "Ao terminar, vai para" o próximo passo da esteira (ex.:
-Refinamento, do `product`, depois Radar técnico, depois A fazer, do dev). A tarefa que entra nela chega como
+Refinamento, do `backlog-planning`, depois Radar técnico, depois A fazer, do dev). A tarefa que entra nela chega como
 `-- FILA LIBERADA <PID>`:
 1. `fila ver <PID>` e `fila started <PID> --estimate-h 0.3`.
 2. `$R --match -` com o título e a descrição no stdin: devolve até `per_task` itens das últimas 4 semanas que cabem na

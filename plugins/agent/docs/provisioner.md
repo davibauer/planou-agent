@@ -12,14 +12,14 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
 ## O que ele faz com cada pedido
 
 1. Informa `creating` e cria `~/.config/agent/<nome>/` a partir do modelo `config-example/dev/`:
-   - `config/config.json` com os papéis como `behaviors` (sempre com `planou-queue`; sem papel, `dev-worker`), a pasta
+   - `config/config.json` com os papéis como `behaviors` (sempre com `task-queue`; sem papel, `delegate-to-worker`), a pasta
      de trabalho em `session.cwd` e `repos`, o primeiro projeto em `planou.project`, a autonomia e `"live": false`,
      a não ser que a pessoa tenha marcado **ligar**;
    - `config/instructions.md` com os marcadores trocados e uma seção com papéis, autonomia e projetos;
    - `data/provisioned.json`, a marca de que a pasta é dele (só remove pasta com essa marca).
    - papel que não é de desenvolvimento e tem modelo próprio (`behaviors/<papel>/instance.json`, com
      `{"example": "<pasta de config-example>"}`, hoje o `product-radar`): as fontes e as opções do papel vêm desse
-     modelo; sem `dev-worker` nem `batch-release`, a autonomia e o `instructions.md` também (o `never` do modelo dev
+     modelo; sem `delegate-to-worker` nem `batch-release`, a autonomia e o `instructions.md` também (o `never` do modelo dev
      continua).
 2. Roda `agent.py <nome> --validate` antes de retirar a chave: config quebrado nunca gasta a chave.
 3. Retira a chave uma vez e grava em `secrets/planou.env` (`PLANOU_AGENT_KEY=...`, arquivo 0600 e pasta 0700).

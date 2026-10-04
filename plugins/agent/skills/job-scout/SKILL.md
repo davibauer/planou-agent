@@ -6,8 +6,8 @@ description: "job-scout, olheiro de vagas (LinkedIn e sites de vaga remota): jul
 # job-scout (atalho)
 
 `/job-scout [...]` é `/agent job-scout [...]`: siga `../agent/SKILL.md` com a instância `job-scout`, que liga o
-comportamento `job-scout` (`../agent/behaviors/job-scout/BEHAVIOR.md`). Lá, `S` é a pasta da skill `agent`: aqui,
-`S=<a pasta desta skill>/../agent`, `J=$S/behaviors/job-scout/scripts` e `V=$J/scout.py`.
+comportamento `job-search` (`../agent/behaviors/job-search/BEHAVIOR.md`). Lá, `S` é a pasta da skill `agent`: aqui,
+`S=<a pasta desta skill>/../agent`, `J=$S/behaviors/job-search/scripts` e `V=$J/scout.py`.
 
 Modos (os de consulta respondem e saem, sem mexer no runner):
 

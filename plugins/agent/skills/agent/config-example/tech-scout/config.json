@@ -17,7 +17,7 @@
   "hooks": [
     {"type": "fila_parada", "after_min": 20}
   ],
-  "behaviors": ["planou-queue", "tech-radar"],
+  "behaviors": ["task-queue", "tech-radar"],
   "behavior_config": {
     "tech-radar": {
       "stacks": ["Python", "TypeScript", "React", "Vite", "Postgres|PostgreSQL", ".NET|dotnet|C#"],

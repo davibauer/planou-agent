@@ -41,7 +41,7 @@ ARQUIVO = os.path.expanduser(os.environ.get('ATA_ARQUIVO_DIR') or config.get('re
 MM_HOME = os.path.expanduser(os.environ.get('MEETING_MINUTES_HOME') or '~/.config/meeting-minutes')   # config e estado do meeting-minutes
 
 
-LANGUAGE = ''      # the instance's behavior_config.recordings.language: run.sh gets it as ATA_LANG (empty = whisper detects)
+LANGUAGE = ''      # the instance's behavior_config.meeting-recordings.language: run.sh gets it as ATA_LANG (empty = whisper detects)
 
 
 def configure(videos_dir=None, archive_dir=None, language=None):

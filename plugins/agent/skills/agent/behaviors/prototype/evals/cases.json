@@ -29,7 +29,7 @@
         "planou.queue"
       ],
       "decision": "faz",
-      "expected": "Não faz protótipo: não muda tela. Segue direto para o dev pelo dev-worker."
+      "expected": "Não faz protótipo: não muda tela. Segue direto para o dev pelo delegate-to-worker."
     },
     {
       "id": "prototype-03",
@@ -75,7 +75,7 @@
         "planou.queue"
       ],
       "decision": "faz",
-      "expected": "fila started e o dev pelo dev-worker, com os PNGs aprovados no pedido; o que divergir do protótipo volta com o motivo."
+      "expected": "fila started e o dev pelo delegate-to-worker, com os PNGs aprovados no pedido; o que divergir do protótipo volta com o motivo."
     },
     {
       "id": "prototype-07",
@@ -86,7 +86,7 @@
         "planou.queue"
       ],
       "decision": "faz",
-      "expected": "Não refaz o protótipo: fila started e o dev pelo dev-worker com os PNGs aprovados e a linha AJUSTES DO PROTOTIPO com os ajustes literais, que valem sobre o PNG onde divergirem.",
+      "expected": "Não refaz o protótipo: fila started e o dev pelo delegate-to-worker com os PNGs aprovados e a linha AJUSTES DO PROTOTIPO com os ajustes literais, que valem sobre o PNG onde divergirem.",
       "must_include": [
         "AJUSTES DO PROTOTIPO"
       ]
@@ -100,7 +100,7 @@
         "planou.queue"
       ],
       "decision": "faz",
-      "expected": "Não faz protótipo em nenhuma das duas: desenho já decidido e ajuste pequeno de tela vão direto para o dev pelo dev-worker."
+      "expected": "Não faz protótipo em nenhuma das duas: desenho já decidido e ajuste pequeno de tela vão direto para o dev pelo delegate-to-worker."
     }
   ]
 }

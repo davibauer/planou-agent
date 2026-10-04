@@ -12,7 +12,7 @@
     {"type": "deploy_log", "path": "~/.config/meu-projeto/deploys.log"},
     {"type": "fila_parada", "after_min": 20}
   ],
-  "behaviors": ["planou-queue", "dev-worker", "batch-release"],
+  "behaviors": ["task-queue", "delegate-to-worker", "batch-release"],
   "behavior_config": {
     "batch-release": {
       "repo": "~/src/meu-projeto",

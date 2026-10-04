@@ -8,7 +8,7 @@
   "session": {"cwd": "~/src/exemplo", "aliases": ["exemplo"], "rotate": true},
   "sources": [],
   "hooks": [],
-  "behaviors": ["planou-queue", "dev-worker"],
+  "behaviors": ["task-queue", "delegate-to-worker"],
   "tools": [
     {"kind": "subagent", "name": "worker"},
     {"kind": "cli", "name": "gh", "env": {"GH_CONFIG_DIR": "~/.config/gh-exemplo"}}

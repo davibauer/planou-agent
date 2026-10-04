@@ -1,9 +1,9 @@
-# Agente de produto (comportamento `product`)
+# Agente de produto (comportamento `backlog-planning`)
 
 A pessoa escreve uma meta, ou um problema, e o agente de produto a quebra em tarefas pequenas no Backlog do projeto,
 cada uma com o que fazer, por quê, critério de pronto, dependências e prioridade sugerida. A pessoa aprova; quem faz é
 o dev (outro agente) ou ela. As regras do comportamento estão em
-[`behaviors/product/BEHAVIOR.md`](../skills/agent/behaviors/product/BEHAVIOR.md); o formato do plano, em
+[`behaviors/backlog-planning/BEHAVIOR.md`](../skills/agent/behaviors/backlog-planning/BEHAVIOR.md); o formato do plano, em
 [`scripts/backlog.py`](../skills/agent/scripts/backlog.py).
 
 ## Modelo de instância
@@ -22,8 +22,8 @@ sigla do projeto):
   "session": {"cwd": "~/src/exemplo", "aliases": ["produto"], "rotate": true},
   "sources": [],
   "hooks": [],
-  "behaviors": ["planou-queue", "product"],
-  "behavior_config": {"product": {"max_tasks": 8}},
+  "behaviors": ["task-queue", "backlog-planning"],
+  "behavior_config": {"backlog-planning": {"max_tasks": 8}},
   "tools": [],
   "autonomy": {
     "can": ["ler o repositório e a documentação", "criar tarefas no backlog do projeto", "perguntar à pessoa"],
@@ -40,10 +40,10 @@ sigla do projeto):
 # product
 
 Agente de produto do projeto EXE. Recebe metas pela fila e pela Conversa e as devolve como backlog refinado
-(comportamento product). Não escreve código. Em dúvida sobre escopo, pergunta antes de quebrar.
+(comportamento backlog-planning). Não escreve código. Em dúvida sobre escopo, pergunta antes de quebrar.
 ```
 
-- Sem fontes e sem ganchos: o agente acorda pela fila e pela Conversa. Não ligar o comportamento `work-watch` nesta
+- Sem fontes e sem ganchos: o agente acorda pela fila e pela Conversa. Não ligar o comportamento `work-triage` nesta
   instância: o sync das fontes dele apagaria as marcas de `pronta` das tarefas que o agente criou.
 - `"confidentiality": "minimum"` não serve: o plano é recusado (a descrição e o critério de pronto são o trabalho).
 - Com `"live": false` (como nasce toda instância) o `backlog.py` só roda com `--dry`.

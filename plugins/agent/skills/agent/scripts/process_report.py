@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Weekly process report of a project (PLN0176, behavior `process-coach`): lead time per state, the week's bottleneck
+"""Weekly process report of a project (PLN0176, behavior `flow-metrics`): lead time per state, the week's bottleneck
 with real cases, the other flow numbers and at most 3 proposals, each with the metric it should move.
 
   python3 process_report.py <instance> [--project KEY] [--days 7 | --from AAAA-MM-DD --to AAAA-MM-DD]
@@ -9,7 +9,7 @@ with real cases, the other flow numbers and at most 3 proposals, each with the m
 
 Data: Planou's GET /v1/agent/projects/{key}/flow (the instance's key; a read, so it works in test mode too) or, with
 `--from-file`, a JSON of the same shape (an older Planou without the route, a dry run, the tests). Optional: the deploys
-log of the batch release (`--deploys-log`, default `behavior_config.process-coach.deploys_log`): batch size per deploy
+log of the batch release (`--deploys-log`, default `behavior_config.flow-metrics.deploys_log`): batch size per deploy
 (rollback and health alert lines of the deploy script are counted apart, never as deploys).
 
 What it measures, for the tasks closed as done in the range (the deliveries):
@@ -38,7 +38,7 @@ instead), from a fixed catalog keyed by the heaviest states and by rework and pa
   "proposals" with POST /v1/agent/proposals: the person approves it with one click in Precisa de você and Planou applies
   it, with a record and Desfazer. A `param` needs an absolute `value` (the release rules come with it; the dev's "Ao
   mesmo tempo" has no route to read, so the coordinator writes today's value + 1) and the agent
-  (`behavior_config.process-coach.dev_agent` or "agent" in the plan); a `role` proposes the target agent's whole
+  (`behavior_config.flow-metrics.dev_agent` or "agent" in the plan); a `role` proposes the target agent's whole
   instructions.md (the file on this machine plus the rule, with its sha256). A proposal Planou refuses (422 validation,
   404, 403, a Papel 409 such as `not_reported`) or that cannot be built here goes back to the old way: a `Decidir:` task
   in the plan's "tasks", with an AVISO; `422 unchanged` (already the value) is only said. The plan is rewritten with
@@ -58,7 +58,7 @@ from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-BEHAVIOR = 'process-coach'
+BEHAVIOR = 'flow-metrics'          # old name: process-coach
 RECORD = 'coach_proposals.json'
 FOLLOWUP_AFTER = timedelta(days=6)
 EFFECT_MIN = 0.10          # a proposal "worked" when its metric moved at least 10% the right way
@@ -518,7 +518,7 @@ def followup(a, recorded, now, states=None):
 
 def plan_for(a, props, bc=None):
     """The backlog.py plan: `task` proposals under "tasks"; `param` and `role` ones under "proposals", for --propose
-    (the agent of the "Ao mesmo tempo" and of the Papel: behavior_config.process-coach.dev_agent)."""
+    (the agent of the "Ao mesmo tempo" and of the Papel: behavior_config.flow-metrics.dev_agent)."""
     bc = bc or {}
     week = date.fromisoformat(a['to']).isocalendar()
     tasks, proposals = [], []
@@ -569,7 +569,7 @@ def proposal_fields(e, plan):
                                 + (' (o "Ao mesmo tempo" de hoje + 1)' if e.get('param') == 'wip' else ''))
         f = {'param': e.get('param'), 'value': v, 'reason': reason}
         if e.get('param') == 'wip':
-            if not e.get('agent'): raise NotProposable('sem o agente: behavior_config.process-coach.dev_agent ou "agent" no plano')
+            if not e.get('agent'): raise NotProposable('sem o agente: behavior_config.flow-metrics.dev_agent ou "agent" no plano')
             f['agent'] = e['agent']
         elif e.get('param') == 'priority':
             if not e.get('task'): raise NotProposable('sem a tarefa ("task") da prioridade')
@@ -578,7 +578,7 @@ def proposal_fields(e, plan):
             f['project'] = e.get('project') or plan.get('project')
         return f
     agent, doc = e.get('agent'), e.get('doc') or 'instructions'
-    if not agent: raise NotProposable('sem o agente do papel: behavior_config.process-coach.dev_agent ou "agent" no plano')
+    if not agent: raise NotProposable('sem o agente do papel: behavior_config.flow-metrics.dev_agent ou "agent" no plano')
     if doc not in ROLE_FILES: raise NotProposable(f'papel "{doc}": só instructions sai daqui')
     from watch_core import config as C
     path = os.path.join(C.agent_root(agent), 'config', ROLE_FILES[doc])
@@ -812,7 +812,7 @@ def fetch(instance, project, f, t):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog='process_report.py', description='Weekly process report (behavior process-coach).')
+    ap = argparse.ArgumentParser(prog='process_report.py', description='Weekly process report (behavior flow-metrics).')
     ap.add_argument('instance')
     ap.add_argument('--project')
     ap.add_argument('--days', type=int, default=7)
@@ -830,7 +830,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     root, cfg = instance_config(a.instance)
-    bc = ((cfg.get('behavior_config') or {}).get(BEHAVIOR) or {})
+    from watch_core import behavior_names
+    bc = behavior_names.options(cfg, BEHAVIOR)
     if a.propose:
         return send_proposals(a.instance, root, cfg, a.propose)
     project = a.project or bc.get('project') or (cfg.get('planou') or {}).get('project')

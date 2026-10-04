@@ -6,8 +6,8 @@ description: "travel-agent, agente de viagem: monitora o preço das passagens da
 # travel-agent (atalho)
 
 `/travel-agent [...]` é `/agent travel-agent [...]`: siga `../agent/SKILL.md` com a instância `travel-agent`, que liga o
-comportamento `travel-agent` (`../agent/behaviors/travel-agent/BEHAVIOR.md`). Lá, `S` é a pasta da skill `agent`: aqui,
-`S=<a pasta desta skill>/../agent`, `T=$S/behaviors/travel-agent/scripts` e `A="python3 $S/scripts/agent.py travel-agent"`.
+comportamento `flight-price-watch` (`../agent/behaviors/flight-price-watch/BEHAVIOR.md`). Lá, `S` é a pasta da skill `agent`: aqui,
+`S=<a pasta desta skill>/../agent`, `T=$S/behaviors/flight-price-watch/scripts` e `A="python3 $S/scripts/agent.py travel-agent"`.
 
 Modos (os de consulta respondem e saem, sem mexer no runner):
 

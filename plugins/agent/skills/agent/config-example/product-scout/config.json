@@ -37,7 +37,7 @@
   "hooks": [
     {"type": "fila_parada", "after_min": 20}
   ],
-  "behaviors": ["planou-queue", "product-radar"],
+  "behaviors": ["task-queue", "product-radar"],
   "behavior_config": {
     "product-radar": {
       "project": "PLN",

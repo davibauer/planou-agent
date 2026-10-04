@@ -36,7 +36,7 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    more than the enabled behaviors declare, or that matches no known action (permissions.py)
   repos            [{path, name, worktrees, base, rules, map, shared_rules, gh_account, tests, release, done, public,
                    fragments}]: the
-                   repositories of a dev instance (dev-worker, batch-release; `agent.py <instance> --brief [repo]` turns
+                   repositories of a dev instance (delegate-to-worker, batch-release; `agent.py <instance> --brief [repo]` turns
                    one into the worker brief). Only `path` is required: name (default the folder name), base (default
                    "main"), rules (the repo's rules file, relative to path), map (the repo's short map, relative to path;
                    default docs/MAP.md when it exists), shared_rules [str] (common rules files),
@@ -65,6 +65,7 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
 import json, os, re, sys
 
 import permissions
+from watch_core import behavior_names
 
 ALIASES = {'fontes': 'sources', 'ganchos': 'hooks', 'intervalo_s': 'interval_s', 'fuso_horas': 'tz_hours',
            'comercial': 'business_hours', 'sigla': 'code', 'max_lembretes': 'max_reminders',
@@ -86,8 +87,9 @@ INSTANCE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,60}$')
 PLANOU_BOOLS = ('drafts_in_planou', 'publish', 'task_queue', 'conversation', 'live')
 DEFAULTS = {'schema': 1, 'tz_hours': -3, 'business_hours': [8, 19], 'interval_s': 300, 'sources': [], 'hooks': [],
             'behaviors': [], 'tools': []}
-# old behavior name -> the one that replaced it; accepted for a while, --validate warns
-BEHAVIOR_ALIASES = {'deploy-notice': 'batch-release'}
+# old behavior name -> the one that replaced it (watch_core.behavior_names: the runner's Planou module reads it too)
+BEHAVIOR_ALIASES = behavior_names.BEHAVIOR_ALIASES
+behavior_name, old_behavior_names = behavior_names.behavior_name, behavior_names.old_names
 # options of the plugin's behaviors, documented in each BEHAVIOR.md: name -> 'str' | 'int' | 'num' | 'bool' | 'strs' |
 # 'ints' | 'command' | 'path'. 'command' is a text that ends up run as (or spliced into) a shell command on the agent's
 # machine: qa_env.py runs setup/env_up/env_down/env_url with the shell; dev_brief.py puts deploy_cmd and the locks,
@@ -103,16 +105,16 @@ BEHAVIOR_OPTIONS = {
     'batch-release': {'repo': 'str', 'test_lock': 'command', 'deploy_lock': 'command', 'e2e_marker': 'path',
                       'e2e_every_h': 'num', 'fragments': 'path', 'deploy_log': 'path', 'check_url': 'str',
                       'deploy_cmd': 'command'},
-    'daily-report': {'language': 'str', 'closing_hour': 'int', 'speech_only': 'bool', 'tasks': 'bool'},
-    'recordings': {'calendar': 'str', 'query_hours': 'int', 'push': 'strs', 'language': 'str'},
-    'push-alert': {'prefix': 'str', 'max_chars': 'int', 'triggers': 'strs', 'quiet': 'strs'},
+    'daily-standup': {'language': 'str', 'closing_hour': 'int', 'speech_only': 'bool', 'tasks': 'bool'},
+    'meeting-recordings': {'calendar': 'str', 'query_hours': 'int', 'push': 'strs', 'language': 'str'},
+    'mobile-alerts': {'prefix': 'str', 'max_chars': 'int', 'triggers': 'strs', 'quiet': 'strs'},
     'code-review': {'max_diff_lines': 'int', 'terms_file': 'command', 'public_repos': 'strs', 'require_tests': 'bool',
                     'pr_comment': 'bool'},
-    'product': {'max_tasks': 'int'},
-    'process-coach': {'project': 'str', 'deploys_log': 'str', 'report_weekday': 'int', 'report_hour': 'int', 'skip': 'strs',
-                      'dev_agent': 'str'},
-    'qa': {'setup': 'command', 'env_up': 'command', 'env_down': 'command', 'env_url': 'command', 'url': 'str',
-           'served_urls': 'strs',
+    'backlog-planning': {'max_tasks': 'int'},
+    'flow-metrics': {'project': 'str', 'deploys_log': 'str', 'report_weekday': 'int', 'report_hour': 'int', 'skip': 'strs',
+                     'dev_agent': 'str'},
+    'acceptance-testing': {'setup': 'command', 'env_up': 'command', 'env_down': 'command', 'env_url': 'command',
+                           'url': 'str', 'served_urls': 'strs',
            'node_dir': 'path', 'widths': 'ints', 'min_target_px': 'int', 'axe_tags': 'strs', 'up_timeout_s': 'int', 'pr_comment': 'bool',
            'send_back': 'str', 'video_width': 'int'},
     'prototype': {'node_dir': 'path', 'widths': 'ints', 'themes': 'strs', 'reference': 'str', 'tokens': 'str'},
@@ -121,21 +123,22 @@ BEHAVIOR_OPTIONS = {
     'product-radar': {'project': 'str', 'max_ideas': 'int', 'terms': 'strs', 'weekday': 'int', 'hour': 'int',
                       'window_days': 'int', 'planou_repo': 'str', 'known_days': 'int'},
 }
+QA = 'acceptance-testing'                # the behavior that tests a delivery as a user (old name: qa)
 REPO_RELEASE = ('batch', 'pr', 'ci', 'none')
-# job-scout (behaviors/job-scout): its data schema version and the criteria keys its scripts read (criteria.py KEYS)
+# job-search (behaviors/job-search, the job-scout instance): its data schema version and the criteria keys its scripts read (criteria.py KEYS)
 JOB_SCOUT_SCHEMA = 2
 JOB_SCOUT_KEYS = {'searches', 'include', 'exclude', 'points', 'min_score', 'boards', 'companies', 'logged_in_sources',
                   'pipeline_md', 'pay_ranges', 'skills', 'cv_profiles', 'cv_dir', 'interviews_dir', 'applications_dir',
                   'tick_hooks', 'daily_tasks', 'kpi_targets', 'shortlist_skip_process', 'saturation', 'test', 'mode'}
-# travel-agent (behaviors/travel-agent): the keys of its config.json (trips, points, alert rules; config-example)
+# flight-price-watch (behaviors/flight-price-watch, the travel-agent instance): the keys of its config.json (trips, points, alert rules; config-example)
 TRAVEL_AGENT_KEYS = {'currency', 'pause_seconds', 'min_drop_pct', 'rise_warn_pct', 'points', 'gmail', 'trips', 'fx',
                      'expedia_flights', 'calendar', 'dashboard', 'remind_days', 'miles_search_bonus', 'steps_hours', 'sheet'}
 REPO_STR_KEYS = ('name', 'worktrees', 'base', 'rules', 'map', 'gh_account', 'done', 'fragments')
 # options that take one of a few values: (behavior, option) -> the values
-OPTION_CHOICES = {('qa', 'send_back'): ('ajuste', 'pessoa')}
-# options that take free text of a given shape: (behavior, option) -> (pattern, what it looks like). recordings.language
+OPTION_CHOICES = {('acceptance-testing', 'send_back'): ('ajuste', 'pessoa')}
+# options that take free text of a given shape: (behavior, option) -> (pattern, what it looks like). meeting-recordings.language
 # goes to run.sh as ATA_LANG (whisper's short code: "pt", "en", "es"), so a locale like "pt-BR" would break the run
-OPTION_PATTERNS = {('recordings', 'language'): (re.compile(r'[a-z]{2,3}'), 'codigo curto do idioma, como pt, en ou es')}
+OPTION_PATTERNS = {('meeting-recordings', 'language'): (re.compile(r'[a-z]{2,3}'), 'codigo curto do idioma, como pt, en ou es')}
 OPTION_TYPES = {'str': 'texto', 'int': 'inteiro', 'num': 'numero', 'bool': 'true ou false', 'strs': 'lista de textos',
                 'ints': 'lista de inteiros maiores que zero', 'command': 'texto', 'path': 'texto'}
 OPTION_SHORT = {'str': 'texto', 'int': 'inteiro', 'num': 'numero', 'bool': 'true/false', 'strs': 'lista de textos',
@@ -207,6 +210,7 @@ def option_problems(name, opts):
     """(errors, unknown) of one behavior's options against BEHAVIOR_OPTIONS: a wrong type or a value out of
     OPTION_CHOICES is an error; an option the behavior does not use is "unknown" (--validate warns; an edit from Planou's
     Papel tab refuses it). A behavior without a spec (its own options, or none) has no problems here."""
+    name = behavior_name(name)
     spec, err, unknown = BEHAVIOR_OPTIONS.get(name), [], []
     if not spec or not isinstance(opts, dict): return err, unknown
     for k, v in opts.items():
@@ -221,7 +225,7 @@ def option_problems(name, opts):
 
 def machine_options(name, kinds=MACHINE_ONLY):
     """The options of a behavior edited on the machine only (types in `kinds`: 'command', 'path'), in the spec's order."""
-    return [k for k, t in (BEHAVIOR_OPTIONS.get(name) or {}).items() if t in kinds]
+    return [k for k, t in (BEHAVIOR_OPTIONS.get(behavior_name(name)) or {}).items() if t in kinds]
 
 
 def command_options(name):
@@ -231,7 +235,7 @@ def command_options(name):
 
 def option_type(name, key):
     """The type of one option in BEHAVIOR_OPTIONS, or None."""
-    return (BEHAVIOR_OPTIONS.get(name) or {}).get(key)
+    return (BEHAVIOR_OPTIONS.get(behavior_name(name)) or {}).get(key)
 
 
 def machine_changes(old, new):
@@ -417,7 +421,7 @@ def validate(c, behavior_file=None, adapter_exists=None):
     """(errors, warnings) of a normalized config. `behavior_file(name)` -> path or None and `adapter_exists(type)` ->
     bool check that what the config names exists; without them only the shape is checked."""
     err, warn = [], []
-    job_scout = isinstance(c.get('behaviors'), list) and 'job-scout' in c['behaviors']
+    job_scout = isinstance(c.get('behaviors'), list) and 'job-search' in c['behaviors']
     if c.get('schema') != 1 and not (job_scout and c.get('schema') == JOB_SCOUT_SCHEMA):
         err.append(f'"schema": {c.get("schema")!r} (o formato conhecido e 1)')
     if 'live' in c and not isinstance(c['live'], bool): err.append('"live" precisa ser true ou false')
@@ -475,25 +479,26 @@ def validate(c, behavior_file=None, adapter_exists=None):
                 bad, unknown = option_problems(name, opts)
                 err += bad
                 warn += unknown
-                for k in ('url', 'served_urls') if name == 'qa' else ():
+                for k in ('url', 'served_urls') if name == QA else ():
                     why = _qa_url_error(k, opts.get(k))
-                    if why: err.append(f'"behavior_config.qa.{k}": {why}')
-                vw = opts.get('video_width') if name == 'qa' else None
-                if _is_int(vw) and vw < 0: err.append('"behavior_config.qa.video_width": precisa ser 0 (sem video) ou uma largura')
+                    if why: err.append(f'"behavior_config.{QA}.{k}": {why}')
+                vw = opts.get('video_width') if name == QA else None
+                if _is_int(vw) and vw < 0: err.append(f'"behavior_config.{QA}.video_width": precisa ser 0 (sem video) ou uma largura')
                 elif _is_int(vw) and vw > 0 and vw not in (opts.get('widths') or [1360, 834, 390]):
-                    warn.append(f'"behavior_config.qa.video_width": {vw} nao esta em "widths"; o QA nao grava video')
-                if name == 'qa' and opts.get('env_url') and opts.get('url'):
-                    warn.append('"behavior_config.qa": "env_url" e "url" juntos; vale o "env_url" (o "url" fica sem efeito)')
-    same = [x for x in ('code-review', 'qa') if isinstance(b, list) and x in b and 'dev-worker' in b]
+                    warn.append(f'"behavior_config.{QA}.video_width": {vw} nao esta em "widths"; o QA nao grava video')
+                if name == QA and opts.get('env_url') and opts.get('url'):
+                    warn.append(f'"behavior_config.{QA}": "env_url" e "url" juntos; vale o "env_url" (o "url" fica sem efeito)')
+    same = [x for x in ('code-review', QA) if isinstance(b, list) and x in b and 'delegate-to-worker' in b]
     if same:
-        warn.append(f'"behaviors": "dev-worker" junto de {" e ".join(chr(34) + x + chr(34) for x in same)}: modo mesma instancia '
+        warn.append(f'"behaviors": "delegate-to-worker" junto de {" e ".join(chr(34) + x + chr(34) for x in same)}: modo mesma instancia '
                     '(PLN0281). A revisao/QA da tarefa que esta instancia desenvolveu roda num worker NOVO, de contexto limpo '
                     '(nunca o worker que entregou nem continuacao dele), e o ajuste volta como retrabalho; as vagas de '
                     'revisao/QA contam no mesmo "Ao mesmo tempo" da aba Fila. Com instancias separadas por papel, tire-os daqui')
-    if isinstance(b, list) and 'qa' in b and not ((bc if isinstance(bc, dict) else {}).get('qa') or {}).get('env_up'):
-        warn.append('"behavior_config.qa.env_up" vazio: o qa nao sobe ambiente de teste (scripts/qa_env.py recusa)')
+    if isinstance(b, list) and QA in b and not ((bc if isinstance(bc, dict) else {}).get(QA) or {}).get('env_up'):
+        warn.append(f'"behavior_config.{QA}.env_up" vazio: o {QA} nao sobe ambiente de teste (scripts/qa_env.py recusa)')
     for old, new in sorted((c.get('_renamed_behaviors') or {}).items()):
-        warn.append(f'comportamento "{old}" agora faz parte de "{new}" (o nome antigo ainda vale por um tempo): '
+        what = 'agora faz parte de' if old == 'deploy-notice' else 'agora se chama'
+        warn.append(f'comportamento "{old}" {what} "{new}" (o nome antigo continua valendo): '
                     f'trocar "{old}" por "{new}" em "behaviors" e em "behavior_config"')
     t = c.get('tools')
     if not isinstance(t, list): err.append('"tools" precisa ser uma lista')
@@ -569,7 +574,7 @@ def validate(c, behavior_file=None, adapter_exists=None):
         if not isinstance(rt, dict) or rt.get('python', 'system') not in ('system', 'venv'):
             err.append('"runtime" precisa ser {"python": "system"|"venv", "requirements": ...}')
     warn += permissions.warnings(c, behavior_file)
-    travel = isinstance(c.get('behaviors'), list) and 'travel-agent' in c['behaviors']
+    travel = isinstance(c.get('behaviors'), list) and 'flight-price-watch' in c['behaviors']
     unknown = sorted(k for k in c if k not in KNOWN and k not in ALIASES and not k.startswith('_')
                      and not (job_scout and k in JOB_SCOUT_KEYS) and not (travel and k in TRAVEL_AGENT_KEYS))
     if travel and _is_int(iv) and iv < 10800:

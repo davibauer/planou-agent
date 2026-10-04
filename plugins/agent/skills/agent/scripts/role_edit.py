@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths, schema                                            # noqa: E402
+from watch_core import behavior_names                          # noqa: E402
 
 MAX_BYTES = 200_000                     # Planou's limit for a content
 CATALOG_MAX = 50
@@ -45,7 +46,7 @@ LOCAL_REFUSED = 'comportamento local: edite no computador'
 OPTIONS_NAME = 'behavior_config.json'   # the name of the options in the manifest (they live in config.json)
 SNAPSHOT_CMD = 'config-snapshot --wait'
 KEEP = 50
-WORK_WATCH = 'work-watch'               # the behavior that turns on work-watch's tick (agent.py)
+WORK_WATCH = 'work-triage'              # the behavior that turns on work-watch's tick (agent.py; old name work-watch)
 _OUT = {'applied': [], 'refused': [], 'config': False}
 
 
@@ -137,7 +138,7 @@ def catalog():
     BEHAVIOR.md (frontmatter()); watch_core.planou drops them for a Planou that does not know them yet."""
     names = set(paths.plugin_behaviors())
     try:
-        names.update(d for d in os.listdir(paths.LOCAL_BEHAVIORS or '') if paths.behavior_file(d))
+        names.update(behavior_names.behavior_name(d) for d in os.listdir(paths.LOCAL_BEHAVIORS or '') if paths.behavior_file(d))
     except OSError:
         pass
     local = local_behaviors()
@@ -192,7 +193,7 @@ def editable_content(data):
 
 def work_watch(cfg):
     """A work-watch instance: the behavior on, or a work-watch-<x> name whose config lists no behaviors (agent.py)."""
-    b = cfg.get('behaviors') or []
+    b = behavior_names.current(cfg.get('behaviors'))
     return WORK_WATCH in b or (not b and (paths.NAME or '').startswith(paths.WORK_WATCH_PREFIX))
 
 
@@ -276,6 +277,8 @@ def _behaviors_target(cfg, content):
     except ValueError: raise Refused('a lista de comportamentos nao e JSON')
     if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
         raise Refused('a lista de comportamentos precisa ser uma lista de nomes')
+    # a list Planou stored before the rename (PLN0295) names the behaviors by their old names: read as the new ones
+    names = behavior_names.current(names)
     known = {c['name'] for c in catalog()}
     unknown = [n for n in names if n not in known]
     if unknown: raise Refused(f'{unknown[0]} nao existe nesta instancia (nem no plugin nem em behaviors/ dela)')
@@ -286,14 +289,14 @@ def _behaviors_target(cfg, content):
     have = raw.get('behaviors') if isinstance(raw.get('behaviors'), list) else []
     # what is on now comes from the file (an edit earlier in this tick already changed it), never from the tick's config
     before = set(_behaviors_on_disk(raw))
-    alias = lambda b: schema.BEHAVIOR_ALIASES.get(b, b) if isinstance(b, str) else b
+    alias = behavior_names.behavior_name
     target = set(names)
     # the order is the session's load order: the ones kept stay where they are, the new ones go at the end; a name with
     # no BEHAVIOR.md (Planou never saw it) is left alone
     new = [b for b in have if alias(b) in target or not (isinstance(b, str) and paths.behavior_file(alias(b)))]
     kept = {alias(b) for b in new}
     new += [n for n in names if n not in kept and not kept.add(n)]
-    if not have and new and WORK_WATCH not in new and work_watch({}):
+    if not have and new and WORK_WATCH not in map(alias, new) and work_watch({}):
         new.insert(0, WORK_WATCH)     # a work-watch-<x> with no list ran work-watch's tick: turning one on keeps it
     raw['behaviors'] = new
     indent = 2
@@ -302,7 +305,8 @@ def _behaviors_target(cfg, content):
     on, off = sorted(target - before), sorted(before - target)
     what = '; '.join(x for x in (('+ ' + ', '.join(on)) if on else '', ('- ' + ', '.join(off)) if off else '') if x)
     written = sha256(behaviors_content(_behaviors_on_disk(raw)).encode())
-    return paths.CONFIG, old, data, sha256(behaviors_content(before).encode()), what, written
+    return paths.CONFIG, old, data, sha256(behaviors_content(before).encode()), what, written, \
+        sha256(behaviors_content(names).encode()), _old_spellings(before)
 
 
 def _dump_config(old, raw):
@@ -320,7 +324,7 @@ def local_behaviors():
     base = paths.LOCAL_BEHAVIORS
     try: names = os.listdir(base or '')
     except OSError: return set()
-    return {n for n in names if os.path.isfile(os.path.join(base, n, 'BEHAVIOR.md'))}
+    return {behavior_names.behavior_name(n) for n in names if os.path.isfile(os.path.join(base, n, 'BEHAVIOR.md'))}
 
 
 def _local_changes(old, new, local):
@@ -341,6 +345,7 @@ def _options_target(content):
     except ValueError: raise Refused('as opcoes nao sao JSON')
     if not isinstance(bc, dict) or not all(isinstance(v, dict) for v in bc.values()):
         raise Refused('as opcoes precisam ser {comportamento: {opcao: valor}}')
+    bc = _resolved_options(bc)          # options Planou stored under an old name (PLN0295) belong to the new one
     known = {c['name'] for c in catalog()}
     unknown = [n for n in bc if n not in known]
     if unknown: raise Refused(f'{unknown[0]} nao existe nesta instancia (nem no plugin nem em behaviors/ dela)')
@@ -364,8 +369,33 @@ def _options_target(content):
             by.setdefault(schema.option_type(*o.split('.', 1)), []).append(o)
         raise Refused('; '.join(f'{msg} ({", ".join(by[k])})' for k, msg in ((schema.COMMAND, COMMAND_REFUSED),
                                                                               (schema.PATH, PATH_REFUSED)) if by.get(k)))
+    shown_before = _options_shown_before(current, raw)
     raw['behavior_config'] = bc
-    return paths.CONFIG, old, _dump_config(old, raw), sha256(options_text(current).encode('utf-8')), bc
+    return paths.CONFIG, old, _dump_config(old, raw), sha256(options_text(current).encode('utf-8')), bc, shown_before
+
+
+def _resolved_options(bc):
+    """behavior_config with the old behavior names read as the new ones (schema.normalize's rule)."""
+    c = {'behavior_config': dict(bc)}
+    schema._behavior_aliases(c)
+    return c['behavior_config']
+
+
+def _options_shown_before(current, raw):
+    """The sha of the options as a runner before PLN0295 showed them, when they name a behavior by its old name and say
+    the same as `current`: the last text applied from Planou, or config.json's "behavior_config" as indented JSON. Planou
+    may still hold that version as the edit's base until the heartbeat brings the new manifest."""
+    out, texts = set(), []
+    kept = _read(_options_file())
+    try: texts.append(kept.decode('utf-8') if kept is not None else None)
+    except UnicodeDecodeError: pass
+    bc = raw.get('behavior_config')
+    if isinstance(bc, dict): texts.append(json.dumps(bc, ensure_ascii=False, indent=2))
+    for text in texts:
+        try: v = json.loads(text) if text else None
+        except ValueError: continue
+        if isinstance(v, dict) and v != current and _resolved_options(v) == current: out.add(sha256(text.encode('utf-8')))
+    return out
 
 
 def _options_match(path, bc):
@@ -396,13 +426,16 @@ def apply(cfg, p):
         data = content.encode('utf-8')
         if len(data) > MAX_BYTES: raise Refused('conteudo maior que 200 KB')
         if sha256(data) != want: raise Refused('o sha256 do evento nao confere com o content')
+        bases = set()
         if kind == 'behaviors':
-            path, old, new, current, change, written = _behaviors_target(cfg, content)
+            path, old, new, current, change, written, want, spellings = _behaviors_target(cfg, content)
             reread = lambda: _behaviors_sha_on_disk() == written
+            bases |= spellings
         elif kind == 'behavior_config':
             if minimum(cfg): raise Refused('confidencialidade minima: as opcoes nao se editam pelo Planou')
-            path, old, new, current, bc = _options_target(content)
+            path, old, new, current, bc, shown_before = _options_target(content)
             change = None
+            bases |= shown_before
             reread = lambda: _options_match(path, bc)
         else:
             if minimum(cfg): raise Refused('confidencialidade minima: o conteudo nao se edita pelo Planou')
@@ -414,7 +447,7 @@ def apply(cfg, p):
         applied_line = (f'-- {what}: aplicada' + (f' ({change})' if change else '') + f' -> reler {reread_hint}')
         if current == want:
             return 'applied', None, applied_line + ' (ja estava assim)'
-        if base and base != current:
+        if base and base != current and base not in bases:
             raise Refused(f'{KINDS[kind]} mudou aqui depois da versao em que a edicao foi feita (base {base[:12]}, aqui '
                           f'{current[:12]}); o manifesto novo mostra o atual')
         note = snapshot()
@@ -443,8 +476,21 @@ def _write_kept(text):
 
 def _behaviors_on_disk(raw):
     """The behaviors on in a config.json as Planou sees them (old names read as the new ones, only with a BEHAVIOR.md)."""
-    names = [schema.BEHAVIOR_ALIASES.get(b, b) for b in raw.get('behaviors') or [] if isinstance(b, str)]
+    names = [behavior_names.behavior_name(b) for b in raw.get('behaviors') or [] if isinstance(b, str)]
     return [b for b in names if paths.behavior_file(b)]
+
+
+def _old_spellings(names, limit=256):
+    """The sha of every spelling of the list `names` with old behavior names (PLN0295), the current one left out. Planou
+    keeps the list as the runner showed it, or as the person sent it, so the base of an edit may name a behavior by its
+    old name until the heartbeat brings the new manifest: it is the same list, so it is no conflict."""
+    import itertools
+    choices = [[n] + behavior_names.old_names(n) for n in sorted(set(names))]
+    out = set()
+    for combo in itertools.islice(itertools.product(*choices), limit):
+        out.add(sha256(behaviors_content(combo).encode()))
+    out.discard(sha256(behaviors_content(names).encode()))
+    return out
 
 
 def _behaviors_sha_on_disk():

@@ -1,6 +1,6 @@
 # Instância de QA: modelo e passo a passo
 
-O comportamento `qa` (skills/agent/behaviors/qa/BEHAVIOR.md) testa a entrega como usuário antes do release: sobe um
+O comportamento `acceptance-testing` (skills/agent/behaviors/acceptance-testing/BEHAVIOR.md) testa a entrega como usuário antes do release: sobe um
 ambiente descartável da branch, percorre o fluxo da tarefa com um script Playwright efêmero, confere axe, as larguras e
 os alvos de toque, e aprova (handoff) ou devolve com o pedido de ajuste. Nunca escreve código.
 
@@ -37,9 +37,9 @@ descartáveis, um por worktree, em portas livres):
   "interval_s": 600,
   "sources": [],
   "hooks": [],
-  "behaviors": ["planou-queue", "qa"],
+  "behaviors": ["task-queue", "acceptance-testing"],
   "behavior_config": {
-    "qa": {
+    "acceptance-testing": {
       "setup": "cd src/Planou.Web && npm ci --no-audit --no-fund",
       "env_up": "scripts/e2e-env.sh up",
       "env_down": "scripts/e2e-env.sh down",
@@ -95,7 +95,7 @@ Agente de QA do projeto Planou (PLN): dono da coluna QA. Testa cada entrega como
 ```bash
 S=<pasta da skill agent>
 python3 $S/scripts/agent.py qa --validate      # config e opções do qa
-python3 $S/scripts/agent.py qa --load          # instructions.md, planou-queue e qa, nessa ordem
+python3 $S/scripts/agent.py qa --load          # instructions.md, task-queue e qa, nessa ordem
 python3 $S/scripts/qa_env.py qa status         # nenhum ambiente de QA
 ```
 

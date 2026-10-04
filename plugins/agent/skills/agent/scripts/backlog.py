@@ -27,7 +27,7 @@ What goes up, per task (source_key `<agent>:meta-<goal>-<code>`, so a rerun neve
   with the seal to the agent that follows it, and that is this agent (the one that created it), not the one who builds
   it; the seal then goes as a line of the description.
 
-Limits: at most `behavior_config.product.max_tasks` tasks per goal (default 8; `--max` after the person's OK), the
+Limits: at most `behavior_config.backlog-planning.max_tasks` tasks per goal (default 8; `--max` after the person's OK), the
 texts are checked for secrets, the plan is refused under `"confidentiality": "minimum"` and in test mode (`--dry`
 works in both). A task already created is not sent again unless `--update` (then without state: the person's moves
 win). The tasks are recorded in cache/planou/state.json and sent.json like the agent's other tasks (so `pronta`,
@@ -71,7 +71,8 @@ def instance_max(agent):
     try:
         with open(os.path.join(P.agent_root(agent), 'config', 'config.json'), encoding='utf-8') as f:
             c = json.load(f)
-        v = ((c.get('behavior_config') or {}).get('product') or {}).get('max_tasks')
+        from watch_core import behavior_names
+        v = behavior_names.options(c, 'backlog-planning').get('max_tasks')     # old name: product
         return int(v) if isinstance(v, int) and v > 0 else DEFAULT_MAX
     except (OSError, ValueError, AttributeError):
         return DEFAULT_MAX
@@ -431,7 +432,7 @@ def main(argv=None):
     ap.add_argument('instance')
     ap.add_argument('plan', nargs='?', help="the plan JSON file, or '-' for stdin")
     ap.add_argument('--dry', action='store_true', help='check the plan and show where each task would go; nothing is sent')
-    ap.add_argument('--max', type=int, help='tasks allowed for this goal (after the person\'s OK); default behavior_config.product.max_tasks or 8')
+    ap.add_argument('--max', type=int, help='tasks allowed for this goal (after the person\'s OK); default behavior_config.backlog-planning.max_tasks or 8')
     ap.add_argument('--update', action='store_true', help='send again the tasks already created (without state)')
     ap.add_argument('--list', nargs='?', const='', metavar='GOAL', help='the goals already broken down (or one of them)')
     a = ap.parse_args(argv)

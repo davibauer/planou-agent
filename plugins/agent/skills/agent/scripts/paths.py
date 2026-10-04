@@ -25,6 +25,7 @@ BEHAVIORS_DIR = os.path.join(SKILL_DIR, 'behaviors')
 if SCRIPTS not in sys.path: sys.path.insert(0, SCRIPTS)
 
 from watch_core import config as wc          # noqa: E402
+from watch_core import behavior_names        # noqa: E402
 
 # old module names some instance adapters still import (see work-watch's paths.py): same module object
 LEGACY_MODULES = {'daily_vigia': 'daily', 'notion_daily': 'notion_page', 'decisoes_notion': 'notion_decisions',
@@ -158,11 +159,15 @@ def google_dir(p=None):
 
 
 def behavior_file(name):
-    """BEHAVIOR.md of a behavior: the instance's own (behaviors/<name>/) first, then the plugin's. None when missing."""
+    """BEHAVIOR.md of a behavior: the instance's own (behaviors/<name>/) first, then the plugin's. None when missing.
+    An old name (watch_core.behavior_names) is read as the new one; the instance's own folder is looked up by the new
+    name and then by each old one, so an override kept under the old name is still found (PLN0295)."""
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,60}', name or ''): return None
-    for base in (LOCAL_BEHAVIORS, BEHAVIORS_DIR):
-        f = os.path.join(base or '', name, 'BEHAVIOR.md')
-        if base and os.path.isfile(f): return f
+    name = behavior_names.behavior_name(name)
+    for base, names in ((LOCAL_BEHAVIORS, [name] + behavior_names.old_names(name)), (BEHAVIORS_DIR, [name])):
+        for n in names:
+            f = os.path.join(base or '', n, 'BEHAVIOR.md')
+            if base and os.path.isfile(f): return f
     return None
 
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.88.0 (2026-10-04)
+- Os comportamentos agora são skills com nomes que dizem o que fazem: planou-queue virou task-queue, dev-worker virou delegate-to-worker, refinement virou backlog-refinement, retro virou retrospective, qa virou acceptance-testing, product virou backlog-planning, process-coach virou flow-metrics, suggestions virou suggestion-intake, security virou security-scan, push-alert virou mobile-alerts, daily-report virou daily-standup, recordings virou meeting-recordings, work-watch virou work-triage, job-scout virou job-search e travel-agent virou flight-price-watch.
+- Nada quebra: o nome antigo em "behaviors", em "behavior_config", numa pasta behaviors/<nome antigo> da instância, no --brief --role e na lista que o Planou guardou continua valendo e é lido como o novo; o --validate só avisa qual é o nome novo, sem mexer no config.json.
+- A aba Papel do Planou passa a mostrar os nomes novos, e salvar uma lista ou opção com o nome antigo continua aceito.
+- Cada BEHAVIOR.md ganhou "name" e "description" no cabeçalho, no formato de Agent Skills; instâncias e atalhos não mudaram de nome.
+
 ## 0.87.0 (2026-10-04)
 - O sinal de vida que vai ao Planou diz também que cópia do plugin o funcionário lê (clone git, cópia instalada, cópia fixada pelo canário ou outra) e onde ela fica, com a pasta pessoal abreviada como `~`. Com isso a ficha do funcionário no Time mostra o comando certo para atualizar quando o plugin fica atrás da versão publicada. O Planou só mostra o comando: nada roda no computador à distância.
 

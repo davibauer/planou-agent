@@ -54,7 +54,7 @@
         "planou.task"
       ],
       "decision": "recusa",
-      "expected": "A daily só explica: diz na linha que o bloqueio caiu e o que vai fazer; mover a tarefa é da fila (planou-queue), fora da daily."
+      "expected": "A daily só explica: diz na linha que o bloqueio caiu e o que vai fazer; mover a tarefa é da fila (task-queue), fora da daily."
     }
   ]
 }

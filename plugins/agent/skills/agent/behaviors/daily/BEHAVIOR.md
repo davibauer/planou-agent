@@ -1,4 +1,6 @@
 ---
+name: daily
+description: "Explica na daily do projeto no Planou, em uma linha cada, as tarefas Impedidas do agente. Use quando a saida do == PLANOU traz -- CERIMONIA daily."
 title: Daily do projeto
 summary: Explica na daily do projeto no Planou, em uma linha cada, as tarefas Impedidas do agente.
 layer: skill
@@ -13,7 +15,7 @@ precisa ligar nada no config; o runner já declara a capacidade `ceremony_daily`
 
 A ata da daily o Planou monta sozinho, a partir dos dados (o que andou, o que concluiu, o que travou, o custo, os
 deploys). O agente só é chamado para uma coisa: explicar, em uma linha, cada tarefa dele que está **Impedida**.
-Aguardando e "Bloqueada por" já têm o porquê nos dados e não chamam ninguém. É diferente da `daily-report` (a daily do
+Aguardando e "Bloqueada por" já têm o porquê nos dados e não chamam ninguém. É diferente da `daily-standup` (a daily do
 próprio agent, na página dele) e do refinamento (que lê o Backlog).
 
 ## Explicar (`-- CERIMONIA daily #N de ABC: explicar N tarefas Impedidas ate HH:MM`)

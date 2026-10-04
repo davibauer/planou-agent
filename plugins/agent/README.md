@@ -4,7 +4,7 @@ Plugin do Claude Code para os agents do time: um plugin, uma instância por agen
 (fontes, ganchos, comportamentos, ferramentas, autonomia) está na configuração da instância. Desenho e plano de
 migração: [docs/agent-plugin-design.md](../../docs/agent-plugin-design.md).
 
-Estado (0.26.0): núcleo com runner, fila e conversa do Planou; instância dev de qualquer projeto pelo config (`repos` com testes, release, critério de pronto e `public`; `--brief` monta o pedido ao worker); comportamentos de desenvolvimento (`dev-worker`, `batch-release`), revisão (`code-review`), QA (`qa`), produto e sugestões; ganchos de release, deploy e saúde. work-watch, job-scout (desde a 0.59.0) e travel-agent (desde a 0.60.0) são instâncias deste plugin.
+Estado (0.26.0): núcleo com runner, fila e conversa do Planou; instância dev de qualquer projeto pelo config (`repos` com testes, release, critério de pronto e `public`; `--brief` monta o pedido ao worker); comportamentos de desenvolvimento (`delegate-to-worker`, `batch-release`), revisão (`code-review`), QA (`acceptance-testing`), produto e sugestões; ganchos de release, deploy e saúde. work-watch, job-scout (desde a 0.59.0) e travel-agent (desde a 0.60.0) são instâncias deste plugin.
 
 ## Uma instância
 
@@ -188,39 +188,67 @@ pergunta oculto ou lê da entrada): grava a credencial (0600, sem mostrar) e o `
 | `behaviors`, `behavior_config` | comportamentos carregados, na ordem, e as opções de cada um |
 | `tools` | `{kind, name}`: subagent, cli, skill, mcp, other |
 | `autonomy` | `can`, `ask_first`, `never` |
-| `repos` | `path`, `name`, `worktrees`, `base`, `rules`, `shared_rules`, `gh_account`, `tests` (`filtered`, `full`), `release` (`batch`, `pr`, `ci`: a PR com o rótulo `automerge` entra e é publicada pela CI, e o worker não espera; `none`), `fragments` (onde o worker escreve o texto do changelog), `done`, `public` (repositório público: o `code-review` e o `--brief` leem), `map` (mapa curto do repositório, relativo a `path`; sem ele, `docs/MAP.md` quando existe: a linha `MAPA` do `--brief`): o projeto de uma instância dev (`dev-worker`, `batch-release`, `--brief`). Modelo em `config-example/dev/` e passo a passo em [docs/dev-template.md](docs/dev-template.md) |
+| `repos` | `path`, `name`, `worktrees`, `base`, `rules`, `shared_rules`, `gh_account`, `tests` (`filtered`, `full`), `release` (`batch`, `pr`, `ci`: a PR com o rótulo `automerge` entra e é publicada pela CI, e o worker não espera; `none`), `fragments` (onde o worker escreve o texto do changelog), `done`, `public` (repositório público: o `code-review` e o `--brief` leem), `map` (mapa curto do repositório, relativo a `path`; sem ele, `docs/MAP.md` quando existe: a linha `MAPA` do `--brief`): o projeto de uma instância dev (`delegate-to-worker`, `batch-release`, `--brief`). Modelo em `config-example/dev/` e passo a passo em [docs/dev-template.md](docs/dev-template.md) |
 | `planou` | `project`, `confidentiality`, `drafts_in_planou`, `publish`, `task_queue`, `conversation`, `links` (regras de link extras para o Planou, `[{pattern, url, label}]`), `agent` (o nome do agente no Planou quando é diferente do nome da instância, como numa instância renomeada antes do Planou: vale no sync, nas chaves das tarefas e dos pedidos e no whoami; padrão, o nome da instância; renomear o agente no Planou e tirar `agent` do config é um passo só, senão o sync sai com um nome que o Planou não reconhece pela chave e as chaves antigas deixam de casar) |
 | `runtime` | `python` (`system` ou `venv`), `requirements` |
 
 As chaves em português do work-watch (`fontes`, `ganchos`, `intervalo_s`, `fuso_horas`, `comercial`, `sigla`) valem
 como apelido.
 
-## Comportamentos
+## Skills (comportamentos)
+
+Cada coisa que uma instância sabe fazer é uma **skill** (no código e no config ainda "comportamento"): uma pasta
+`behaviors/<nome>/` com o `BEHAVIOR.md`, ligada pela lista `behaviors` do config. Um conceito só, com dois modos de
+carga, como as rules do Cursor: `kind: always` (lida em toda sessão) ou `kind: on_demand` (o `--load` mostra uma linha
+de índice e a sessão lê o arquivo quando vai usar). As três skills com scripts e config próprios (`job-search`,
+`work-triage`, `flight-price-watch`) são **skills com motor**: o mesmo conceito, com o motor dentro da pasta. O arquivo
+continua `BEHAVIOR.md` (um `SKILL.md` ali faria o Claude Code registrar cada uma como skill solta) e a chave continua
+`behaviors`. O nome segue o padrão Agent Skills: minúsculas, dígitos e hífen, igual ao nome da pasta, e diz o que a skill
+faz; as instâncias e os atalhos (`job-scout`, `travel-agent`, `work-watch-<x>`) não mudam.
+
+**Nomes antigos (PLN0295).** Os nomes abaixo mudaram; o antigo continua valendo para sempre, sem mexer no config: em
+`behaviors` e em `behavior_config` (o `--validate` avisa e sugere trocar), numa pasta `behaviors/<antigo>/` da própria
+instância (o override continua achado), no `--brief --role`, nos casos de referência e na lista que o Planou guardou
+antes da troca (o runner lê como o nome novo e manda o manifesto já com os nomes novos).
+
+| Antigo | Novo | Antigo | Novo |
+|---|---|---|---|
+| `planou-queue` | `task-queue` | `suggestions` | `suggestion-intake` |
+| `dev-worker` | `delegate-to-worker` | `security` | `security-scan` |
+| `refinement` | `backlog-refinement` | `push-alert` | `mobile-alerts` |
+| `retro` | `retrospective` | `daily-report` | `daily-standup` |
+| `qa` | `acceptance-testing` | `recordings` | `meeting-recordings` |
+| `product` | `backlog-planning` | `work-watch` | `work-triage` |
+| `process-coach` | `flow-metrics` | `job-scout` | `job-search` |
+| `deploy-notice` | `batch-release` | `travel-agent` | `flight-price-watch` |
+
+Mantêm o nome: `batch-release`, `code-review`, `tech-radar`, `product-radar`, `daily` e `prototype`. Os papéis que o
+heartbeat declara (`dev`, `code-review`, `qa`, `release`) e os tipos de gancho (`security`, `suggestions`) não mudam.
 
 | Nome | O que faz |
 |---|---|
-| `planou-queue` | fila do agente no Planou: `fila ver`, `started`, delegar, `in_review` (libera a vaga), `blocked`, `done` conforme a autonomia (dono de coluna com próximo estado: o `done` vira `handoff` e passa a tarefa adiante). Coluna por papel (Planou PLN0284): o heartbeat declara `roles` a partir dos comportamentos ligados (`dev-worker` dev, `code-review` code-review, `qa` qa, `batch-release` release; `planou.roles` no config substitui, `[]` nenhum; Planou que recusa o campo recebe o heartbeat sem ele por um dia, sem perder o sinal de vida); a coluna de um papel da instância conta como dela no `done`, e o handoff sem responsável sai como `ESPERANDO PAPEL` (a tarefa espera o primeiro agente com o papel que tiver vaga). Cada worker delegado aparece na aba Fila em "Workers agora": `fila worker-start <PID> --role dev\|integrator\|other --label '...'` logo depois do `Agent(worker)` imprime a key (guardada em `cache/planou/workers.json`), a entrega com a mesma key (`fila worker ... --key`) o fecha (com `--phases-from <output_file do Agent>` manda também o tempo por fase do worker, medido no registro dele), `worker end <key> --result ...` fecha o que não tem tarefa ou é de papel `other` e `worker ping <key>` dá sinal de vida. O tick pesado de uma sessão nova fecha no Planou os que uma sessão que morreu sem `session_closed` deixou abertos (`-- WORKER INTERROMPIDO`) |
-| `dev-worker` | como montar o pedido ao subagent `worker`: repositório, worktree, regras, critério de pronto |
+| `task-queue` | fila do agente no Planou: `fila ver`, `started`, delegar, `in_review` (libera a vaga), `blocked`, `done` conforme a autonomia (dono de coluna com próximo estado: o `done` vira `handoff` e passa a tarefa adiante). Coluna por papel (Planou PLN0284): o heartbeat declara `roles` a partir dos comportamentos ligados (`delegate-to-worker` dev, `code-review` code-review, `acceptance-testing` qa, `batch-release` release; `planou.roles` no config substitui, `[]` nenhum; Planou que recusa o campo recebe o heartbeat sem ele por um dia, sem perder o sinal de vida); a coluna de um papel da instância conta como dela no `done`, e o handoff sem responsável sai como `ESPERANDO PAPEL` (a tarefa espera o primeiro agente com o papel que tiver vaga). Cada worker delegado aparece na aba Fila em "Workers agora": `fila worker-start <PID> --role dev\|integrator\|other --label '...'` logo depois do `Agent(worker)` imprime a key (guardada em `cache/planou/workers.json`), a entrega com a mesma key (`fila worker ... --key`) o fecha (com `--phases-from <output_file do Agent>` manda também o tempo por fase do worker, medido no registro dele), `worker end <key> --result ...` fecha o que não tem tarefa ou é de papel `other` e `worker ping <key>` dá sinal de vida. O tick pesado de uma sessão nova fecha no Planou os que uma sessão que morreu sem `session_closed` deixou abertos (`-- WORKER INTERROMPIDO`) |
+| `delegate-to-worker` | como montar o pedido ao subagent `worker`: repositório, worktree, regras, critério de pronto |
 | `batch-release` | release em lote: quando disparar o worker integrador, o que ele cumpre (trava das suítes, e2e completo no máximo uma vez por intervalo, fragmentos de changelog, fast-forward antes da tag, deploy com trava, log de deploys) e o que fazer quando ele volta; todo deploy novo vira aviso ao usuário (Conversa do Planou e sessão) com o que mudou e onde conferir (`check_url`), e fecha as tarefas que entraram na versão. O nome antigo `deploy-notice` ainda vale como sinônimo (o `--validate` avisa) |
-| `retro` | a retro do projeto no Planou (Cerimônias): o convidado manda a contribuição a partir dos fatos medidos no Planou e dos próprios dados (`retro dados`, `retro contribuir`), toda proposta citando PIDs reais; na retro com votação, cada convidado vota nos itens de mais efeito (`retro votar`); quem facilita junta as contribuições, começa pelos mais votados e manda a ata com no máximo 3 ações (`retro ver`, `retro ata`), que nascem no backlog para o usuário aprovar, e lições que viram proposta de papel do agente. Vale sem ligar no config: quem convida é o Planou |
-| `refinement` | o refinamento do backlog no Planou (Cerimônias): cada convidado lê o Backlog do projeto e sugere estimativa, quebra em tarefas menores, o selo "o agente pode fazer" e a pergunta de escopo para o usuário, sempre com o motivo (`refino ver`, `refino sugerir`); a resposta da pergunta volta à tarefa como comentário e a tarefa do próprio agente sai de Em refinamento para A fazer; quem facilita junta numa lista só, uma sugestão de cada tipo por tarefa (`refino lista`), e o usuário aprova cada uma na tela. Vale sem ligar no config: quem convida é o Planou |
+| `retrospective` | a retro do projeto no Planou (Cerimônias): o convidado manda a contribuição a partir dos fatos medidos no Planou e dos próprios dados (`retro dados`, `retro contribuir`), toda proposta citando PIDs reais; na retro com votação, cada convidado vota nos itens de mais efeito (`retro votar`); quem facilita junta as contribuições, começa pelos mais votados e manda a ata com no máximo 3 ações (`retro ver`, `retro ata`), que nascem no backlog para o usuário aprovar, e lições que viram proposta de papel do agente. Vale sem ligar no config: quem convida é o Planou |
+| `backlog-refinement` | o refinamento do backlog no Planou (Cerimônias): cada convidado lê o Backlog do projeto e sugere estimativa, quebra em tarefas menores, o selo "o agente pode fazer" e a pergunta de escopo para o usuário, sempre com o motivo (`refino ver`, `refino sugerir`); a resposta da pergunta volta à tarefa como comentário e a tarefa do próprio agente sai de Em refinamento para A fazer; quem facilita junta numa lista só, uma sugestão de cada tipo por tarefa (`refino lista`), e o usuário aprova cada uma na tela. Vale sem ligar no config: quem convida é o Planou |
 | `daily` | a daily do projeto no Planou (Cerimônias): a ata sai dos dados, e o agente só é chamado para explicar em uma linha cada tarefa dele que está Impedida, a partir da nota do bloqueio e do pedido aberto, sem worker, tudo numa chamada só com o custo e os tokens (`daily ver`, `daily explicar`). O heartbeat declara `ceremony_daily`. Vale sem ligar no config: quem convida é o Planou |
 | `fila_parada` | acorda a sessão com `== FILA PARADA <PID> (<motivo>)` quando uma tarefa `queued` fica sem ser liberada por mais de `after_min` minutos, sem `blocked_by` aberto, com vaga livre (`busy` menor que `wip` na fila do Planou, a mesma resposta do `fila ver`). O Planou não manda o horário, então o relógio começa no primeiro tick que vê a tarefa parada. O motivo é o `release_reason` (ou `reason`) quando o Planou manda; senão, `sem motivo visível`. Uma vez por tarefa: só avisa de novo se ela sair da condição e voltar. Quieto com o agente pausado no teto de custo e com o Planou fora do ar | `after_min` (20) |
-| `suggestions` | as sugestões dos outros agents (`sugestao`, limite ou defeito do Planou e dos plugins) viram tarefas no backlog do projeto Planou, reportadas por quem sugeriu; o que dizer ao usuário com `== SUGESTOES` |
-| `work-watch` | pendências de trabalho de uma empresa (vindo do plugin work-watch): triagem das fontes, fila de pendências com lembrete em horário comercial, Planou (lista de tarefas, decisões, rascunhos), espaço de trabalho, lições, custo e tempo por tarefa. Liga o tick do work-watch: `--pendente`, `--backfill-links`, `--workspace`, `"separador": "fixo"` e o Planou do `planou_tick.py` |
-| `job-scout` | olheiro de vagas (vindo do plugin job-scout): busca pública do LinkedIn e sites de vaga remota (e, se ligadas, inbox e recomendadas do LinkedIn logado), julgamento de cada vaga contra o `profile.md`, reputação, faixa, matriz de aderência, candidatura, currículo e funil (Planou e, se ligado, Notion). Os scripts vêm iguais em `behaviors/job-scout/scripts/`; o `agent.py job-scout` roda o `scout.py` num processo próprio. Intervalo mínimo de 30 min. Aceita o `"schema": 2` e as chaves de critérios do config do job-scout |
-| `travel-agent` | agente de viagem (vindo do plugin travel-agent): grade de preços das passagens no Google Flights com alertas de queda, meta e referência, alertas do Google Flights e promoções de milhas no Gmail, milhas contra dinheiro, comparação com a viagem anterior, hotéis, dólar, prazos e planilha. Os scripts vêm iguais em `behaviors/travel-agent/scripts/` (só o `paths.py` muda); o `agent.py travel-agent` roda o `agent.py` dele num processo próprio, com o Python do venv da instância. Intervalo mínimo de 3 h. Aceita as chaves do config do travel-agent |
-| `daily-report` | a daily do fechamento (`== DAILY`) e as tarefas na página do dia (`== TAREFAS`): fala, decisões com opções, baixa por evidência. Opções: `language`, `closing_hour`, `speech_only`, `tasks` |
-| `recordings` | gravações do OBS x agenda (`== GRAVACOES`): ata no mesmo tick, ações suas, agenda em cache. Opções: `calendar`, `query_hours`, `push` |
-| `push-alert` | aviso ativo no celular (uma linha por tick, contar e não descrever) e a triagem leve de cada item. Opções: `prefix`, `max_chars`, `triggers`, `quiet` |
+| `suggestion-intake` | as sugestões dos outros agents (`sugestao`, limite ou defeito do Planou e dos plugins) viram tarefas no backlog do projeto Planou, reportadas por quem sugeriu; o que dizer ao usuário com `== SUGESTOES` |
+| `work-triage` | pendências de trabalho de uma empresa (vindo do plugin work-watch): triagem das fontes, fila de pendências com lembrete em horário comercial, Planou (lista de tarefas, decisões, rascunhos), espaço de trabalho, lições, custo e tempo por tarefa. Liga o tick do work-watch: `--pendente`, `--backfill-links`, `--workspace`, `"separador": "fixo"` e o Planou do `planou_tick.py` |
+| `job-search` | olheiro de vagas (vindo do plugin job-scout): busca pública do LinkedIn e sites de vaga remota (e, se ligadas, inbox e recomendadas do LinkedIn logado), julgamento de cada vaga contra o `profile.md`, reputação, faixa, matriz de aderência, candidatura, currículo e funil (Planou e, se ligado, Notion). Os scripts vêm iguais em `behaviors/job-search/scripts/`; o `agent.py job-scout` roda o `scout.py` num processo próprio. Intervalo mínimo de 30 min. Aceita o `"schema": 2` e as chaves de critérios do config do job-scout |
+| `flight-price-watch` | agente de viagem (vindo do plugin travel-agent): grade de preços das passagens no Google Flights com alertas de queda, meta e referência, alertas do Google Flights e promoções de milhas no Gmail, milhas contra dinheiro, comparação com a viagem anterior, hotéis, dólar, prazos e planilha. Os scripts vêm iguais em `behaviors/flight-price-watch/scripts/` (só o `paths.py` muda); o `agent.py travel-agent` roda o `agent.py` dele num processo próprio, com o Python do venv da instância. Intervalo mínimo de 3 h. Aceita as chaves do config do travel-agent |
+| `daily-standup` | a daily do fechamento (`== DAILY`) e as tarefas na página do dia (`== TAREFAS`): fala, decisões com opções, baixa por evidência. Opções: `language`, `closing_hour`, `speech_only`, `tasks` |
+| `meeting-recordings` | gravações do OBS x agenda (`== GRAVACOES`): ata no mesmo tick, ações suas, agenda em cache. Opções: `calendar`, `query_hours`, `push` |
+| `mobile-alerts` | aviso ativo no celular (uma linha por tick, contar e não descrever) e a triagem leve de cada item. Opções: `prefix`, `max_chars`, `triggers`, `quiet` |
 | `code-review` | revisor independente, dono da coluna de revisão: lê a PR que o handoff do dev trouxe (`pr_url`; pelo PID só quando ela não vem), confere pedido, testes, segurança, dado de cliente em repositório público, legibilidade e tamanho (`scripts/review_check.py`), comenta o parecer na PR e aprova (`fila done`, handoff para o release) ou devolve direto ao dev (`fila ajuste <PID> --text ...`, Planou 0.43.0; `fila blocked` quando a tarefa não veio por handoff). Nunca escreve código, merge ou deploy. Repositório público: `"public": true` em `repos` (o `public_repos` antigo continua valendo; `--public-repos` lista). Opções: `max_diff_lines`, `terms_file`, `public_repos`, `require_tests`, `pr_comment` |
-| `product` | agente de produto: a meta (ou o problema) da pessoa, pela fila ou pela Conversa, vira tarefas pequenas no Backlog do projeto, cada uma com o que, por quê e critério de pronto, dependências, prioridade sugerida, selo "o agente pode fazer" e `Decidir:` para o que é da pessoa, num sync só (`scripts/backlog.py <instância> <plano.json>`, `--dry`, `--update`, `--list`); em projeto autônomo, com `ready_reason`, direto em A fazer ou na coluna do dev; devolve a meta com os PIDs criados. Nunca escreve código. Opção: `max_tasks` (padrão 8; acima pede OK). Modelo de instância e passo a passo em [docs/product.md](docs/product.md) |
-| `process-coach` | coordenador de desenvolvimento: mede o fluxo do projeto pelo Planou (`GET /v1/agent/projects/<projeto>/flow`, Planou com a PLN0176) e todo dia aponta o que saiu do normal; toda semana, o resumo com o lead time por estado (criação até concluída, saída do Backlog até concluída), o maior gargalo com 3 casos (PIDs e horas), vazão, retrabalho, impedidas, espera das decisões, custo e passos por entrega, e no máximo 3 propostas, cada uma com a métrica e o valor de base (`scripts/process_report.py <instância>`, `--from-file`, `--json`, `--plan-out`, `--record`, `--followup`, `--skip`). Ajuste de parâmetro (WIP, lote, prioridade) e mudança de papel vão ao Planou como proposta (`--propose`, `POST /v1/agent/proposals`, Planou 0.53.0): a pessoa aprova num clique em Precisa de você e o Planou aplica, com registro e Desfazer; o evento `proposal_changed` avisa o resultado. O que o Planou recusa volta como `Decidir:`, com aviso. As outras propostas viram tarefas no Backlog pelo `backlog.py`; na semana seguinte marca a que não funcionou (e só mede a proposta aplicada). Nunca escreve código. Opções: `project`, `dev_agent`, `deploys_log`, `report_weekday`, `report_hour`, `skip`. Modelo de instância em [docs/process-coach.md](docs/process-coach.md) |
-| `qa` | agente de QA, dono da coluna de QA: sobe um ambiente descartável da branch da PR (`scripts/qa_env.py`: worktree destacada, `setup` e `env_up` da instância, URL pelo `env_url` ou da saída, app servido recusado), percorre o fluxo da tarefa como usuário com um script Playwright efêmero fora do repositório (`scripts/qa_kit.cjs`: axe, capturas nas larguras, alvos de toque, rolagem horizontal, vídeo do roteiro numa largura só, 1360 por padrão, anexado à tarefa como evidência), compara com o critério de pronto e aprova (`fila done`, handoff) ou devolve (`fila ajuste`, que volta direto ao dev mesmo com uma revisão no meio; `fila blocked` com `send_back: pessoa`). Nunca escreve código, merge, deploy nem suíte completa. Opções: `setup`, `env_up`, `env_down`, `env_url`, `url`, `served_urls`, `node_dir`, `widths`, `min_target_px`, `axe_tags`, `up_timeout_s`, `pr_comment`, `send_back`, `video_width`. Modelo de instância e passo a passo: [docs/qa.md](docs/qa.md) |
+| `backlog-planning` | agente de produto: a meta (ou o problema) da pessoa, pela fila ou pela Conversa, vira tarefas pequenas no Backlog do projeto, cada uma com o que, por quê e critério de pronto, dependências, prioridade sugerida, selo "o agente pode fazer" e `Decidir:` para o que é da pessoa, num sync só (`scripts/backlog.py <instância> <plano.json>`, `--dry`, `--update`, `--list`); em projeto autônomo, com `ready_reason`, direto em A fazer ou na coluna do dev; devolve a meta com os PIDs criados. Nunca escreve código. Opção: `max_tasks` (padrão 8; acima pede OK). Modelo de instância e passo a passo em [docs/product.md](docs/product.md) |
+| `flow-metrics` | coordenador de desenvolvimento: mede o fluxo do projeto pelo Planou (`GET /v1/agent/projects/<projeto>/flow`, Planou com a PLN0176) e todo dia aponta o que saiu do normal; toda semana, o resumo com o lead time por estado (criação até concluída, saída do Backlog até concluída), o maior gargalo com 3 casos (PIDs e horas), vazão, retrabalho, impedidas, espera das decisões, custo e passos por entrega, e no máximo 3 propostas, cada uma com a métrica e o valor de base (`scripts/process_report.py <instância>`, `--from-file`, `--json`, `--plan-out`, `--record`, `--followup`, `--skip`). Ajuste de parâmetro (WIP, lote, prioridade) e mudança de papel vão ao Planou como proposta (`--propose`, `POST /v1/agent/proposals`, Planou 0.53.0): a pessoa aprova num clique em Precisa de você e o Planou aplica, com registro e Desfazer; o evento `proposal_changed` avisa o resultado. O que o Planou recusa volta como `Decidir:`, com aviso. As outras propostas viram tarefas no Backlog pelo `backlog.py`; na semana seguinte marca a que não funcionou (e só mede a proposta aplicada). Nunca escreve código. Opções: `project`, `dev_agent`, `deploys_log`, `report_weekday`, `report_hour`, `skip`. Modelo de instância em [docs/process-coach.md](docs/process-coach.md) |
+| `acceptance-testing` | agente de QA, dono da coluna de QA: sobe um ambiente descartável da branch da PR (`scripts/qa_env.py`: worktree destacada, `setup` e `env_up` da instância, URL pelo `env_url` ou da saída, app servido recusado), percorre o fluxo da tarefa como usuário com um script Playwright efêmero fora do repositório (`scripts/qa_kit.cjs`: axe, capturas nas larguras, alvos de toque, rolagem horizontal, vídeo do roteiro numa largura só, 1360 por padrão, anexado à tarefa como evidência), compara com o critério de pronto e aprova (`fila done`, handoff) ou devolve (`fila ajuste`, que volta direto ao dev mesmo com uma revisão no meio; `fila blocked` com `send_back: pessoa`). Nunca escreve código, merge, deploy nem suíte completa. Opções: `setup`, `env_up`, `env_down`, `env_url`, `url`, `served_urls`, `node_dir`, `widths`, `min_target_px`, `axe_tags`, `up_timeout_s`, `pr_comment`, `send_back`, `video_width`. Modelo de instância e passo a passo: [docs/qa.md](docs/qa.md) |
 | `prototype` | protótipo antes do dev (sob demanda): tarefa da fila que muda tela ganha, por um worker, um protótipo em HTML a partir do protótipo de referência e dos tokens do projeto, com os estados vazio, erro e carregando, renderizado em PNG nas larguras e nos temas (`scripts/prototype_shot.cjs`, com o Playwright do próprio projeto pelo `NODE_PATH`, só arquivo local, nunca link) e anexado ao card (`attach`); a tarefa espera em `blocked` a aprovação do usuário, que nunca se destrava pela recomendada, e só então vai para o dev. Sem código nem commit para o protótipo. Opções: `node_dir`, `widths`, `themes`, `reference`, `tokens`. Passo a passo: [docs/prototype.md](docs/prototype.md) |
 | `tech-radar` | radar técnico (instância `tech-scout`): quatro fontes, uma por família (`radar_deps`: versões novas das dependências dos repositórios do config no npm, NuGet e PyPI; `radar_feeds`: blogs oficiais e canais do YouTube por RSS; `radar_hn` e `radar_trending`: Hacker News e GitHub Trending só com o que cita uma das `stacks`), uma vez por semana e sem repetir notícia. Modo projeto: `scripts/radar.py <instância>` monta o plano da semana e o `backlog.py` o publica no Backlog do projeto do radar, sem selo. Modo coluna: a tarefa que entra na coluna "Radar técnico" ganha até 3 sugestões na nota (`radar.py --match -`) e segue a esteira, com prazo máximo. Busca externa só genérica; `--dry --fixtures` ensaia sem rede. Nunca escreve código. Opções: `stacks`, `project`, `column`, `per_task`, `max_hours`, `max_tasks`, `weekday`, `hour`, `window_days`. Modelo e passo a passo em [docs/tech-radar.md](docs/tech-radar.md) |
 | `product-radar` | radar de produto (instância `product-scout`, cargo "Analista de produto (inteligência competitiva)"), irmão do `tech-radar` para o produto em vez da stack: duas fontes (`product_feeds`: changelogs, notas de versão e RSS públicos de apps de tarefas, de produtos de agentes, do Product Hunt e do Show HN, estes dois só com o que cita um dos `terms`; `product_github`: repositórios novos da semana nos tópicos do GitHub do config), uma vez por semana e sem repetir notícia. `scripts/product_radar.py <instância>` mostra os candidatos ao lado do que o produto já tem (tarefas do projeto pela `/v1/agent/projects/{key}/flow`, README e CHANGELOG de `planou_repo`); a sessão escreve as ideias e `--ideas` confere cada uma (link público, porquê, esboço de até 3 linhas, tamanho P, M ou G, risco), descarta o que já existe ou já foi proposto e guarda no máximo 3 por semana para o `backlog.py` publicar no Backlog, sem selo. Só a ideia: nunca marca, texto, visual ou código de outro produto. Opções: `project`, `max_ideas`, `terms`, `weekday`, `hour`, `window_days`, `planou_repo`, `known_days`. Modelo e passo a passo em [docs/product-radar.md](docs/product-radar.md) |
-| `security` | agente de segurança (instância `security`), com o gancho `security`: dependências com falha conhecida (`npm audit`, `dotnet list package --vulnerable`, `pip-audit` se instalado), segredos em repositório e em log (arquivo, linha e tipo, mascarado: o segredo nunca sai), permissão das pastas e arquivos de segredo (só `lstat`) e autonomia dos agentes contra os papéis. Cada achado abre uma tarefa no backlog com a evidência; nunca corrige, gira chave nem apaga. Casos de referência em `evals/`. Passo a passo em `docs/security.md` |
+| `security-scan` | agente de segurança (instância `security`), com o gancho `security`: dependências com falha conhecida (`npm audit`, `dotnet list package --vulnerable`, `pip-audit` se instalado), segredos em repositório e em log (arquivo, linha e tipo, mascarado: o segredo nunca sai), permissão das pastas e arquivos de segredo (só `lstat`) e autonomia dos agentes contra os papéis. Cada achado abre uma tarefa no backlog com a evidência; nunca corrige, gira chave nem apaga. Casos de referência em `evals/`. Passo a passo em `docs/security.md` |
 
 As opções ficam em `behavior_config.<comportamento>`; o `--validate` confere o tipo de cada uma (tipo errado é erro,
 opção desconhecida é aviso). As de comando (tipo `command`) e as de caminho (tipo `path`) só se editam no computador (ver
@@ -234,7 +262,7 @@ O papel de uma instância tem quatro camadas, na ordem de precedência (em confl
 2. **Instruções**: o `instructions.md` da instância (e o `CONTEXT.md` do workspace), editável pela aba Papel.
 3. **Habilidades**: os comportamentos ligados. Regra ou procedimento é o `kind` de cada um: `always` (lido em toda
    sessão) ou `on_demand` (o `--load` mostra só uma linha de índice com o nome, quando usar e o caminho; a sessão lê o
-   arquivo quando vai usar). Ex.: `batch-release`, `retro`, `refinement` e `daily` são sob demanda.
+   arquivo quando vai usar). Ex.: `batch-release`, `retrospective`, `backlog-refinement` e `daily` são sob demanda.
 4. **Memória**: o resumo de passagem (`data/handoff.md`) e as lições. Informação, não regra.
 
 O `--load` imprime nessa ordem, com a frase de precedência no topo. A aba Papel do Planou mostra as mesmas camadas: o
@@ -257,15 +285,18 @@ Cada `BEHAVIOR.md` do plugin começa com um frontmatter que a aba Papel do Plano
 
 ```markdown
 ---
+name: task-queue
+description: "Trabalha as tarefas atribuídas no Planou dentro do limite de vagas e presta contas em cada uma. Sempre ativa na instância que a liga em \"behaviors\"."
 title: Fila no Planou
 summary: Trabalha as tarefas atribuídas no Planou dentro do limite de vagas e presta contas em cada uma.
 layer: skill
 kind: always
 ---
-# planou-queue: a fila do agente no Planou
+# task-queue: a fila do agente no Planou
 ```
 
-`title` é o nome em português (uma linha, até 80 caracteres) e `summary` uma frase do que o comportamento faz (até
+`name` (igual ao nome da pasta) e `description` (o que faz e quando usar) seguem o padrão Agent Skills e ficam no
+computador: o catálogo do Planou não os leva. `title` é o nome em português (uma linha, até 80 caracteres) e `summary` uma frase do que o comportamento faz (até
 300); os dois são opcionais (um comportamento local sem eles aparece pelo nome técnico). `layer` (`rules`,
 `instructions`, `skill` ou `memory`; sem ele, `skill`) diz em que camada o comportamento entra e `kind` (`always` ou
 `on_demand`; sem ele, `always`) se é lido em toda sessão ou só quando usado; os dois vão no catálogo e a aba Papel
@@ -273,8 +304,8 @@ mostra o selo "sempre" ou "sob demanda". `when` (só num `on_demand`) diz quando
 usa no índice) e nunca vai ao Planou. O título depois do frontmatter continua sendo a `description`. O manifesto leva `title` e
 `summary` no catálogo e em cada comportamento ligado; um Planou que ainda não os conhece (até a 0.64.0) recusa o
 manifesto por esses campos, e o runner manda o manifesto sem eles por um dia e tenta de novo depois (fica uma linha
-em `cache/planou/docs.log`). Os testes conferem que todo comportamento do plugin tem `title`, `summary`, `layer` e
-`kind`, e que um `on_demand` tem `when`.
+em `cache/planou/docs.log`). Os testes conferem que todo comportamento do plugin tem `name` (igual à pasta),
+`description`, `title`, `summary`, `layer` e `kind`, e que um `on_demand` tem `when`.
 
 ### Permissão por papel
 
@@ -288,7 +319,7 @@ ações que o papel usa (`worktree`, `code`, `test.filtered`, `test.full`, `push
   declara, quando uma frase não casa com nenhuma ação conhecida, quando uma ferramenta de `tools` não é de nenhum
   comportamento ligado e quando um comportamento ligado não declara nada (aí a conferência não roda). `ask_first` e
   `never` só restringem e não são conferidos. Instância sem `behaviors` não é conferida.
-- `--brief` passa ao worker só o papel dele: sem `--role`, o `dev-worker` (sem suíte completa e sem deploy, que são do
+- `--brief` passa ao worker só o papel dele: sem `--role`, o `delegate-to-worker` (sem suíte completa e sem deploy, que são do
   integrador); `--role batch-release` para o integrador. As frases de `can` fora do papel vão para a linha
   `NAO E DESTE PAPEL`.
 
@@ -328,10 +359,10 @@ recusa o manifesto inteiro (`422 invalid_docs`, o sinal de vida vale e o manifes
 a versão do Planou para o plugin decidir sozinho). Uma edição das opções só passa com
 comportamentos do catálogo e, nos que têm opções conhecidas, só com elas e no tipo certo; o resto do `config.json` fica
 como estava. As opções que viram comando executado no computador do agente (tipo `command` no esquema: `setup`,
-`env_up`, `env_down` e `env_url` do `qa`; `deploy_cmd`, `test_lock` e `deploy_lock` do `batch-release`; `terms_file` do `code-review`) aparecem no
+`env_up`, `env_down` e `env_url` do `acceptance-testing`; `deploy_cmd`, `test_lock` e `deploy_lock` do `batch-release`; `terms_file` do `code-review`) aparecem no
 catálogo como "(só no computador)" e não mudam pelo Planou: a edição que muda, acrescenta ou tira uma delas é recusada
 com "opção de comando: edite no computador", e a que mexe só nas outras se aplica com as de comando como estavam. O
-mesmo vale para as opções de caminho (tipo `path`: o `node_dir` do `qa`, que vai no `NODE_PATH` e decide de onde o node
+mesmo vale para as opções de caminho (tipo `path`: o `node_dir` do `acceptance-testing`, que vai no `NODE_PATH` e decide de onde o node
 carrega código; `e2e_marker`, `fragments` e `deploy_log` do `batch-release`, arquivos que o integrador sobrescreve, apaga
 ou acrescenta), recusadas com "opção de caminho: edite no computador", e para as opções de um comportamento local da
 instância (`behaviors/<nome>/`, também a cópia local de um comportamento do plugin): ele não declara esquema, então nada
@@ -339,7 +370,7 @@ aqui diz como as usa, e a edição que muda, acrescenta ou tira alguma é recusa
 computador" até ele declarar um. Na confidencialidade mínima (o
 padrão das instâncias work-watch) nenhum conteúdo sai da máquina, os casos de referência vão sem o texto da tarefa e
 sem o porquê, e só a lista de comportamentos se edita. Ligar um comportamento numa instância work-watch sem a lista
-`behaviors` mantém o `work-watch` ligado. O `SKILL.md` e cada `BEHAVIOR.md` ficam só leitura: um
+`behaviors` mantém o `work-triage` ligado. O `SKILL.md` e cada `BEHAVIOR.md` ficam só leitura: um
 comportamento muda por PR no plugin, para todos os agentes que o usam. A edição chega como o evento
 `agent_docs_changed` e o tick pesado a aplica (`scripts/role_edit.py`): confere o sha256 do conteúdo e se o arquivo
 daqui ainda é a versão de onde a edição partiu (`base_sha256`), roda o `config-snapshot --wait` (a variável
@@ -380,7 +411,7 @@ estiver vivo.
 
 ## job-scout (E4)
 
-O motor do job-scout veio inteiro: `skills/agent/behaviors/job-scout/scripts/` (`scout.py`, `criteria.py`, `matrix.py`,
+O motor do job-scout veio inteiro: `skills/agent/behaviors/job-search/scripts/` (`scout.py`, `criteria.py`, `matrix.py`,
 `application.py`, currículo, LinkedIn, Notion...), com o `watch_core` deste plugin. `agent.py job-scout` repassa tudo ao
 `scout.py` num processo próprio (os dois têm módulos `paths` e `schema`), com `AGENT_INSTANCE` no ambiente; em modo
 teste (sem `"live": true`) o tick é sempre `--dry`. `interval_s` abaixo de 1800 vira 1800 (a conta do LinkedIn é
@@ -391,7 +422,7 @@ antigo) e `tests/test_job_scout_migration.py` (mesmas respostas antes e depois d
 **Juiz de vagas num subagent** (0.62.0): a sessão do job-scout não julga vaga. Os blocos de vagas de cada tick, as
 pesquisas de reputação e de processo seletivo e o passo do Gmail vão para um subagent por tick, o `job-judge`
 (`agents/job-judge.md`, modelo sonnet) ou o `general-purpose` com sonnet enquanto o plugin não estiver instalado pelo
-marketplace. As regras estão em `behaviors/job-scout/JUDGE.md`; o `judge.py --record` grava o lote de vereditos com um
+marketplace. As regras estão em `behaviors/job-search/JUDGE.md`; o `judge.py --record` grava o lote de vereditos com um
 `scout.py --job` só e devolve uma linha por vaga, com o detalhe em `data/judgments/<id>.md`.
 
 Migrar uma instalação antiga, com o runner antigo parado (o runner deste plugin recusa subir enquanto ele estiver vivo;
@@ -405,14 +436,14 @@ python3 scripts/agent.py job-scout --undo                              # volta (
 ```
 
 O `--migrate` move `~/.config/job-scout` para `~/.config/agent/job-scout`, deixa um link no lugar antigo e acrescenta ao
-config só `behaviors` (`job-scout`, mais `planou-queue` com `planou.task_queue`), `live: true`, `interval_s: 1800` e
+config só `behaviors` (`job-search`, mais `task-queue` com `planou.task_queue`), `live: true`, `interval_s: 1800` e
 `session`; o `"schema": 2` e os critérios ficam, e uma cópia antiga do plugin job-scout ainda instalada segue lendo pelo link. O arquivo mantém a indentação dele (só entram as chaves novas) e o `--undo` sem edição no meio devolve o
 `config.json` byte a byte. Depois, a entrada do
 `team` passa a `"skill": "agent job-scout"`.
 
 ## travel-agent (E5)
 
-O motor do travel-agent veio inteiro: `skills/agent/behaviors/travel-agent/scripts/` (`agent.py`, `flights.py`,
+O motor do travel-agent veio inteiro: `skills/agent/behaviors/flight-price-watch/scripts/` (`agent.py`, `flights.py`,
 `gflights.py`, `miles.py`, `compare.py`, `sheets.py`...), e só o `paths.py` mudou, para achar a pasta da instância pelo
 `watch_core` deste plugin. `agent.py travel-agent` repassa o tick e os comandos do travel-agent (`--report`, `--miles`,
 `--compare`, `--gmail`, `--booked`...) ao `agent.py` dele num processo próprio (os dois se chamam `agent.py` e têm
@@ -436,7 +467,7 @@ python3 scripts/agent.py travel-agent --undo                           # volta (
 ```
 
 O `--migrate` move `~/.config/travel-agent` (com o `cache/venv`) para `~/.config/agent/travel-agent`, deixa um link no
-lugar antigo e acrescenta ao config só `schema`, `behaviors` (`travel-agent`), `live: true`, `interval_s: 21600` e
+lugar antigo e acrescenta ao config só `schema`, `behaviors` (`flight-price-watch`), `live: true`, `interval_s: 21600` e
 `session`; as viagens, os pontos e as regras ficam, e uma cópia antiga do plugin travel-agent ainda instalada segue lendo pelo link. Depois, a
 entrada do `team` passa a `"skill": "agent travel-agent"`. O Planou é opcional: bloco `planou` no config e a chave em
 `secrets/planou.env`.
@@ -444,7 +475,7 @@ entrada do `team` passa a `"skill": "agent travel-agent"`. O Planou é opcional:
 ## Plugins antigos retirados (E6)
 
 Os plugins job-scout e travel-agent saíram do repositório e do marketplace na 0.62.1: as duas instâncias rodam neste
-plugin (comportamentos `job-scout` e `travel-agent`, com os motores inteiros em `behaviors/`) e os atalhos `/job-scout` e
+plugin (comportamentos `job-search` e `flight-price-watch`, com os motores inteiros em `behaviors/`) e os atalhos `/job-scout` e
 `/travel-agent` são skills daqui. O histórico deles (código, CHANGELOG e testes) fica no git: as últimas versões
 publicadas são as tags `job-scout--v0.42.23` e `travel-agent--v0.4.6`.
 O `--migrate`/`--undo` e a recusa do runner ao lado de um runner antigo vivo continuam, para uma instalação antiga que

@@ -8,7 +8,7 @@ Ligar é decisão do usuário: nenhuma instância vem com ele ligado.
 
 ## 1. O que precisa existir
 
-- Uma instância dev com `planou-queue` e `dev-worker` (modelo em `docs/dev-template.md`).
+- Uma instância dev com `task-queue` e `delegate-to-worker` (modelo em `docs/dev-template.md`).
 - O projeto já usa Playwright: o `node_modules` dele tem `@playwright/test` e o Chromium baixado
   (`npx playwright install chromium` no projeto, se ainda não tem). O plugin não traz Playwright nem outra dependência.
 - Um protótipo de referência e um arquivo de tokens de design. As regras do repositório (`rules` em `repos`) costumam
@@ -18,7 +18,7 @@ Ligar é decisão do usuário: nenhuma instância vem com ele ligado.
 
 ```json
 {
-  "behaviors": ["planou-queue", "dev-worker", "prototype"],
+  "behaviors": ["task-queue", "delegate-to-worker", "prototype"],
   "behavior_config": {
     "prototype": {
       "node_dir": "web/node_modules",

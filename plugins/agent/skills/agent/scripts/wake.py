@@ -40,6 +40,9 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 BEHAVIORS_DIR = os.path.join(os.path.dirname(SCRIPTS), 'behaviors')
 BUFFER = 'retido.json'
 
+if SCRIPTS not in sys.path: sys.path.insert(0, SCRIPTS)
+from watch_core import behavior_names   # noqa: E402  (old behavior names in config.json still count)
+
 
 def buffer_path(root):
     return os.path.join(root, 'data', BUFFER)
@@ -72,8 +75,10 @@ def problems(w, at='"wake"'):
 
 
 def _behavior_rules(name, root=None):
-    for base in ([os.path.join(root, 'behaviors')] if root else []) + [BEHAVIORS_DIR]:
-        f = os.path.join(base, name, 'wake.json')
+    name = behavior_names.behavior_name(name)
+    local = [(os.path.join(root, 'behaviors'), n) for n in [name, *behavior_names.old_names(name)]] if root else []
+    for base, n in local + [(BEHAVIORS_DIR, name)]:
+        f = os.path.join(base, n, 'wake.json')
         if os.path.isfile(f):
             try:
                 with open(f, encoding='utf-8') as fh: return json.load(fh)
@@ -84,7 +89,7 @@ def _behavior_rules(name, root=None):
 def rules(cfg, root=None):
     """The merged rules of an instance: its behaviors' wake.json, then its config "wake". {} = nothing waits.
     Lists add up; a number of the config wins, among behaviors the smallest."""
-    parts = [(_behavior_rules(b, root), False) for b in (cfg.get('behaviors') or []) if isinstance(b, str)]
+    parts = [(_behavior_rules(b, root), False) for b in behavior_names.current(cfg.get('behaviors'))]
     parts.append((cfg.get('wake'), True))
     out = {}
     for w, own in parts:

@@ -11,7 +11,7 @@
      is still open, the chief-of-staff commands and any forgotten script keep finding everything;
   3. adds to the config only what the agent plugin needs and the old config lacks: "schema": 1, "behaviors"
      (["work-watch"] for work-watch-<x>, [<name>] when the plugin has a behavior of the agent's name, as job-scout;
-     plus "planou-queue" when "planou.task_queue" is on), "session" (cwd and aliases for the `team` launcher), for an
+     plus "task-queue" when "planou.task_queue" is on), "session" (cwd and aliases for the `team` launcher), for an
      agent of its own plugin (job-scout: it had no test mode) "live": true, the agent's old heavy tick interval
      ("interval_s": 1800 for job-scout, 21600 for travel-agent) and, for work-watch, the triage trigger `<command-name>/agent` of the custos
      hook. job-scout's "schema": 2 stays (the version of its data schema; the agent plugin reads it, schema.py). The Portuguese keys
@@ -30,7 +30,7 @@ import json, os, re, shutil, subprocess, sys
 from datetime import datetime
 
 import paths
-from watch_core import config as wc, fileio
+from watch_core import behavior_names, config as wc, fileio
 
 MARKER = '.agent-migration.json'
 LEGACY_INTERVAL_S = {'job-scout': 1800, 'travel-agent': 21600}   # the old runner's heavy tick, kept by the agent runner
@@ -86,7 +86,7 @@ def heavy_ticks(name):
     pat = r'python3? \S*(watch\.py %s|agent\.py %s)( |$)' % (re.escape(short), re.escape(name))
     if name == 'job-scout': pat += r'|python3? \S*/scout\.py( |$)'    # the old job-scout tick has no instance argument
     if name == 'travel-agent':       # nor travel-agent's (old plugin or behavior, venv python): .../travel-agent/scripts/agent.py
-        pat += r'|python3? \S*/travel-agent/scripts/agent\.py( |$)'
+        pat += r'|python3? \S*/(travel-agent|flight-price-watch)/scripts/agent\.py( |$)'
     return [p for p in _procs(pat) if 'runner.sh' not in p[1] and '--migrate' not in p[1] and '--undo' not in p[1]]
 
 
@@ -115,8 +115,8 @@ def plan(name, cwd=None, aliases=None):
     if 'schema' not in raw: add['schema'] = 1
     ww = name.startswith(paths.WORK_WATCH_PREFIX)
     if 'behaviors' not in raw:
-        b = ['work-watch'] if ww else ([name] if paths.behavior_file(name) else [])
-        if isinstance(raw.get('planou'), dict) and raw['planou'].get('task_queue') is True: b.append('planou-queue')
+        b = ['work-triage'] if ww else ([behavior_names.behavior_name(name)] if paths.behavior_file(name) else [])
+        if isinstance(raw.get('planou'), dict) and raw['planou'].get('task_queue') is True: b.append('task-queue')
         add['behaviors'] = b
     if not ww and 'live' not in raw: add['live'] = True          # the old plugins of one agent had no test mode
     if 'interval_s' not in raw and 'intervalo_s' not in raw and name in LEGACY_INTERVAL_S:

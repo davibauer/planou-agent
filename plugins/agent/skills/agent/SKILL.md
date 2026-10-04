@@ -17,6 +17,11 @@ ferramentas e autonomia. `S` = a pasta desta skill (a que tem este SKILL.md).
 - `data/` estado; `secrets/` chaves (`planou.env`, 0600); `cache/runner/` saída do runner; `cache/planou/` Planou;
 - `behaviors/<nome>/BEHAVIOR.md` e `adapters/<tipo>.py`, opcionais: comportamento e fonte só desta instância.
 
+Cada comportamento ligado é uma **skill** da instância (`behaviors/<nome>/BEHAVIOR.md`), de sempre (`kind: always`)
+ou sob demanda (`kind: on_demand`). Um nome antigo no config (ex.: `planou-queue`, `qa`, `work-watch`) vale como o
+novo (`task-queue`, `acceptance-testing`, `work-triage`): o `--load` já mostra o nome novo e o caminho certo, e o
+`--validate` avisa. A tabela antigo -> novo está no README do plugin (Skills).
+
 ## Ao ser chamado com uma instância
 
 1. `python3 $S/scripts/agent.py <instância> --validate`. Erro: mostrar ao usuário e parar.
@@ -77,7 +82,7 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     dizer na resposta o que vai fazer (ou perguntar) e seguir as regras da fila e da autonomia. `403`/`nao e tarefa
     deste agente`: ninguém o chamou nela, não insistir.
   - `-- FILA <PID>: ...`, `-- FILA LIBERADA <PID>`, `-- FILA SAIU <PID>`, `PARE: ...` e `ESPERE: ...`: fila do agente,
-    comportamento `planou-queue` (só começar tarefa liberada). `-> passada por voce mesmo (mesma instancia que
+    comportamento `task-queue` (só começar tarefa liberada). `-> passada por voce mesmo (mesma instancia que
     desenvolve) para a coluna <coluna>`: a tarefa que esta instância desenvolveu chegou à coluna de revisão ou de QA,
     que também é dela; a revisão ou o QA vai para um worker NOVO, nunca para a sessão nem para o worker que entregou
     (abaixo, "Mesma instância: dev, revisão e QA"). Com `prototype` ligado, tarefa que muda tela com o desenho em
@@ -85,22 +90,22 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     pela recomendada.
   - `-- AJUSTE PEDIDO <PID> (pessoa|<função> <nome>): <texto>`: a pessoa ou um agente (revisor, QA) pediu ajuste numa tarefa
     em revisão; a tarefa volta pela fila como `-> RETRABALHO` (mesma branch e PR, o texto é o pedido). Comportamento
-    `planou-queue`, "Ajuste pedido pelo botão ou pelo revisor".
+    `task-queue`, "Ajuste pedido pelo botão ou pelo revisor".
   - `== PAUSADO (teto de custo) ...`: o funcionário chegou a 100% do teto e está pausado; não pegar trabalho novo,
     terminar o que está `EM ANDAMENTO` (ou `fila blocked` com a nota). `== DESPAUSADO (...)`: pode seguir; `RETOMAR
-    <PID>` volta com `fila started`. Comportamento `planou-queue`, "Pausado no teto de custo". Também vem fora do
+    <PID>` volta com `fila started`. Comportamento `task-queue`, "Pausado no teto de custo". Também vem fora do
     bloco, no tick pesado, quando o runner liga com a pausa em vigor.
   - `-- PROPOSTA ap-N APLICADA|RECUSADA|FALHOU|DESFEITA: ...` (Planou 0.53.0): o resultado de uma proposta de parâmetro
     ou de papel que este agente fez; o `-- APROVADO ap-N ... -> proposta` da mesma não pede nada (quem aplica é o
-    Planou). Comportamento `process-coach`, passo 4.
+    Planou). Comportamento `flow-metrics`, passo 4.
   - `PLANOU: <PID> concluida|reaberta pelo usuario`: só registro; mencionar se mudar algo em andamento.
   - `-- CERIMONIA retro #N de <sigla>: contribuicao ate HH:MM` (convidado), `-- CERIMONIA VOTO ...` (convidado, só
     na retro com votação) e `-- CERIMONIA ATA ...` (facilitador): a retro do projeto no Planou. Seguir
-    `behaviors/retro/BEHAVIOR.md` (vale sem ligar no config): contribuição a partir dos próprios dados com `retro
+    `behaviors/retrospective/BEHAVIOR.md` (vale sem ligar no config): contribuição a partir dos próprios dados com `retro
     dados`/`retro contribuir`, voto com `retro ver`/`retro votar <reunião> <item_id> ...`, ata com `retro ver`/`retro
     ata`, sempre citando PIDs reais.
   - `-- CERIMONIA refinement #N de <sigla>: sugestoes ate HH:MM` (convidado) e `-- CERIMONIA LISTA refinement ...`
-    (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/refinement/BEHAVIOR.md` (vale sem
+    (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/backlog-refinement/BEHAVIOR.md` (vale sem
     ligar no config): `refino ver`, sugestões de estimativa, quebra, selo e pergunta de escopo com o motivo por
     `refino sugerir` e a lista final por `refino lista`; nada muda na tarefa antes de o usuário aprovar em Cerimônias. A
     resposta da pergunta chega como `-- ESCOPO <PID> respondida`: o próprio Planou registra a resposta como comentário
@@ -130,7 +135,7 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
 
 ## Mesma instância: dev, revisão e QA
 
-Uma instância só pode fazer o ciclo todo: `dev-worker` com `code-review` e/ou `qa` em `behaviors`, dona da coluna do
+Uma instância só pode fazer o ciclo todo: `delegate-to-worker` com `code-review` e/ou `acceptance-testing` em `behaviors`, dona da coluna do
 dev e da coluna de revisão ou de QA (instâncias separadas por papel continuam valendo; o `--validate` avisa quando os
 dois estão juntos). Os papéis são comportamentos; o que garante a revisão independente é o contexto:
 - quem desenvolve é um worker de dev; quem revisa ou testa é um worker NOVO, com o brief do papel
@@ -142,7 +147,7 @@ dois estão juntos). Os papéis são comportamentos; o que garante a revisão in
   worker de dev atende na mesma branch e PR, a entrega é `fila handoff` (não `in_review`) e outro worker NOVO confere o
   que mudou;
 - a vaga de revisão ou de QA é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila.
-Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `qa`.
+Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `acceptance-testing`.
 
 ## Planou pela linha de comando
 
@@ -153,7 +158,7 @@ Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `qa`.
   recomendada (seções abaixo).
 - `$PL alert --title "<o que houve>" --severity low|medium|high`: aviso sem pergunta.
 - `$PL sugestao ...`: sugestão de melhoria do Planou ou dos plugins (seção abaixo).
-- `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `planou-queue`). `$PL fila worker <PID>
+- `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `task-queue`). `$PL fila worker <PID>
   --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou --phases-from <output_file>`:
   o uso de cada worker que volta, o tempo por fase e o uso por modelo (o custo da entrega), medidos no registro dele (o
   `output_file` que o `Agent` devolveu).

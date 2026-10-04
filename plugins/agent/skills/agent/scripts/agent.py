@@ -36,13 +36,13 @@ same sources and hooks (sources/, hooks/), --pendente pN k=v, --backfill-links, 
 
 The job-scout instance (behavior "job-scout", E4 of the one-plugin plan) gets job-scout's tick as it was: every command
 that is not one of the agent's own (--validate, --load, --status, --docs, --evals, --migrate...) goes to
-behaviors/job-scout/scripts/scout.py in a process of its own (job_scout.py): the tick and its Planou sync, --pending,
+behaviors/job-search/scripts/scout.py in a process of its own (job_scout.py): the tick and its Planou sync, --pending,
 --job, --pipeline... The scout's scripts keep their own paths.py and schema.py, which is why they never share a process
 with this one. A tick in test mode ("live" not true) is dry. The heavy tick is never shorter than 30 minutes (runner-env):
 the LinkedIn account is personal and the site detects automation.
 
 The travel-agent instance (behavior "travel-agent", E5) does the same with travel-agent's engine
-(behaviors/travel-agent/scripts/agent.py, in a process of its own: travel_agent.py): its tick and its commands (--report,
+(behaviors/flight-price-watch/scripts/agent.py, in a process of its own: travel_agent.py): its tick and its commands (--report,
 --miles, --compare, --gmail...); any other argument is refused, since that engine ticks for what it does not know. It
 never talked to Planou: with "planou" in the config the thin Planou tick goes around its tick (events, the read-only Papel
 manifest, the config tools, the sign of life `tick`). A tick in test mode is dry; the heavy tick is never shorter than
@@ -74,7 +74,7 @@ class Contexto:
 
 
 def work_watch(cfg):
-    """True for the behavior "work-watch" (work-watch's tick: planou_tick, workspace, shared material), and for a
+    """True for the behavior "work-triage" (old name work-watch; work-watch's tick: planou_tick, workspace, shared material), and for a
     work-watch-<x> instance whose config lists no behaviors (not migrated yet)."""
     import role_edit
     return role_edit.work_watch(cfg)
@@ -104,7 +104,7 @@ def load_config():
 def video_folders(cfg):
     """"videos_dir"/"archive_dir" of the instance win over $ATA_VIDEOS_DIR and the shared recordings.* of
     ~/.config/watch-core (the same rule as work-watch's watch.py since 0.30.2)."""
-    lang = ((cfg.get('behavior_config') or {}).get('recordings') or {}).get('language')
+    lang = ((cfg.get('behavior_config') or {}).get('meeting-recordings') or {}).get('language')
     if isinstance(cfg.get('videos_dir'), str) or isinstance(cfg.get('archive_dir'), str) or isinstance(lang, str):
         from watch_core import recordings
         recordings.configure(cfg.get('videos_dir'), cfg.get('archive_dir'), lang)

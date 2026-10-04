@@ -1,8 +1,8 @@
-# Agente de segurança (comportamento e gancho `security`, instância `security`)
+# Agente de segurança (comportamento `security-scan`, gancho `security`, instância `security`)
 
 O agente de segurança varre, sem o modelo, o que pode virar incidente e abre uma tarefa no Planou com a evidência. Só
 lê: nunca corrige, nunca gira chave, nunca apaga. As regras do papel estão em
-[`behaviors/security/BEHAVIOR.md`](../skills/agent/behaviors/security/BEHAVIOR.md); as varreduras, em
+[`behaviors/security-scan/BEHAVIOR.md`](../skills/agent/behaviors/security-scan/BEHAVIOR.md); as varreduras, em
 [`scripts/hooks/security.py`](../skills/agent/scripts/hooks/security.py), que reaproveita o ciclo de tarefa do gancho
 `health` (o do agente de operação).
 

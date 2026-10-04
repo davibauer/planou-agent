@@ -17,7 +17,7 @@ para outro fica no `config.json` da instância, nunca nos comportamentos:
 | deploy, travas, log de deploys, e2e completo | `behavior_config.batch-release`: `deploy_cmd`, `test_lock`, `deploy_lock`, `deploy_log`, `e2e_marker`, `e2e_every_h`, `fragments`, `check_url` |
 | mínimo de branches e espera do release | seção Release do projeto no Planou (reserva: opções do gancho `release_due`) |
 
-Os comportamentos são sempre os mesmos: `planou-queue` (a fila), `dev-worker` (o pedido ao worker) e, com release em
+Os comportamentos são sempre os mesmos: `task-queue` (a fila), `delegate-to-worker` (o pedido ao worker) e, com release em
 lote, `batch-release` (integrador e aviso de deploy). `agent.py <instância> --brief [repo]` junta o que o config diz
 de um repositório no bloco que vai no pedido ao worker; `--validate` confere tudo.
 

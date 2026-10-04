@@ -116,8 +116,9 @@ DEFAULTS = {'base_url': 'http://127.0.0.1:5068/v1', 'interval_s': 30, 'retry_s':
             'agents_file': '~/.config/team/agents.json', 'snapshot_cmd': 'config-snapshot', 'runner': None,
             'timeout_s': 15, 'session_timeout_s': 120, 'session_fallback': 'off', 'session_fallback_s': 60,
             'auto_update': True, 'update_every_s': 1800, 'releases_url': 'https://github.com/davibauer/planou-agent/releases'}
-BASE_BEHAVIOR = 'planou-queue'
-DEFAULT_ROLES = ['dev-worker']
+BASE_BEHAVIOR = 'task-queue'
+DEV_BEHAVIOR = 'delegate-to-worker'
+DEFAULT_ROLES = [DEV_BEHAVIOR]
 MARKER = 'provisioned.json'
 
 
@@ -422,7 +423,9 @@ def render(a, template):
     name, work_dir = a['name'], a.get('work_dir') or '~'
     projects = [p for p in a.get('projects') or [] if isinstance(p, dict)]
     prefix = str(projects[0].get('prefix') or '') if projects else ''
-    roles = [r for r in a.get('roles') or [] if isinstance(r, str)] or list(DEFAULT_ROLES)
+    from watch_core import behavior_names
+    # a role card of a Planou before PLN0295 names the behavior by its old name: the new one is written
+    roles = behavior_names.current(a.get('roles')) or list(DEFAULT_ROLES)
     for r in roles:
         if not NAME_RE.fullmatch(r) or not os.path.isfile(os.path.join(BEHAVIORS_DIR, r, 'BEHAVIOR.md')):
             raise Fail(f'papel desconhecido nesta maquina: {r} (atualize o plugin agent)')
@@ -442,7 +445,7 @@ def render(a, template):
     else:
         cfg.setdefault('behavior_config', {}).setdefault('batch-release', {})['repo'] = work_dir
     models = [m for m in (role_defaults(cfg, r) for r in roles) if m]
-    own = models if models and not batch and 'dev-worker' not in behaviors else []   # not a dev agent at all
+    own = models if models and not batch and DEV_BEHAVIOR not in behaviors else []   # not a dev agent at all
     if own and own[0]['instructions']: instr = own[0]['instructions']
     if not cfg.get('behavior_config'): cfg.pop('behavior_config', None)
     # the gh tool of the template points at an example account: the person adds the real one

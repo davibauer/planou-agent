@@ -1,4 +1,6 @@
 ---
+name: product-radar
+description: "Olha o que produtos parecidos lançam e propõe até 3 ideias por semana. Sempre ativa na instância que a liga em \"behaviors\"."
 title: Radar de produto
 summary: Olha o que produtos parecidos lançam e propõe até 3 ideias por semana.
 layer: skill
@@ -8,8 +10,8 @@ kind: always
 
 O agente de radar de produto (instância `product-scout`, cargo "Analista de produto (inteligência competitiva)") olha a
 concorrência e os projetos parecidos com o produto e propõe, no máximo 3 vezes por semana, uma ideia que valeria a pena
-trazer. É o irmão do `tech-radar`: aquele olha a stack, este olha o produto. Vale com `planou-queue` ligado. `PL` é o do
-`planou-queue`; `S` é a pasta da skill; `PR="python3 $S/scripts/product_radar.py <instância>"`;
+trazer. É o irmão do `tech-radar`: aquele olha a stack, este olha o produto. Vale com `task-queue` ligado. `PL` é o do
+`task-queue`; `S` é a pasta da skill; `PR="python3 $S/scripts/product_radar.py <instância>"`;
 `BL="python3 $S/scripts/backlog.py <instância>"`.
 
 ## Fontes (no `sources` do config, editáveis pela pessoa)

@@ -44,7 +44,9 @@ SECRET_RE = re.compile(r'gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9-]{20,}|xox[abp
 
 
 def plugin_behavior_file(name):
-    f = os.path.join(BEHAVIORS_DIR, name, 'BEHAVIOR.md')
+    from watch_core import behavior_names
+    name = behavior_names.behavior_name(name)          # an old name (PLN0295) runs the renamed behavior's cases
+    f = os.path.join(BEHAVIORS_DIR, name or '', 'BEHAVIOR.md')
     return f if re.fullmatch(r'[a-z0-9][a-z0-9-]{0,60}', name or '') and os.path.isfile(f) else None
 
 
@@ -152,7 +154,10 @@ def report(results, ok):
 
 
 def find_case(cid, behavior_file):
-    name = cid.rsplit('-', 1)[0]
+    from watch_core import behavior_names
+    name, _, num = cid.rpartition('-')
+    if behavior_names.behavior_name(name) != name:              # a case kept under the old name (PLN0295)
+        name = behavior_names.behavior_name(name); cid = f'{name}-{num}'
     f = behavior_file(name)
     if not f: raise SystemExit(f'sem comportamento {name!r}')
     cases, _ = load(cases_file(f), name)
@@ -164,7 +169,7 @@ def find_case(cid, behavior_file):
 def prompt(cid, behavior_file):
     f, c = find_case(cid, behavior_file)
     a = c.get('autonomy') or {}
-    lines = [f'Voce esta no papel "{cid.rsplit("-", 1)[0]}" (leia {f}). Chegou esta tarefa:', '',
+    lines = [f'Voce esta no papel "{c["id"].rsplit("-", 1)[0]}" (leia {f}). Chegou esta tarefa:', '',
              f'Tarefa: {c["task"]}', f'Descricao: {c["description"]}']
     for k, label in (('ask_first', 'Perguntar antes'), ('never', 'Nunca')):
         if a.get(k): lines.append(f'{label}: ' + '; '.join(a[k]))
@@ -203,6 +208,8 @@ def cli(argv, behavior_file=plugin_behavior_file, names=None):
     if any(a.startswith('-') for a in argv): raise SystemExit(__doc__.split('\n\n')[-1])
     if names is None:
         names = argv or sorted(d for d in os.listdir(BEHAVIORS_DIR) if os.path.isdir(os.path.join(BEHAVIORS_DIR, d)))
+    from watch_core import behavior_names
+    names = behavior_names.current(names)
     results, ok = run(names, behavior_file)
     ran_at = datetime.now(timezone.utc).isoformat(timespec='seconds')
     for r in results: r['ran_at'] = ran_at

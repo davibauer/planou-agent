@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The travel-agent instance on the agent plugin (E5 of docs/agent-plugin-design.md).
 
-travel-agent's engine moved over as it was: its scripts live in behaviors/travel-agent/scripts (agent.py, flights.py,
+travel-agent's engine moved over as it was: its scripts live in behaviors/flight-price-watch/scripts (agent.py, flights.py,
 miles.py, compare.py, sheets.py...), with their own paths.py (the only one adapted: it finds the instance folder with
-this plugin's watch_core, through behaviors/travel-agent/scripts/watch_core). Two modules named `agent` and `paths` can
+this plugin's watch_core, through behaviors/flight-price-watch/scripts/watch_core). Two modules named `agent` and `paths` can
 not live in one process, so this plugin's agent.py runs travel-agent's in a process of its own:
 
   agent.py travel-agent                  the heavy tick (the runner's call): travel-agent's tick, with the instance venv's
@@ -22,8 +22,10 @@ scripts in $AGENT_INSTANCE. The heavy tick is never shorter than MIN_INTERVAL_S 
 import os, re, subprocess, sys
 
 import paths
+from watch_core import behavior_names
 
-BEHAVIOR = 'travel-agent'
+BEHAVIOR = 'flight-price-watch'   # old name: travel-agent, still the name of the instance
+INSTANCE = 'travel-agent'
 MIN_INTERVAL_S = 10800       # each tick is a whole date grid of searches; fares do not move faster (the old runner's floor)
 LEGACY_INTERVAL_S = 21600    # the old runner's default heavy tick (6 h)
 SCRIPTS = os.path.join(paths.BEHAVIORS_DIR, BEHAVIOR, 'scripts')
@@ -35,14 +37,14 @@ BROKEN = re.compile(r'^AGENTE QUEBRADO \(([^)]+)\)', re.M)
 
 
 def on(cfg):
-    """True when the instance has the travel-agent behavior on."""
-    return BEHAVIOR in (cfg.get('behaviors') or [])
+    """True when the instance has the flight-price-watch behavior on (the travel-agent engine)."""
+    return BEHAVIOR in behavior_names.current(cfg.get('behaviors'))
 
 
 def not_migrated(cfg):
-    """A travel-agent folder the migration has not touched yet (no "behaviors"): read as the travel-agent behavior, the
+    """A travel-agent folder the migration has not touched yet (no "behaviors"): read as the flight-price-watch behavior, the
     one --migrate adds, so agent.py answers for it as travel-agent's agent.py does (the old engine keeps its folder)."""
-    if paths.NAME == BEHAVIOR and not cfg.get('behaviors'): cfg['behaviors'] = [BEHAVIOR]
+    if paths.NAME == INSTANCE and not cfg.get('behaviors'): cfg['behaviors'] = [BEHAVIOR]
     return cfg
 
 

@@ -30,7 +30,7 @@
       ]
     }
   ],
-  "behaviors": ["security"],
+  "behaviors": ["security-scan"],
   "tools": [
     {"kind": "cli", "name": "npm", "label": "npm audit (so leitura, --package-lock-only)"},
     {"kind": "cli", "name": "dotnet", "label": "dotnet list package --vulnerable (so leitura)"},

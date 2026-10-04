@@ -1,8 +1,8 @@
-# Coordenador de desenvolvimento (comportamento `process-coach`)
+# Coordenador de desenvolvimento (comportamento `flow-metrics`)
 
 O coordenador mede o fluxo de um projeto no Planou, aponta o maior gargalo da semana com casos reais e propõe no
 máximo 3 mudanças, cada uma com a métrica que deve mexer; na semana seguinte, mede o efeito. As regras estão em
-[`behaviors/process-coach/BEHAVIOR.md`](../skills/agent/behaviors/process-coach/BEHAVIOR.md); o cálculo, em
+[`behaviors/flow-metrics/BEHAVIOR.md`](../skills/agent/behaviors/flow-metrics/BEHAVIOR.md); o cálculo, em
 [`scripts/process_report.py`](../skills/agent/scripts/process_report.py).
 
 ## Modelo de instância
@@ -19,9 +19,9 @@ máximo 3 mudanças, cada uma com a métrica que deve mexer; na semana seguinte,
   "session": {"cwd": "~/src", "aliases": ["coordenador"], "rotate": true},
   "sources": [],
   "hooks": [],
-  "behaviors": ["planou-queue", "process-coach"],
+  "behaviors": ["task-queue", "flow-metrics"],
   "behavior_config": {
-    "process-coach": {"project": "EXE", "dev_agent": "dev-exemplo", "deploys_log": "~/.config/exemplo/deploys.log",
+    "flow-metrics": {"project": "EXE", "dev_agent": "dev-exemplo", "deploys_log": "~/.config/exemplo/deploys.log",
                       "report_weekday": 4, "report_hour": 16}
   },
   "tools": [],
@@ -40,7 +40,7 @@ máximo 3 mudanças, cada uma com a métrica que deve mexer; na semana seguinte,
 ```markdown
 # coordenador
 
-Coordenador de desenvolvimento do projeto EXE (comportamento process-coach). Mede o lead time por estado, acha o
+Coordenador de desenvolvimento do projeto EXE (comportamento flow-metrics). Mede o lead time por estado, acha o
 gargalo da semana e propõe no máximo 3 mudanças com métrica. Não escreve código e não move tarefa de ninguém.
 ```
 

@@ -3,14 +3,14 @@
 
 A dev instance is a repository + its rules file + its release rules. What changes from one project to another lives in
 the `repos` entry (schema.py) and in `behavior_config.batch-release`, never in the behaviors: the session prints this
-brief and pastes it into the worker request (dev-worker), with the literal request and the task on top.
+brief and pastes it into the worker request (delegate-to-worker), with the literal request and the task on top.
 
 `repo` picks the entry by `name`, by the last folder of `path` or by `path`; without it, the first entry. The done
 criterion comes from `done`; without it, a default by `release` (a repo without `release` that is the
 `batch-release.repo` counts as "batch"; any other one says nothing about release). The instance's instructions.md still wins over it
-(dev-worker says so), which keeps an instance that wrote its criterion there working unchanged.
+(delegate-to-worker says so), which keeps an instance that wrote its criterion there working unchanged.
 
-`--role <behavior>` (default `dev-worker` when it is enabled) is the worker's role (PLN0119): PODE keeps only the
+`--role <behavior>` (default `delegate-to-worker` when it is enabled) is the worker's role (PLN0119): PODE keeps only the
 "can" phrases whose actions the role declares (permissions.py), the others go to "NAO E DESTE PAPEL", FERRAMENTAS lists
 the config tools the role uses, and the full suite and the deploy lines only show for a role that declares them
 (`batch-release`, the integrator). A role without a declaration keeps the whole autonomy, as before.
@@ -32,6 +32,7 @@ import os, re, subprocess
 
 import permissions, schema
 
+DEV = 'delegate-to-worker'               # the dev worker's behavior (old name: dev-worker)
 RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
 # the independent review and QA workers (PLN0281): their worktree, their done criterion and the independence rule
 REVIEW_ROLES = {
@@ -41,7 +42,7 @@ REVIEW_ROLES = {
         'done': 'o parecer do code-review (Revisao de <PID> (<sha7>): aprovada | ajuste pedido, com os criterios do '
                 'BEHAVIOR), comentado na PR quando pr_comment; sem commit, sem push, sem merge',
         'what': 'revisao'},
-    'qa': {
+    'acceptance-testing': {
         'worktree': 'a do qa_env.py (<worktrees>/qa-<pid>, destacada da branch), que ele cria e remove; nunca direto em {path}',
         'done': 'o parecer do qa (qa-<pid>.md: casos, axe, larguras) com as capturas e o video do roteiro '
                 '(roteiro-<largura>.webm, ou o motivo de nao ter), os caminhos na volta, comentado na PR quando pr_comment; '
@@ -63,7 +64,7 @@ INDEPENDENT = ('{what} independente: este worker e NOVO, nao e o que entregou ne
 MODELS = ('sonnet', 'default')
 MAP_DEFAULT = 'docs/MAP.md'
 FILES_TODO = '(a sessao preenche: arquivos e funcoes que a mudanca toca, do mapa ou de uma busca)'
-MODEL_TODO = '(a sessao escolhe sonnet ou default pela regra do dev-worker; na duvida, default)'
+MODEL_TODO = '(a sessao escolhe sonnet ou default pela regra do delegate-to-worker; na duvida, default)'
 ECONOMY = ('comece pelos ARQUIVOS PROVAVEIS e pelo mapa, sem busca exploratoria de uma linha por vez; junte leituras e '
            'comandos independentes na mesma rodada; arquivo grande nunca inteiro (grep -n e sed -n do trecho); saida '
            'de teste e build resumida (| tail -n 20)')
@@ -196,15 +197,15 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
 
 def role_of(cfg, rest, behavior_file):
     """(rest without --role, the role's declaration or None). --role must be an enabled behavior; without it,
-    dev-worker when enabled."""
+    delegate-to-worker when enabled."""
     rest, name = list(rest), None
     if '--role' in rest:
         i = rest.index('--role')
         if i + 1 >= len(rest): raise SystemExit('uso: --brief [repo] [--role <comportamento>]')
-        name = rest[i + 1]; del rest[i:i + 2]
+        name = schema.behavior_name(rest[i + 1]); del rest[i:i + 2]      # --role qa still means acceptance-testing
         if name not in (cfg.get('behaviors') or []):
             raise SystemExit(f'papel {name!r} nao esta em "behaviors" (tem: {", ".join(cfg.get("behaviors") or []) or "(nenhum)"})')
-    elif 'dev-worker' in (cfg.get('behaviors') or []): name = 'dev-worker'
+    elif DEV in (cfg.get('behaviors') or []): name = DEV
     p = permissions.role(name, behavior_file) if name else None
     if p is not None: p = {**p, 'role': name}
     return rest, p

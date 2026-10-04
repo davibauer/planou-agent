@@ -133,7 +133,7 @@ review comes again to a new worker. `fila done` of such a task warns (stderr, no
 other (`fila worker-start --role other`) was opened for it after it reached the column.
 Owner by role (Planou PLN0284): a column may be owned by a role (`owner_role` in the project's states) instead of an
 agent. The heartbeat declares the agent's `roles` with the capabilities: the roles of its behaviors (ROLE_OF_BEHAVIOR:
-dev-worker dev, code-review code-review, qa qa, batch-release release) or "planou.roles" of its config, which replaces
+delegate-to-worker dev, code-review code-review, qa qa, batch-release release) or "planou.roles" of its config, which replaces
 them (`[]` clears); a Planou that refuses the field (400/422 naming `roles`) gets the same heartbeat again without them
 at once, and without them for a day (cache/planou/roles_sent.json, roles.log). A column of one of its roles counts as
 its own for `fila done` (handoff). A handoff answer without `assignee` means nobody with the role was free: the task
@@ -279,6 +279,7 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
+from . import behavior_names
 from . import config
 from . import deadlines as _deadlines
 from . import fileio
@@ -1124,7 +1125,7 @@ DELIVERING_RUNNERS = ('work-watch-', 'job-scout')
 # Capabilities an agent declares only when its own config turns the feature on: capability -> key of the "planou" block.
 OPT_IN = {'task_queue': 'task_queue', 'task_release': 'task_queue'}
 
-# Capabilities only an agent of the agent plugin declares: the retro behavior (behaviors/retro) lives there. Planou
+# Capabilities only an agent of the agent plugin declares: the retro behavior (behaviors/retrospective) lives there. Planou
 # (PLN0208) invites to a ceremony only the agents that declare `ceremony`; a runner that does not handle the events
 # would ack and drop them, and the round, the vote and the minutes would wait until due for it. The same for
 # `task_comment` (PLN0240): how to answer a comment with @ is in the agent plugin's SKILL.md, and for `ceremony_daily`
@@ -1159,10 +1160,12 @@ def capabilities():
 # the behavior that does the part of a column in a dev -> review -> QA -> release flow), or from "planou.roles" in its
 # config, which replaces them (`[]`: none). They go with the capabilities: never in the launcher's session_closed nor
 # from a runner of another plugin (no capabilities), so those never clear the roles.
-ROLE_OF_BEHAVIOR = {'dev-worker': 'dev', 'code-review': 'code-review', 'qa': 'qa', 'batch-release': 'release',
-                    'deploy-notice': 'release'}           # deploy-notice: the old name of batch-release
+# The keys are behavior names (an old one is read as the new one: behavior_names), the values the roles Planou keeps as
+# a column's owner_role, which never change.
+ROLE_OF_BEHAVIOR = {'delegate-to-worker': 'dev', 'code-review': 'code-review', 'acceptance-testing': 'qa',
+                    'batch-release': 'release'}
 # the behavior whose column part a role is (the PLN0281 rule of an own review or QA reads it); dev is plain work
-BEHAVIOR_OF_ROLE = {'code-review': 'code-review', 'qa': 'qa', 'release': 'batch-release'}
+BEHAVIOR_OF_ROLE = {'code-review': 'code-review', 'qa': 'acceptance-testing', 'release': 'batch-release'}
 ROLES_MAX, ROLE_LEN = 10, 40
 ROLE_RX = re.compile(r'^[a-z0-9][a-z0-9_-]{0,39}$')
 ROLES_EVERY = timedelta(days=1)          # a Planou that refused `roles` gets the heartbeat without them this long
@@ -1194,7 +1197,7 @@ def roles():
     c = _agent_config()
     pc = c.get('planou') if isinstance(c.get('planou'), dict) else {}
     if isinstance(pc.get('roles'), list): raw = pc['roles']
-    else: raw = [ROLE_OF_BEHAVIOR.get(b) for b in c.get('behaviors') or [] if isinstance(b, str)]
+    else: raw = [ROLE_OF_BEHAVIOR.get(b) for b in behavior_names.current(c.get('behaviors'))]
     return list(dict.fromkeys(r for r in map(role_name, raw) if r))[:ROLES_MAX]
 
 
@@ -1348,8 +1351,8 @@ CEREMONY_PREFIX = '-- CERIMONIA'
 COMMENT_EVENT = 'task_comment_mentioned'
 COMMENT_PREFIX = '-- COMENTARIO'
 COMMENT_TEXT_MAX = 10000
-CEREMONY_GUIDE = 'behaviors/retro/BEHAVIOR.md do plugin agent'
-REFINE_GUIDE = 'behaviors/refinement/BEHAVIOR.md do plugin agent'
+CEREMONY_GUIDE = 'behaviors/retrospective/BEHAVIOR.md do plugin agent'
+REFINE_GUIDE = 'behaviors/backlog-refinement/BEHAVIOR.md do plugin agent'
 DAILY_GUIDE = 'behaviors/daily/BEHAVIOR.md do plugin agent'
 DAILY_TEXT_MAX = 300
 # the scope question of the refinement (Planou PLN0128): asked in `refino sugerir|lista`, approved by the person, it opens
@@ -1520,15 +1523,15 @@ def handoff_line(p, pr=None):
 # The queue line tells the column's part from new work and the review or QA goes to a NEW worker, never the one that
 # delivered (no self-approval); the rework goes back with `fila handoff` (an in_review to a next column of the same owner
 # is no handoff). Nothing is kept locally: the queue entry says it.
-INDEPENDENT_ROLES = {'code-review': 'revisao', 'qa': 'QA'}
+INDEPENDENT_ROLES = {'code-review': 'revisao', 'acceptance-testing': 'QA'}
 
 
 def column_role(name):
-    """The behavior a column calls for, by its name: 'qa' (QA, teste, homologacao, qualidade), 'code-review' (revisao,
+    """The behavior a column calls for, by its name: 'acceptance-testing' (QA, teste, homologacao, qualidade), 'code-review' (revisao,
     review), 'batch-release' (release, publicacao, deploy), or None when the name says none of them."""
     n = state_key(name)
     if not n: return None
-    if re.search(r'\bqa\b|\btest|homolog|qualidade|quality', n): return 'qa'
+    if re.search(r'\bqa\b|\btest|homolog|qualidade|quality', n): return 'acceptance-testing'
     if 'revis' in n or 'review' in n: return 'code-review'
     if 'release' in n or 'publica' in n or 'deploy' in n: return 'batch-release'
     return None
@@ -4504,7 +4507,7 @@ def _fila(a, ap):
 # facilitator with every contribution: it groups them and sends the minutes (at most 3 actions, each with cases). When
 # the retro has voting (PLN0195), ceremony_vote reaches every invited agent between the two: it votes on the items
 # (`retro votar`), and the facilitator gets the votes in each item. The payloads stay in cache/planou/ceremonies.json by meeting_id, so `retro ver` still has them after the heavy tick
-# acknowledged the event. The guide is the agent plugin's behaviors/retro/BEHAVIOR.md.
+# acknowledged the event. The guide is the agent plugin's behaviors/retrospective/BEHAVIOR.md.
 
 def _ceremonies():
     c = _load('ceremonies.json', {})
