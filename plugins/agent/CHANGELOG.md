@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.85.0 (2026-10-04)
+- Na tarefa de uma pessoa liberada por um pedido do agente (Planou 0.84), o agente muda a coluna com `tarefa estado <PID> "<coluna>"` e lê os anexos com `anexo ver <PID>` e `anexo baixar <PID> <anexo> [--out <caminho>]`. Cada recusa do Planou sai em palavras: coluna com dono, concluir ou reabrir, backlog, tarefa na fila do próprio agente (mudar pelo `fila`) e pedido fechado há mais de 24 h.
+- A resposta da pergunta de escopo do refinamento não é mais comentada nem movida pelo agente: desde a v0.83.1 o Planou faz isso sozinho, em qualquer tarefa. Some o aviso "o usuário move na tela" e não sai comentário em dobro.
+
 ## 0.84.0 (2026-10-04)
 - Refinamento do backlog: o agente agora pode fazer a pergunta de escopo (`question`, até 300 caracteres) sobre uma tarefa ainda no Backlog, guiado pelo `scope_checklist` do evento (objetivo, entregável, pronto, restrições e acessos). O `refino sugerir` confere a pergunta antes de mandar e guarda o PID para ligar a resposta à tarefa.
 - Quem facilita mantém as perguntas na lista final, e o `refino lista` tira sozinho as perguntas sobre tarefas que já saíram do Backlog (que fariam o Planou recusar a lista inteira), com uma linha `TIRADA` para cada uma.

@@ -412,15 +412,16 @@ def active():
 
 # ---------------------------------------------------------------- HTTP
 
-def _request(method, path, body=None, timeout=None, headers=None, raw=None, content_type=None):
+def _request(method, path, body=None, timeout=None, headers=None, raw=None, content_type=None, binary=False):
     """(status, json). `headers`, a dict, receives the response headers (the long poll reads Planou-Wait). `raw` (bytes)
-    with its `content_type` goes instead of a JSON body (the multipart of an attachment)."""
+    with its `content_type` goes instead of a JSON body (the multipart of an attachment). `binary`: (status, bytes) of a
+    file (the content of an attachment); an error still comes as JSON."""
     url = _S['base_url'] + path
     data = raw if raw is not None else None if body is None else json.dumps(body, ensure_ascii=False).encode()
     req = urllib.request.Request(url, data=data, method=method, headers={
         'Authorization': f'Bearer {_key()}',
         'Content-Type': content_type or 'application/json',
-        'Accept': 'application/json',
+        'Accept': '*/*' if binary else 'application/json',
         'User-Agent': user_agent(),
         'X-Planou-Client': f'watch_core/{VERSION} {_S["agent"]}/{_S["plugin_version"] or "?"}',
     })
@@ -428,6 +429,7 @@ def _request(method, path, body=None, timeout=None, headers=None, raw=None, cont
         with urllib.request.urlopen(req, timeout=timeout or TIMEOUT_S) as r:
             raw = r.read()
             if headers is not None: headers.update({k.lower(): v for k, v in r.headers.items()})
+            if binary: return r.status, raw
             return r.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as e:
         try:
@@ -736,7 +738,9 @@ def payload(items, now=None, autonomy=None, default_project=None):
         if kt.get('refining') and state != 'closed':
             # scope being worked out with the person: the task sits in "Em refinamento" until she answers or moves it
             for k in ('state', 'resolution', 'completed_at', 'waiting'): task.pop(k, None)
-            task['project_state'] = REFINEMENT
+            # answered: Planou itself brings it back to A fazer (v0.83.1, or keeps it while another question is open);
+            # the sync sends no column at all until the task_changed of that move arrives
+            if not (kt['refining'] or {}).get('answered'): task['project_state'] = REFINEMENT
         elif kt.get('backlog') and state != 'closed' and not (autonomy == 'autonomous' and reason):
             # Planou keeps it in backlog (only the person takes it out here): no state, so no warning on every tick. A
             # close always goes: at worst one logged reason a day, and an accepted close tells the flag was stale
@@ -1305,6 +1309,9 @@ SCOPE_KEPT = 200
 SCOPE_PREFIX = '-- ESCOPO'
 QUESTION_MAX = 300
 ANSWER_STATE = 'A fazer'
+# since Planou v0.83.1 (PLN0330) the server closes the cycle of a scope answer on any task, the person's included
+SCOPE_SERVER = (f'o Planou registra a resposta como comentario na tarefa e a devolve de {REFINEMENT} para {ANSWER_STATE} '
+                '(se ainda esta la e nao ha outra pergunta aberta nela); nada a comentar nem a mover')
 DAILY_LINES = 12          # blocked tasks listed under the -- CERIMONIA daily line; the rest with `daily ver`
 TOKENS_MAX = 100_000_000
 CEREMONIES_KEPT = 20
@@ -1759,10 +1766,9 @@ def line(ev):
     ref = ' '.join(x for x in (p.get('code'), p.get('task_pid')) if x)
     who = f'(voce, {_when(p)}' + (', confirmado)' if p.get('confirmed') else ')')
     if kind == 'decision_answered' and scope_question_of(ev) is not None:
-        # the answer to a scope question of the refinement: the heavy tick comments and moves the task
+        # the answer to a scope question of the refinement: Planou (v0.83.1) comments it on the task and moves the task
         return (f'{SCOPE_PREFIX} {one_line(p.get("task_pid"), 20)} respondida ({one_line(p.get("code"), 20)}): '
-                f'"{one_line(_answer_text(p), 300)}" {who} -> o tick registra a resposta como comentario na tarefa e a '
-                f'move de {REFINEMENT} para {ANSWER_STATE}; guia: {REFINE_GUIDE}')
+                f'"{one_line(_answer_text(p), 300)}" {who} -> {SCOPE_SERVER}; guia: {REFINE_GUIDE}')
     if kind == 'decision_answered':
         # a question the session asked (pergunta): not an action of the daily page, nothing to close with --acao
         if ask_ref(ev).startswith('q-'): who += ' (pergunta da sessao)'
@@ -4821,82 +4827,37 @@ def _answer_text(p):
     return ' '.join(str(opt).split()) + (f' ({" ".join(str(p["note"]).split())})' if p.get('note') else '')
 
 
-def _scope_to_todo(pid, tasks, now=None):
-    """Moves the agent's own task (its source_key) from "Em refinamento" to A fazer in a one-task sync with
-    `project_state` (and `state: todo`, for a project that renamed A fazer). (moved, note). A task the person created
-    cannot be moved by the agent: Planou takes a state only from the sync of the task's own agent."""
-    code = next((c for c, v in tasks.items() if str((v or {}).get('pid') or '').upper() == pid), None)
-    if code is None:
-        return False, (f'{pid} nao e tarefa deste agente: o Planou nao deixa o agente mover; o usuario move de '
-                       f'{REFINEMENT} para {ANSWER_STATE} na tela')
-    entry = tasks[code]
-    ps = entry.get('project_state')
-    held = (entry.get('refining') or {}).get('scope')
-    if not held and (entry.get('state') != 'waiting' or (ps and state_key(ps) != state_key(REFINEMENT))):
-        return False, f'ja tinha saido de {REFINEMENT} ({ps or entry.get("state") or "?"}): fica onde esta'
-    stamp = (now or datetime.now(timezone.utc)).isoformat()
-    body = _load('sent.json', {}).get(code) or {}
-    t = {k: v for k, v in body.items() if k not in ('state', 'resolution', 'completed_at', 'waiting', 'ready_reason',
-                                                    'project_state', 'assignee')}
-    t.update({'source_key': f'{_S["agent"]}:{code}', 'state': 'todo', 'project_state': ANSWER_STATE,
-              'base_version': entry.get('version')})
-    if not t.get('title') and entry.get('title'): t['title'] = entry['title']
-    if _S['project'] and not t.get('project'): t['project'] = _S['project']
-    try:
-        _, res = _call('POST', '/agent/sync', {'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
-    except PlanouError as e:
-        return False, f'nao deu para mover ({e.message}): o usuario move na tela'
-    r = next((x for x in (res or {}).get('tasks') or [] if x.get('source_key') == t['source_key']), None) or {}
-    ignored = r.get('ignored_fields') or []
-    if r.get('result') not in ('created', 'updated', 'unchanged') or 'state' in ignored:
-        why = r.get('reason') or r.get('result') or 'sem resposta'
-        return False, f'o Planou nao moveu ({one_line(why, 200)}): o usuario move na tela'
-    entry.update(version=r.get('version'), state='todo', project_state=ANSWER_STATE)
-    entry.pop('refining', None)
-    entry.pop('backlog', None)
-    return True, f'movida de {REFINEMENT} para {ANSWER_STATE}'
-
-
 def scope_answered(ev, tasks=None, now=None):
     """Heavy tick: the person answered a scope question of the refinement (an ask Planou opened in this agent's name when
-    she approved the question). The answer goes to the task as a comment and the agent's own task moves from "Em
-    refinamento" to A fazer. Delivery is at least once: the same answer again does nothing; a changed answer is commented
-    again (the task is not moved twice). `tasks` is the state.json tasks apply_events holds (saved by it); without it
-    state.json is read and saved here. Returns the tick line, or None (not a scope answer, or already handled)."""
+    she approved the question). Since Planou v0.83.1 (PLN0330) the server writes the answer as a comment on the task
+    and brings the task back from "Em refinamento" to A fazer, on any task: nothing is commented or moved here. The
+    agent's own task held in "Em refinamento" by the sync is marked answered, so the sync stops sending that column
+    (the task_changed of the server's move then clears the hold). Delivery is at least once: the same answer again
+    returns None. `tasks` is the state.json tasks apply_events holds (saved by it); without it state.json is read and
+    saved here. Returns the tick line, or None (not a scope answer, or already seen)."""
     q = scope_question_of(ev)
     if q is None: return None
     p = ev.get('payload') or {}
     pid = str(p.get('task_pid')).strip().upper()
     code = str(p.get('code') or '')
     answer = _answer_text(p)
+    done = (q.get('answers') or {}).get(code) or {}
+    if done.get('text') == answer: return None
     own = tasks is None
     st = _load('state.json', {}) if own else None
     if own: tasks = st.setdefault('tasks', {})
-    done = (q.get('answers') or {}).get(code) or {}
-    if done.get('text') == answer and done.get('comment'): return None
-    out, notes = {'text': answer}, []
-    head = 'Resposta mudou na' if done.get('text') else 'Resposta da'
-    text = (f'{head} pergunta de escopo do refinamento' + (f' #{q["number"]}' if q.get('number') else '')
-            + f' ({code}): {q.get("question") or p.get("title") or ""}\n\nResposta: {answer}')
-    try:
-        post_comment(pid, text)
-        out['comment'] = True
-        notes.append('resposta registrada como comentario')
-    except PlanouError as e:
-        out['comment'] = False
-        notes.append(f'sem comentario ({one_line(e.message, 200)})')
-    if 'moved' in done:
-        out['moved'] = done['moved']
-    else:
-        out['moved'], note = _scope_to_todo(pid, tasks, now)
-        notes.append(note)
-    if own: _save('state.json', st)
+    mine = next((v for v in tasks.values() if str((v or {}).get('pid') or '').upper() == pid), None)
+    hold = (mine or {}).get('refining') or {}
+    if hold.get('scope'):
+        hold['answered'] = (now or datetime.now(timezone.utc)).isoformat()
+        if own: _save('state.json', st)
     with _locked(SCOPE_FILE):
         c = _scope_cache()
         if pid in c:
-            c[pid].setdefault('answers', {})[code] = out
+            c[pid].setdefault('answers', {})[code] = {'text': answer, 'by': 'planou'}
             _save(SCOPE_FILE, c)
-    return f'{SCOPE_PREFIX} {pid} ({code}): ' + '; '.join(notes)
+    head = 'resposta mudou: ' if done.get('text') else ''
+    return f'{SCOPE_PREFIX} {pid} ({code}): {head}o Planou comenta a resposta e devolve a tarefa sozinho; nada a fazer aqui'
 
 
 def send_refinement_list(meeting_id, body):
@@ -5036,7 +4997,8 @@ def _comment_task(ref):
 
 def _comment_error(e, pid):
     if e.code == 'not_your_task':
-        return PlanouError(e.status, e.code, f'{pid} nao e tarefa deste agente e ninguem o chamou nos comentarios dela')
+        return PlanouError(e.status, e.code, f'{pid} nao e tarefa deste agente, ninguem o chamou nos comentarios dela e '
+                                             'nao ha pedido dele aberto sobre ela (ou passou o prazo depois da resposta)')
     if e.status == 404 and e.code in ('not_found', 'http_404'):
         return PlanouError(e.status, e.code, f'{pid}: tarefa nao encontrada ({e.message})')
     return e
@@ -5105,6 +5067,165 @@ def _comentario(a, ap):
         return 1
     print(f'comentario enviado em {one_line(res.get("pid"), 20) or a.arg[0]} ({res.get("id")})'
           + (f', resposta a {res["reply_to"]}' if res.get('reply_to') else ''))
+    return 0
+
+
+# ---------------------------------------------------------------- the task an ask grants (Acesso pelo pedido, PLN0334)
+# An ask the agent opened about a person's task (pergunta --task PID) lets it comment, change the column and read the
+# attachments of that task while the ask is open and up to 24 h after the answer (Planou:AskTaskAccessHours).
+
+STATE_SAID = {
+    'not_your_task': '{tid} nao e tarefa deste agente e nao ha pedido dele aberto sobre ela (o acesso do pedido vale '
+                     'enquanto ele esta aberto e ate 24 h depois da resposta)',
+    'in_queue': '{tid} esta na fila deste agente: mude pelo progresso (fila started|in_review|handoff|done {tid})',
+    'close_not_here': 'concluir ou reabrir {tid} nao e por aqui: tarefa da fila com fila done, tarefa da fonte pelo '
+                      'sync; tarefa de pessoa quem conclui e ela',
+    'backlog_is_the_person': 'so a pessoa poe {tid} no backlog ou tira de la',
+    'state_has_owner': 'a coluna "{col}" tem dono: mover {tid} para ela passaria a tarefa adiante; com o acesso do '
+                       'pedido, so colunas sem dono',
+}
+
+
+def _state_error(e, tid, column):
+    if e.code in STATE_SAID:
+        return PlanouError(e.status, e.code, STATE_SAID[e.code].format(tid=tid, col=column))
+    if e.status == 422:
+        return PlanouError(e.status, e.code, f'a coluna "{column}" nao existe no projeto de {tid} ({e.message})')
+    if e.status == 404 and e.code in ('not_found', 'http_404'):
+        return PlanouError(e.status, e.code, f'{tid}: tarefa nao encontrada ({e.message})')
+    if e.status == 409:
+        return PlanouError(e.status, e.code, f'{tid} mudou ao mesmo tempo no Planou: tente de novo ({e.message})')
+    return e
+
+
+def move_task_state(ref, column):
+    """`tarefa estado PID "<coluna>"`: moves a task to a column of its project by name (POST /agent/tasks/{id}/state
+    {"project_state"}): the agent's own task out of its queue, or the person's task an ask of the agent grants. Never
+    closes, never touches the backlog, and with the ask's access never into a column with an owner. Returns the
+    response ({pid, state, project_state: {name}, version, changed}). Raises PlanouError with the reason in words."""
+    column = one_line(column, 200)
+    if not column: raise PlanouError(0, 'project_state', 'diga a coluna (o nome do estado do projeto, ex.: "Em andamento")')
+    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    tid = _comment_task(ref)
+    try:
+        _, res = _call('POST', f'/agent/tasks/{urllib.parse.quote(tid, safe="")}/state', {'project_state': column})
+    except PlanouError as e:
+        raise _state_error(e, tid, column) from None
+    res = res or {}
+    if res.get('changed') and res.get('version') is not None:
+        # the agent's own synced task: the next sync goes from this version, not a stale one
+        with _locked('state.json'):
+            st = _load('state.json', {})
+            tasks = st.get('tasks') or {}
+            pid = str(res.get('pid') or '').upper()
+            code = next((c for c, v in tasks.items() if pid and str((v or {}).get('pid') or '').upper() == pid), None)
+            if code:
+                tasks[code].update(version=res['version'], state=res.get('state'),
+                                   project_state=(res.get('project_state') or {}).get('name'))
+                _save('state.json', st)
+    return res
+
+
+def task_attachments(ref):
+    """`anexo ver PID`: the task's attachments (GET /agent/tasks/{id}/attachments), for the agent's task or the one an
+    ask of it grants. Raises PlanouError."""
+    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    tid = _comment_task(ref)
+    try:
+        _, res = _call('GET', f'/agent/tasks/{urllib.parse.quote(tid, safe="")}/attachments')
+    except PlanouError as e:
+        raise _comment_error(e, tid) from None
+    return res or {}
+
+
+_UNSAFE_NAME = re.compile(r'[\x00-\x1f\x7f/\\]')
+
+
+def _safe_name(name, fallback):
+    """A file name from the server, never a path: the last part, control characters and slashes out."""
+    n = _UNSAFE_NAME.sub('_', os.path.basename(str(name or '').replace('\\', '/'))).strip().lstrip('.')
+    return n[:200] or fallback
+
+
+def _disposition_name(value):
+    """The filename of a Content-Disposition header (filename* in UTF-8 first), or None."""
+    v = str(value or '')
+    m = re.search(r"filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)", v)
+    if m: return urllib.parse.unquote(m.group(1).strip().strip('"'))
+    m = re.search(r'filename\s*=\s*"([^"]*)"', v) or re.search(r'filename\s*=\s*([^;]+)', v)
+    return m.group(1).strip() if m else None
+
+
+def download_attachment(ref, attachment, out=None):
+    """`anexo baixar PID ANEXO [--out CAMINHO]`: saves the content of an attachment (GET
+    /agent/tasks/{id}/attachments/{anexo}/content; ANEXO is its id or its source_key). `out`: a folder (the file keeps
+    its name) or a file path; default cache/planou/downloads/<PID>/<name>. Returns (path, size). Raises PlanouError."""
+    key = str(attachment or '').strip()
+    if not key: raise PlanouError(0, 'attachment', 'diga o anexo: o id (anexo ver PID) ou o source_key')
+    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    tid = _comment_task(ref)
+    headers = {}
+    try:
+        _, data = _call('GET', f'/agent/tasks/{urllib.parse.quote(tid, safe="")}/attachments/'
+                               f'{urllib.parse.quote(key, safe="")}/content', binary=True, headers=headers)
+    except PlanouError as e:
+        if e.status == 404 and e.code in ('not_found', 'http_404'):
+            raise PlanouError(e.status, e.code, f'anexo {one_line(key, 80)} nao encontrado em {tid} ({e.message}): '
+                                                f'veja os anexos com anexo ver {tid}') from None
+        raise _comment_error(e, tid) from None
+    name = _safe_name(_disposition_name(headers.get('content-disposition')), _safe_name(key, 'anexo'))
+    if out:
+        dest = os.path.expanduser(out)
+        if os.path.isdir(dest) or str(out).endswith(('/', os.sep)): dest = os.path.join(dest, name)
+    else:
+        dest = os.path.join(_cache_dir(), 'downloads', _safe_name(tid, 'tarefa'), name)
+    os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+    tmp = dest + '.part'
+    with open(tmp, 'wb') as f:
+        f.write(data or b'')
+    os.replace(tmp, dest)
+    return dest, len(data or b'')
+
+
+def _size(n):
+    n = int(n or 0)
+    return f'{n} B' if n < 1024 else f'{n / 1024:.0f} KB' if n < 1024 * 1024 else f'{n / 1024 / 1024:.1f} MB'
+
+
+def _tarefa_estado(a, ap):
+    if len(a.arg) < 3: ap.error('use: tarefa estado PID "<coluna>"')
+    try:
+        res = move_task_state(a.arg[1], ' '.join(a.arg[2:]))
+    except PlanouError as e:
+        print(f'AVISO (planou): {e.message}', file=sys.stderr)
+        return 1
+    pid = one_line(res.get('pid'), 20) or a.arg[1]
+    col = one_line((res.get('project_state') or {}).get('name'), 80) or ' '.join(a.arg[2:])
+    print(f'{pid}: movida para {col}' if res.get('changed') else f'{pid}: ja estava em {col}')
+    return 0
+
+
+def _anexo_ler(a, ap):
+    """anexo ver PID | anexo baixar PID ANEXO [--out CAMINHO]."""
+    sub = a.arg[0]
+    if (sub == 'ver' and len(a.arg) != 2) or (sub == 'baixar' and len(a.arg) != 3):
+        ap.error('use: anexo ver PID | anexo baixar PID ANEXO [--out CAMINHO]')
+    try:
+        if sub == 'ver':
+            res = task_attachments(a.arg[1])
+            rows = res.get('attachments') or []
+            print(f'{one_line(res.get("task"), 20) or a.arg[1]}: {len(rows)} anexo(s)')
+            for x in rows:
+                by = x.get('uploaded_by') or {}
+                print(f'- {x.get("id")} {one_line(x.get("name"), 120)} ({_size(x.get("size"))}, {one_line(x.get("content_type"), 60)}, '
+                      f'{one_line(by.get("name"), 60) or "?"}{" (agente)" if by.get("kind") == "agent" else ""}, '
+                      f'{_stamp(x.get("updated_at"))})')
+            return 0
+        path, n = download_attachment(a.arg[1], a.arg[2], a.out)
+    except PlanouError as e:
+        print(f'AVISO (planou): {e.message}', file=sys.stderr)
+        return 1
+    print(f'anexo salvo em {path} ({_size(n)})')
     return 0
 
 
@@ -5179,6 +5300,7 @@ def main(argv=None):
     ap.add_argument('--phases-from', help="fila worker: the worker's transcript (the Agent tool's output_file) or its agent id: sends the time per phase and the usage per model")
     ap.add_argument('--label', help='fila worker-start, worker start|ping: what the worker is doing, one line')
     ap.add_argument('--name', help='anexo: the file name shown in Planou (default: the file name)')
+    ap.add_argument('--out', help='anexo baixar: folder or file to save into (default: cache/planou/downloads/<PID>/)')
     ap.add_argument('--self', dest='take', action='store_true', help='pronta: the agent also takes the task (assignee self)')
     ap.add_argument('--what', help='sugestao: what happened'); ap.add_argument('--expected', help='sugestao: what was expected')
     ap.add_argument('--example', help='sugestao: an example without client data')
@@ -5294,13 +5416,18 @@ def main(argv=None):
             print(f'  {t["key"]}: {t["status"]}' + (f' (vence {exp[:10]})' if exp else '')
                   + (f' desde {t["failing_since"][:16]}' if t.get('failing_since') else ''))
         return 0
+    if a.cmd == 'anexo' and a.arg and a.arg[0] in ('ver', 'baixar'):
+        return _anexo_ler(a, ap)
+    if a.cmd == 'tarefa' and a.arg and a.arg[0] == 'estado':
+        return _tarefa_estado(a, ap)
     if a.cmd == 'attach' or (a.cmd == 'anexo' and len(a.arg) == 2):
         if len(a.arg) != 2: ap.error('use: attach TAREFA ARQUIVO [--name NOME]  (TAREFA: PID, codigo do agente ou tarefa da fila)')
         outcome, out = attach_file(a.arg[0], a.arg[1], name=a.name)
         print('\n'.join(out + [ATTACH_SAID[outcome].format(task=a.arg[0], name=a.name or os.path.basename(a.arg[1]))]))
         return 0 if outcome in ('sent', 'unchanged', 'pending', 'ignored') else 1
     if a.cmd == 'anexo':
-        if len(a.arg) != 3: ap.error('use: anexo CODIGO SOURCE_KEY ARQUIVO [--name NOME] | anexo TAREFA ARQUIVO')
+        if len(a.arg) != 3: ap.error('use: anexo CODIGO SOURCE_KEY ARQUIVO [--name NOME] | anexo TAREFA ARQUIVO | '
+                                     'anexo ver PID | anexo baixar PID ANEXO [--out CAMINHO]')
         out = attach(a.arg[0], a.arg[1], path=os.path.expanduser(a.arg[2]), name=a.name)
         print('\n'.join(out) or 'ok (enviado, ou igual ao que já estava lá)')
         return 1 if out else 0

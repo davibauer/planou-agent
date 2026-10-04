@@ -103,7 +103,8 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/refinement/BEHAVIOR.md` (vale sem
     ligar no config): `refino ver`, sugestões de estimativa, quebra, selo e pergunta de escopo com o motivo por
     `refino sugerir` e a lista final por `refino lista`; nada muda na tarefa antes de o usuário aprovar em Cerimônias. A
-    resposta da pergunta chega como `-- ESCOPO <PID> respondida`: o tick comenta na tarefa e a move para A fazer.
+    resposta da pergunta chega como `-- ESCOPO <PID> respondida`: o próprio Planou registra a resposta como comentário
+    e devolve a tarefa para A fazer; o agente não comenta nem move de novo.
   - `-- CERIMONIA daily #N de <sigla>: explicar N tarefas Impedidas ate HH:MM` (com uma linha por tarefa logo abaixo):
     a daily do projeto no Planou, cuja ata sai dos dados; o agente só explica as tarefas dele que estão Impedidas.
     Seguir `behaviors/daily/BEHAVIOR.md` (vale sem ligar no config; o heartbeat declara `ceremony_daily`): uma linha
@@ -168,7 +169,16 @@ Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `qa`.
   `-- WORKER INTERROMPIDO <key> (<PID>): ...` no tick: a sessão anterior acabou sem fechar esse worker e o runner o
   fechou no Planou; se a tarefa ainda está com o agente, delegar de novo (com `worker-start` novo).
 - `$PL comentario <PID> --ver`: os comentários da tarefa; `$PL comentario <PID> --text - [--reply-to <comment_id>]`
-  (lê do stdin): responde a um `-- COMENTARIO` (seção acima). Só na tarefa do agente ou em que a pessoa o chamou com @.
+  (lê do stdin): responde a um `-- COMENTARIO` (seção acima). Só na tarefa do agente, em que a pessoa o chamou com @
+  ou liberada por um pedido dele (abaixo).
+- Acesso pelo pedido (Planou 0.84): um pedido aberto pelo agente com `--task <PID>` sobre a tarefa de uma pessoa
+  libera só aquela tarefa, enquanto o pedido está aberto e até 24 h depois da resposta, para fechar o ciclo:
+  comentar (`$PL comentario`), mudar a coluna com `$PL tarefa estado <PID> "<coluna>"` e ler os anexos com
+  `$PL anexo ver <PID>` (id, nome, tamanho) e `$PL anexo baixar <PID> <id|source_key> [--out <pasta|arquivo>]` (sem
+  `--out`, em `cache/planou/downloads/<PID>/`). `tarefa estado` nunca conclui nem reabre (tarefa da fila: `fila done`),
+  nunca põe nem tira do backlog (é da pessoa) e, com o acesso do pedido, nunca leva para coluna com dono; na tarefa da
+  fila do próprio agente o Planou recusa (`in_queue`): mude pelo `fila`. A saída diz o motivo de cada recusa em
+  palavras; não insistir.
 - Chave nova: `$PL key set` (lê do stdin; grava `secrets/planou.env` com 0600). Nunca imprimir a chave.
 
 ## Decisão com recomendada: seguir sem esperar

@@ -84,17 +84,20 @@ partes no Backlog).
 
 Aprovada na tela, a pergunta vira um pedido em Precisa de você, ligado à tarefa e aberto pelo Planou em nome de quem
 perguntou (o agente não abriu pela `/v1/asks`, então não há `pergunta` local para fechar), e a tarefa vai para "Em
-refinamento". A resposta chega como `decision_answered`; o tick liga a resposta à tarefa pelo `task_pid` e:
+refinamento". Desde a v0.83.1 do Planou (PLN0330), quando o usuário responde, o próprio servidor fecha o ciclo em
+qualquer tarefa, do agente ou da pessoa:
 
-1. registra a resposta na tarefa como comentário (a pergunta e a resposta, com o número do refinamento);
-2. tarefa do próprio agente (a que ele sincroniza): move de "Em refinamento" para "A fazer" num sync só dela
-   (`project_state: "A fazer"`, `state: todo`); enquanto a resposta não vem, o sync a segura em "Em refinamento";
-3. tarefa que o usuário criou: o agente não muda o estado dela pelo Planou (e o comentário só vai se ela estiver com o
-   agente); a linha `-- ESCOPO <PID> (<código>): ...` diz o que foi feito e o que ficou, e é o usuário quem move na tela.
+1. grava a resposta na tarefa como comentário (a pergunta, a resposta e quem respondeu), uma vez, quando fecha a
+   janela de Desfazer;
+2. devolve a tarefa de "Em refinamento" para "A fazer", se ela ainda está lá e não há outra pergunta de escopo aberta
+   nela; a que já saiu fica onde está.
 
-A mesma resposta entregue de novo não comenta duas vezes; se o usuário muda a resposta, sai um comentário novo
-("Resposta mudou...") e a tarefa não é movida de novo. Na sessão, basta dizer ao usuário em uma linha o que a
-resposta muda no escopo, se mudar algo (estimativa, quebra, selo), para a próxima rodada de refinamento.
+O agente não comenta nem move de novo: a linha `-- ESCOPO <PID> (<código>): o Planou comenta a resposta e devolve a
+tarefa sozinho; nada a fazer aqui` só confirma. Na tarefa do próprio agente, o sync, que a segurava em "Em
+refinamento" enquanto a resposta não vinha, para de mandar a coluna e deixa o Planou movê-la. Não use `tarefa estado`
+para isso. A mesma resposta entregue de novo não gera outra linha; se o usuário muda a resposta, sai uma linha
+"resposta mudou". Na sessão, basta dizer ao usuário em uma linha o que a resposta muda no escopo, se mudar algo
+(estimativa, quebra, selo), para a próxima rodada de refinamento.
 
 ## Ferramentas e ações do papel
 

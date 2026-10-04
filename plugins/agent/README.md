@@ -103,6 +103,11 @@ alerta baixo "Decidi: <pergunta> -> <opção>" e não deixa pedido esperando em 
 `ask_first` ou `never` (mensagem a pessoas, merge não aprovado, produção, apagar dado ou segredo, criar conta, abrir o
 navegador) e o que depende de uma ação pessoal do usuário continuam como pedido com opções.
 
+Pedido sobre a tarefa de uma pessoa (`pergunta ... --task <PID>`) libera ao agente só aquela tarefa, enquanto o pedido
+está aberto e até 24 h depois da resposta (Acesso pelo pedido, Planou 0.84): comentar (`comentario <PID>`), mudar a
+coluna (`tarefa estado <PID> "<coluna>"`) e ler os anexos (`anexo ver <PID>`, `anexo baixar <PID> <anexo> [--out
+<caminho>]`). Nunca conclui, nunca mexe no backlog e nunca leva para coluna com dono; cada recusa sai em palavras.
+
 ## Instalar com um comando
 
 Num computador novo, um comando instala o plugin (e um Python portátil, se o computador não tiver o python3) e o

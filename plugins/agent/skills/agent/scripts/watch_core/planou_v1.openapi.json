@@ -2435,6 +2435,60 @@
         }
       }
     },
+    "/v1/agent/tasks/{id}/attachments/{attachment}/content": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachment",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stream"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agent/tasks/{id}/comments": {
       "get": {
         "tags": [
@@ -2816,6 +2870,61 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/V1RequestChangesResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/tasks/{id}/state": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project_state": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "nullable": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V1TaskStateResponse"
                 }
               }
             }
@@ -10213,6 +10322,10 @@
           }
         }
       },
+      "Stream": {
+        "type": "string",
+        "format": "binary"
+      },
       "SyncActor": {
         "required": [
           "kind",
@@ -11474,6 +11587,16 @@
           }
         }
       },
+      "TaskState": {
+        "enum": [
+          "todo",
+          "in_progress",
+          "waiting",
+          "blocked",
+          "closed",
+          "backlog"
+        ]
+      },
       "TaskUnblockedEventPayload": {
         "required": [
           "task_id",
@@ -12606,6 +12729,49 @@
         },
         "default": null,
         "nullable": true
+      },
+      "V1TaskStateRequest": {
+        "type": "object",
+        "properties": {
+          "project_state": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "nullable": true
+      },
+      "V1TaskStateResponse": {
+        "required": [
+          "task_id",
+          "pid",
+          "state",
+          "project_state",
+          "version",
+          "changed"
+        ],
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pid": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TaskState"
+          },
+          "project_state": {
+            "$ref": "#/components/schemas/V1ProjectStateRef"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        }
       },
       "V1WorkerResponse": {
         "type": "object",
