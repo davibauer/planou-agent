@@ -2,7 +2,7 @@
 
 The agent plugin's library: Planou (the agent API client, the runner's light loop, the conversation), the daily page on
 Notion, the task list on that page, the day's lessons, rule drift between agents and meeting recordings. An agent is a
-permanent member of the team: an instance running in a loop in its own session (`planou-dev`, `work-watch-acme`...).
+permanent member of the team: an instance running in a loop in its own session (`planou`, `work-watch-acme`...).
 
 **Home and copies.** The source is `plugins/agent/skills/agent/scripts/watch_core/` (since agent 0.1.0; it was
 `shared/watch-core/watch_core/` before). Its tests are in `plugins/agent/tests/`. The generated copies in the old plugins

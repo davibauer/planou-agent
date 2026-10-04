@@ -23,7 +23,7 @@ e cai no do `watch_core` quando não tem. As páginas ficam em `Dailies / AAAA/M
 | Funil de vagas | job-scout com a base criada (`notion_jobs.py --create`) | base de vagas do job-scout (uma linha por vaga) | `job-scout/scripts/notion_jobs.py`, `notion_min.py` | status, encaixe, formato, faixa, Match, fonte, link, CV, Candidatura; linha arquivada quando a vaga sai do funil | a coluna Pedido (`detalhar`, `candidatura`, `aplicar`, `descartar`), limpa depois de feita |
 | Matriz requisito x experiência | job-scout | corpo da página da vaga na base | `job-scout/scripts/matrix.py`, `notion_jobs.py` | a tabela da matriz (os blocos antigos são apagados antes) | nada |
 
-Não gravam no Notion: travel-agent (planilha no Google Sheets), planou-dev e as instâncias só do plugin `agent` sem os
+Não gravam no Notion: travel-agent (planilha no Google Sheets), planou e as instâncias só do plugin `agent` sem os
 ganchos `daily` e `tarefas`.
 
 ## 2. O equivalente no Planou

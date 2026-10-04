@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Every path of an agent instance in one place. No script builds a ~/.config path on its own.
 
-One plugin, one instance per agent. The instance name IS the agent name (planou-dev, work-watch-acme, job-scout): the
+One plugin, one instance per agent. The instance name IS the agent name (planou, work-watch-acme, job-scout): the
 key in Planou, in the fixed session of the `team` launcher, in the lessons. Its folder comes from the resolver
 `watch_core.config.agent_root(name)`: ~/.config/agent/<name>/ when it exists, else the legacy folder of the old plugins
 (~/.config/work-watch/<x>/ for work-watch-<x>, ~/.config/<name>/ for any other), so an instance keeps working in place

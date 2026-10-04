@@ -1,24 +1,34 @@
 """Suggestions for Planou and the plugins (PLN0007): any agent that runs into a limit or a defect of Planou or of the team
-plugins leaves a suggestion; the planou-dev agent turns it into a task of the Planou project, in backlog, reported by the
+plugins leaves a suggestion; the planou agent turns it into a task of the Planou project, in backlog, reported by the
 agent that suggested it.
 
 Why an inbox file and not a direct sync to the Planou project: the /v1 sync would accept `project: "PLN"` from any agent
 of the workspace, but a sync only touches the caller's own source keys (`<agent>:...`). One agent could never add the
 "+1" to a suggestion another agent made, so the same limit reported by three agents would become three tasks. A single
-writer (planou-dev) dedupes across agents, is the one who follows the tasks ("quem acompanha") and registers each one in
-the name of whoever suggested it (`reporter`, Planou 0.31.0, made for this). `assignee` cannot name planou-dev from
+writer (planou) dedupes across agents, is the one who follows the tasks ("quem acompanha") and registers each one in
+the name of whoever suggested it (`reporter`, Planou 0.31.0, made for this). `assignee` cannot name the planou agent from
 the sync (only `self` or `person`, and `self` is ignored in backlog): the task stays with the person until approved.
 
   write side (any agent, no Planou key needed):
     python3 -m watch_core.planou --agent <agent> sugestao --title "..." --what "..." --expected "..." --example "..."
         [--subject "planou: pedidos"] [--priority P1..P4]
-  appends one JSON line to ~/.config/agent/planou-dev/data/suggestions.jsonl (under flock), after these checks:
+  appends one JSON line to ~/.config/agent/<target>/data/suggestions.jsonl (under flock), after these checks:
     - at most PER_DAY (3) suggestions per agent per local day (the 4th is refused);
     - the same title and subject from the same agent on the same day is a duplicate (not written, not counted);
     - no client data: emails, links (other than Planou's), secrets and the client names this machine knows (every
       work-watch instance name, org/site/tenant/workspace/domain of the agent's own sources) are refused ("generalize").
-  read side: the planou-dev hook `suggestions` (plugins/agent hooks/suggestions.py) reads the new lines on each heavy
+  read side: the planou hook `suggestions` (plugins/agent hooks/suggestions.py) reads the new lines on each heavy
   tick, enforces the same daily limit, and creates or "+1"s the task.
+
+The target (PLN0282, the planou-dev instance renamed to planou): the first of
+    - the environment variable AGENT_SUGGESTIONS_TARGET;
+    - "suggestions_target" in the writer's own config (an instance name);
+    - TARGET ("planou") when ~/.config/agent/planou exists;
+    - the old name, LEGACY_TARGETS ("planou-dev"), when only that folder exists (a machine not yet renamed; after the
+      rename ~/.config/agent/planou-dev may stay as a link to planou, the same folder).
+  Only folders under ~/.config/agent count: ~/.config/planou is Planou's own folder (locks, deploy log), never an inbox.
+  A configured target missing from this machine falls back to the default ones. None found: the suggestion is refused.
+  The reader needs nothing: the hook reads its own instance's data/suggestions.jsonl.
 
 The dedupe key is the normalized subject plus the normalized title; the task's source key is derived from it, so a resend
 is `unchanged` and a suggestion the person deleted stays deleted.
@@ -35,7 +45,11 @@ from datetime import datetime, timezone
 from . import config
 
 VERSION = '0.1.0'
-TARGET = 'planou-dev'
+TARGET = 'planou'
+LEGACY_TARGETS = ('planou-dev',)
+TARGET_ENV = 'AGENT_SUGGESTIONS_TARGET'
+TARGET_KEY = 'suggestions_target'
+NAME_RE = re.compile(r'[a-z0-9][a-z0-9_-]{0,60}')
 INBOX_REL = os.path.join('data', 'suggestions.jsonl')
 PER_DAY = 3
 LIMITS = {'title': 200, 'subject': 120, 'what': 1500, 'expected': 1500, 'example': 1500}
@@ -62,8 +76,30 @@ def key_of(title, subject=None):
     return hashlib.sha256(f'{norm(subject)}|{norm(title)}'.encode()).hexdigest()[:16]
 
 
-def inbox_path(target=TARGET):
-    return os.path.join(config.agent_root(target), INBOX_REL)
+def target_candidates(agent=None, cfg=None):
+    """The targets to try, in order: the env var, the writer's "suggestions_target", then TARGET and LEGACY_TARGETS."""
+    if cfg is None: cfg = _agent_config(agent) if agent else {}
+    out = []
+    for v in (os.environ.get(TARGET_ENV), (cfg or {}).get(TARGET_KEY), TARGET, *LEGACY_TARGETS):
+        v = str(v or '').strip()
+        if v and NAME_RE.fullmatch(v) and v not in out: out.append(v)
+    return out
+
+
+def target_root(agent=None, cfg=None, target=None):
+    """(name, folder) of the instance that receives the suggestions: the first candidate (or `target`, when given) with
+    a folder under ~/.config/agent. (None, None) when none exists here."""
+    names = [target] if target else target_candidates(agent, cfg)
+    for name in names:
+        root = os.path.join(config.agent_base(), name)
+        if os.path.isdir(root): return name, root
+    return None, None
+
+
+def inbox_path(target=None, agent=None):
+    """The inbox file of the target (resolved as in target_root); None when no target exists on this machine."""
+    _, root = target_root(agent, target=target)
+    return os.path.join(root, INBOX_REL) if root else None
 
 
 def priority(value):
@@ -163,8 +199,9 @@ def read_inbox(path):
     return out
 
 
-def suggest(agent, title, what, expected, example, subject=None, prio=None, now=None, target=TARGET):
-    """Appends the suggestion to the target's inbox. Returns {"result": "written"|"duplicate", "key", "left", "path"}.
+def suggest(agent, title, what, expected, example, subject=None, prio=None, now=None, target=None):
+    """Appends the suggestion to the target's inbox (target_root; `target` forces one instance). Returns
+    {"result": "written"|"duplicate", "key", "left", "path", "target"}.
     Raises SuggestionError (refused: missing field, client data, limit, test mode, no target on this machine)."""
     now = now or datetime.now(timezone.utc)
     fields = {k: ' '.join(str(v or '').split()) for k, v in
@@ -177,8 +214,10 @@ def suggest(agent, title, what, expected, example, subject=None, prio=None, now=
     cfg = _agent_config(agent)
     if _test_mode(agent, cfg): raise SuggestionError(f'{agent} esta em modo teste: sugestao nao sai')
     check_text(agent, fields, cfg)
-    root = config.agent_root(target)
-    if not os.path.isdir(root): raise SuggestionError(f'{target} nao existe nesta maquina ({root})')
+    name, root = target_root(agent, cfg, target)
+    if not root:
+        tried = ', '.join([target] if target else target_candidates(agent, cfg))
+        raise SuggestionError(f'nenhuma instancia para receber a sugestao nesta maquina ({tried} em {config.agent_base()})')
     path = os.path.join(root, INBOX_REL)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     key = key_of(fields['title'], fields['subject'])
@@ -187,7 +226,7 @@ def suggest(agent, title, what, expected, example, subject=None, prio=None, now=
         fcntl.flock(lk, fcntl.LOCK_EX)
         mine = [e for e in read_inbox(path) if e.get('agent') == agent and e.get('day') == day]
         if any(e.get('key') == key for e in mine):
-            return {'result': 'duplicate', 'key': key, 'left': max(0, PER_DAY - len(mine)), 'path': path}
+            return {'result': 'duplicate', 'key': key, 'left': max(0, PER_DAY - len(mine)), 'path': path, 'target': name}
         if len(mine) >= PER_DAY:
             raise SuggestionError(f'limite de {PER_DAY} sugestoes por dia para {agent}; guarde para amanha')
         entry = {'id': hashlib.sha256(f'{agent}|{key}|{now.isoformat()}'.encode()).hexdigest()[:16], 'at': now.isoformat(),
@@ -195,7 +234,7 @@ def suggest(agent, title, what, expected, example, subject=None, prio=None, now=
                  'what': fields['what'], 'expected': fields['expected'], 'example': fields['example'], 'priority': p}
         with open(path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
-    return {'result': 'written', 'key': key, 'left': PER_DAY - len(mine) - 1, 'path': path}
+    return {'result': 'written', 'key': key, 'left': PER_DAY - len(mine) - 1, 'path': path, 'target': name}
 
 
 def cli(agent, a):
@@ -208,6 +247,6 @@ def cli(agent, a):
     if res['result'] == 'duplicate':
         print(f'sugestao ja registrada hoje por {agent} (mesmo titulo e assunto); nada novo')
     else:
-        print(f'sugestao registrada para o {TARGET} (vira tarefa no backlog do Planou no proximo tick dele); '
+        print(f'sugestao registrada para o {res["target"]} (vira tarefa no backlog do Planou no proximo tick dele); '
               f'restam {res["left"]} hoje')
     return 0

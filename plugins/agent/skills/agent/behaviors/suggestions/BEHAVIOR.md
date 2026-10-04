@@ -6,7 +6,7 @@ kind: always
 ---
 # suggestions: sugestões dos outros agents viram tarefas do Planou
 
-Vale para o planou-dev (gancho `suggestions` no config). Os agents do time registram limites e defeitos do Planou e dos
+Vale para o planou (gancho `suggestions` no config). Os agents do time registram limites e defeitos do Planou e dos
 plugins com `$PL sugestao` (núcleo, "Sugestões para o Planou e os plugins"); a sugestão cai na caixa
 `data/suggestions.jsonl` desta instância e o gancho, a cada tick pesado, cria a tarefa no projeto Planou, no backlog,
 com "Reportada por" o agent que sugeriu. A mesma sugestão (título e assunto) de outro agent ou de outro dia vira uma

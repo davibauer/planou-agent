@@ -32,7 +32,7 @@ for an older version, `git archive` of its tag `<plugin>--v<version>`). Without 
 plugin, nothing changes: the runner runs the copy on disk as before.
 
 rollout.json (only the canary and this CLI write it; flock + atomic rename):
-  {"canary": {"work-watch": "work-watch-<instance>", "job-scout": "job-scout", "agent": "planou-dev"},
+  {"canary": {"work-watch": "work-watch-<instance>", "job-scout": "job-scout", "agent": "planou"},
    "plugins": {"work-watch": {"versions": {"0.33.0": {"state": "released", "at": "...", "by": "canary work-watch-x"},
                                            "0.34.0": {"state": "canary", "agent": "work-watch-x", "at": "..."}}}}}
   state: "canary" (canario rodando), "released" (liberada), "refused" (recusada, with "reason").

@@ -47,13 +47,18 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    public repository; code-review holds it to the no-client-data rule, --brief tells the worker; the old
                    behavior_config.code-review.public_repos still counts, see public_repos())
   planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles, epics,
-                   epic_aliases}; roles [str]
+                   epic_aliases, agent}; agent (str) is the agent's name in Planou when it differs from the instance
+                   name (PLN0282: the instance renamed, the Planou side not yet): sync, source keys, idempotency keys
+                   and the whoami fallback use it; default the instance name; same pattern as an instance name.
+                   roles [str]
                    replaces the roles the heartbeat declares (Planou PLN0284, column owned by a role; default: from the
                    behaviors, watch_core.planou.ROLE_OF_BEHAVIOR; [] declares none): lower case letters, digits, - and
                    _, up to 40 characters, at most 10; epics [{pid, title}] are the open epics of the project and
                    epic_aliases {"phrase": "pid or title"}; every new task the agent creates is born under one of them
                    (watch_core.epics)
   runtime          {python: system|venv, requirements}
+  suggestions_target  str: the instance that receives this agent's suggestions (watch_core.suggestions; default
+                   "planou", else "planou-dev" when only that folder exists); same pattern as an instance name
 
   python3 schema.py <config.json>   prints the normalized config and the problems (exit 1 on errors)
 """
@@ -68,7 +73,7 @@ ENTRY_ALIASES = {'tipo': 'type', 'nome': 'name'}
 KNOWN = {'schema', 'live', 'language', 'tz_hours', 'business_hours', 'interval_s', 'session', 'workspace', 'code',
          'sources', 'hooks', 'behaviors', 'behavior_config', 'tools', 'autonomy', 'repos', 'planou', 'runtime',
          'max_reminders', 'agent', 'retry_s', 'videos_dir', 'archive_dir', 'idioma_pagina', 'meetings_keywords',
-         'meetings_include', 'wake'}
+         'meetings_include', 'wake', 'suggestions_target'}
 PAGE_LANGUAGES = ('pt', 'en')
 TOOL_KINDS = ('subagent', 'cli', 'skill', 'mcp', 'other')
 AUTONOMY_KEYS = ('can', 'ask_first', 'never')
@@ -76,6 +81,8 @@ CONFIDENTIALITY = ('minimum', 'title', 'detail')
 # the roles of "planou.roles" (Planou PLN0284): as Planou takes them in the heartbeat
 ROLE_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,39}$')
 ROLES_MAX = 10
+# "planou.agent" and "suggestions_target" (PLN0282): an instance name, as paths.NAME_RE
+INSTANCE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,60}$')
 PLANOU_BOOLS = ('drafts_in_planou', 'publish', 'task_queue', 'conversation', 'live')
 DEFAULTS = {'schema': 1, 'tz_hours': -3, 'business_hours': [8, 19], 'interval_s': 300, 'sources': [], 'hooks': [],
             'behaviors': [], 'tools': []}
@@ -527,6 +534,9 @@ def validate(c, behavior_file=None, adapter_exists=None):
         if not isinstance(p, dict): err.append('"planou" precisa ser um objeto')
         else:
             if 'project' in p and not isinstance(p['project'], str): err.append('"planou.project" precisa ser texto')
+            if 'agent' in p and not (isinstance(p['agent'], str) and INSTANCE_NAME_RE.fullmatch(p['agent'])):
+                err.append(f'"planou.agent": {p["agent"]!r} (nome do agente no Planou: minusculas, numeros, - e _, '
+                           'ate 61 caracteres; ex.: "planou-dev")')
             if 'confidentiality' in p and p['confidentiality'] not in CONFIDENTIALITY:
                 err.append(f'"planou.confidentiality": {p["confidentiality"]!r} ({", ".join(CONFIDENTIALITY)})')
             for k in PLANOU_BOOLS:
@@ -550,6 +560,10 @@ def validate(c, behavior_file=None, adapter_exists=None):
                 err.append('"planou.epic_aliases" precisa ser um objeto {"apelido": "pid ou titulo do epico"}')
             if p.get('task_queue') is True and c.get('live') is not True:
                 warn.append('"planou.task_queue" so vale com "live": true (em modo teste a fila fica desligada)')
+    st = c.get('suggestions_target')
+    if st is not None and not (isinstance(st, str) and INSTANCE_NAME_RE.fullmatch(st)):
+        err.append(f'"suggestions_target": {st!r} (nome da instancia que recebe as sugestoes: minusculas, numeros, - e _; '
+                   'ex.: "planou")')
     rt = c.get('runtime')
     if rt is not None:
         if not isinstance(rt, dict) or rt.get('python', 'system') not in ('system', 'venv'):

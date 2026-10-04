@@ -75,14 +75,14 @@ computador, nasce de novo pela chave nova, e o arquivo fica onde está.
 
 - Só a resposta válida da lista conta (um objeto com `agents` numa lista, cada item com `agent_id`). Falha de rede,
   Planou fora do ar, credencial recusada (401, 403) ou resposta fora do formato não arquivam nada.
-- Instância sem a marca (um agente adotado, como o `planou-dev`, ou feito à mão) nunca é parada nem arquivada, mesmo
+- Instância sem a marca (um agente adotado, como o `planou`, ou feito à mão) nunca é parada nem arquivada, mesmo
   com a lista vazia.
 - Runner que não para ou `agents.json` quebrado: a instância fica como está, o log diz por quê, e a próxima volta
   tenta de novo; as outras seguem.
 
 ## Agentes que já existiam (adotados)
 
-Os agentes que já rodavam na máquina antes do Novo funcionário (planou-dev, work-watch-*, tech-scout, job-scout,
+Os agentes que já rodavam na máquina antes do Novo funcionário (planou, work-watch-*, tech-scout, job-scout,
 travel-agent...) entram pelo **inventário**. A cada volta o provisionador manda ao Planou
 (`POST /v1/provisioner/inventory`) cada agente do `~/.config/team/agents.json`, mais as instâncias do plugin agent que
 ainda não estão nele, com `enabled`, a pasta (`work_dir`) e o estado do runner:

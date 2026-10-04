@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agent: one CLI for every instance of the agent plugin. The instance name is the agent name (planou-dev,
+"""agent: one CLI for every instance of the agent plugin. The instance name is the agent name (planou,
 work-watch-acme...); its folder comes from watch_core.config.agent_root (paths.py).
 
 Usage:
@@ -48,7 +48,7 @@ never talked to Planou: with "planou" in the config the thin Planou tick goes ar
 manifest, the config tools, the sign of life `tick`). A tick in test mode is dry; the heavy tick is never shorter than
 3 hours (runner-env), the old runner's floor.
 
-The heavy tick of an instance without sources (planou-dev) still talks to Planou: it applies and acknowledges the
+The heavy tick of an instance without sources (planou) still talks to Planou: it applies and acknowledges the
 answers the light loop already delivered, sends the tools list (the sources plus the config "tools") and the sign of
 life `tick`. Nothing is synced as a task list (no source feeds one).
 
@@ -482,7 +482,7 @@ def status(cfg, err):
             'interval_s': cfg.get('interval_s'), 'sources': [e.get('type') for e in cfg.get('sources') or []],
             'hooks': [e.get('type') for e in cfg.get('hooks') or []], 'behaviors': cfg.get('behaviors'),
             'tools': [f'{t.get("kind")}:{t.get("name")}' for t in cfg.get('tools') or [] if isinstance(t, dict)],
-            'planou': {k: v for k, v in (cfg.get('planou') or {}).items() if k in ('project', 'task_queue', 'conversation', 'confidentiality')},
+            'planou': {k: v for k, v in (cfg.get('planou') or {}).items() if k in ('project', 'task_queue', 'conversation', 'confidentiality', 'agent')},
             'behavior_config': cfg.get('behavior_config') or {},
             'errors': err, 'runner': {'pid': pid if alive else None, 'last_poll': rd_file('ultimo_poll'),
                                       'last_empty_tick': rd_file('ultimo_vazio'), 'next_heavy': rd_file('next_heavy')}}
@@ -507,6 +507,9 @@ def main(argv=None):
         for w in warn: print('aviso:', w)
         for e in err: print('ERRO:', e)
         print(f'{paths.NAME}: ' + ('config com erro' if err else f'config ok ({paths.CONFIG})'))
+        alias = (cfg.get('planou') or {}).get('agent') if isinstance(cfg.get('planou'), dict) else None
+        if not err and alias and alias != paths.NAME:
+            print(f'{paths.NAME}: no Planou fala como {alias} ("planou.agent")')
         sys.exit(1 if err else 0)
     if rest == ['--status']:
         print(json.dumps(status(cfg, err), ensure_ascii=False, indent=1)); return

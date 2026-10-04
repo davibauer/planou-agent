@@ -250,8 +250,10 @@ def _pid_line(r):
 
 def run(agent, plan_raw, dry=False, max_tasks=None, update=False, now=None):
     now = now or datetime.now(timezone.utc)
-    pc = P.configure_agent(agent)
-    if not pc: raise PlanError(f'{agent}: a instância não tem o bloco "planou" no config')
+    instance = agent
+    pc = P.configure_agent(instance)
+    if not pc: raise PlanError(f'{instance}: a instância não tem o bloco "planou" no config')
+    agent = P.name() or instance      # the name in Planou ("planou.agent", PLN0282): source keys and the sync
     if P._S['confidentiality'] == 'minimum':
         raise PlanError('"confidentiality": "minimum" nesta instância: o plano não sobe (descrição e critério de pronto '
                         'são o trabalho). Use "title" ou "detail" no bloco "planou" da instância de produto')
@@ -264,7 +266,7 @@ def run(agent, plan_raw, dry=False, max_tasks=None, update=False, now=None):
         pre = f'meta-{slug(g0.get("ref") if isinstance(g0, dict) else g0)}-'
     except (PlanError, AttributeError): pass
     earlier = {c[len(pre):] for c in known if pre and c.startswith(pre)}
-    plan = validate(plan_raw, earlier, max_tasks or instance_max(agent))
+    plan = validate(plan_raw, earlier, max_tasks or instance_max(instance))
     project = plan['project'] or P._S.get('project')
     if not project: raise PlanError('sem projeto: "project" no plano ou planou.project na instância')
     autonomy = P.autonomy(project, now) if P.active() else None

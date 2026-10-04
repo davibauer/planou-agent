@@ -1,6 +1,6 @@
 ---
 name: agent
-description: "agent do time, uma instância por agent (planou-dev, work-watch-<empresa>...): `/agent <instância>` carrega as instruções e os comportamentos da instância, liga o runner em background e trata o que ele traz (tick das fontes, fila e conversa do Planou). Use quando o usuário invocar /agent <instância> ou quando o runner de uma instância do plugin agent acordar a sessão."
+description: "agent do time, uma instância por agent (planou, work-watch-<empresa>...): `/agent <instância>` carrega as instruções e os comportamentos da instância, liga o runner em background e trata o que ele traz (tick das fontes, fila e conversa do Planou). Use quando o usuário invocar /agent <instância> ou quando o runner de uma instância do plugin agent acordar a sessão."
 ---
 
 # agent
@@ -218,7 +218,7 @@ além do texto na sessão, abrir o pedido no Planou, para os botões aparecerem 
 ## Sugestões para o Planou e os plugins
 
 Esbarrou num limite ou defeito do Planou ou dos plugins do time (falta um campo, uma rota recusa, um comando confunde):
-registrar uma sugestão. O planou-dev a transforma em tarefa no backlog do projeto Planou, reportada por esta instância.
+registrar uma sugestão. O planou a transforma em tarefa no backlog do projeto Planou, reportada por esta instância.
 
 `$PL sugestao --title "<o que falta, uma linha>" --subject "<área: planou pedidos, plugin agent runner...>"
 --what "<o que aconteceu>" --expected "<o que esperava>" --example "<exemplo sem dado de cliente>" --priority P1..P4`
@@ -227,7 +227,7 @@ registrar uma sugestão. O planou-dev a transforma em tarefa no backlog do proje
   Generalize ("um card do quadro do cliente", "uma pergunta sobre horas"). O comando recusa o que reconhece.
 - No máximo 3 por dia por instância; a mesma (mesmo título e assunto) vinda de outro agent vira um "+1" na existente.
 - **Toda tarefa nova de agente nasce sob um épico** (PLN0250). Na sugestão, o `--subject` diz a área e escolhe o
-  épico: o planou-dev põe a tarefa no épico aberto do projeto que casa com a área e, se nenhum serve, cria um épico
+  épico: o planou põe a tarefa no épico aberto do projeto que casa com a área e, se nenhum serve, cria um épico
   novo da área ("Plugins: <área>", "Planou: <área>"). Sem `epics` no config do gancho, nenhum épico é criado: a tarefa
   nasce sem épico e a saída avisa. Escreva o assunto como área ("plugin agent runner", "planou: pedidos"), nunca
   vazio.

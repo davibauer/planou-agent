@@ -73,7 +73,7 @@ def liga(cfg):
     """Configures watch_core.planou for this instance. True when this tick talks to Planou (block, key, live)."""
     pc = settings(cfg)
     if not pc: return False
-    planou.configure(agent(), paths.ROOT, project=pc.get('project'),
+    planou.configure(planou.planou_name(agent(), pc), paths.ROOT, instance=agent(), project=pc.get('project'),
                      confidentiality=pc.get('confidentiality') or 'minimum', publish=True,
                      live=core.LIVE and pc.get('live', True) is not False, plugin_version=_version(),
                      drafts_text=pc.get('drafts_in_planou') is True)

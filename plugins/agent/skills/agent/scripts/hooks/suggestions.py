@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hook suggestions: the planou-dev instance turns the suggestions of the other agents into Planou tasks (PLN0007).
+"""Hook suggestions: the planou instance turns the suggestions of the other agents into Planou tasks (PLN0007).
 
 Any agent leaves a suggestion with `python3 -m watch_core.planou --agent <agent> sugestao ...` (watch_core.suggestions,
 which explains why an inbox and not a direct sync). It lands as one JSON line in this instance's
@@ -55,6 +55,16 @@ def _planou():
         return planou if planou.active() else None
     except Exception:
         return None
+
+
+def _name():
+    """This agent's name in Planou (source keys, reporter, sync): "planou.agent" of the instance, else the instance
+    (PLN0282). Read after _planou() configured the module."""
+    try:
+        from watch_core import planou
+        return planou.name() or paths.NAME
+    except Exception:
+        return paths.NAME
 
 
 def _date_br(iso_day):
@@ -153,7 +163,7 @@ class Gancho(Base):
             E.save_own(p, own)
         st.pop('epics', None)
         epics, aliases, _ = E.settings(paths.ROOT, P=p, project=project, hook=self.cfg)
-        picker = E.Picker(paths.NAME, epics, aliases, own)
+        picker = E.Picker(_name(), epics, aliases, own)
         snapshot = copy.deepcopy((st['tasks'], st['days']))
         days = st['days']
         batch, events, touched = {}, [], dict(retry)
@@ -185,7 +195,7 @@ class Gancho(Base):
         for d in sorted(days)[:-14]: days.pop(d, None)
         epic_batch = {}
         for key, t in touched.items():
-            body = {'source_key': f'{paths.NAME}:sug-{key}', 'project': project, 'title': t['title'],
+            body = {'source_key': f'{_name()}:sug-{key}', 'project': project, 'title': t['title'],
                     'priority': t['priority'], 'reporter': t['reporter']}
             if not t.get('frozen'): body['description'] = t['description']
             if t.get('version') is not None: body['base_version'] = t['version']
@@ -197,7 +207,7 @@ class Gancho(Base):
             batch[key] = body
         if batch:
             try:
-                _, res = p._call('POST', '/agent/sync', {'agent': paths.NAME, 'generated_at': now.isoformat(),
+                _, res = p._call('POST', '/agent/sync', {'agent': _name(), 'generated_at': now.isoformat(),
                                                            'tasks': list(epic_batch.values()) + list(batch.values())})
             except p.PlanouError as ex:
                 # nothing is lost: the offset stays and the tasks, counters and epics go back to before this batch
@@ -207,7 +217,7 @@ class Gancho(Base):
                 st['err'] = msg
                 return {'kind': 'error', 'error': msg}
             st.pop('err', None)
-            by_key = {f'{paths.NAME}:sug-{k}': k for k in batch}
+            by_key = {f'{_name()}:sug-{k}': k for k in batch}
             results = (res or {}).get('tasks') or []
             for r in results:
                 if r.get('source_key') in epic_batch: picker.result(r)

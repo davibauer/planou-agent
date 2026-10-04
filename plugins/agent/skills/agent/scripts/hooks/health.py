@@ -100,6 +100,16 @@ def _planou():
         return None
 
 
+def _name():
+    """This agent's name in Planou (source keys, reporter, sync): "planou.agent" of the instance, else the instance
+    (PLN0282). Read after _planou() configured the module."""
+    try:
+        from watch_core import planou
+        return planou.name() or paths.NAME
+    except Exception:
+        return paths.NAME
+
+
 def _local(d):
     return d.astimezone(core.BRT)
 
@@ -452,7 +462,7 @@ class Gancho(Base):
         return '\n'.join(lines)
 
     def source_key(self, key):
-        return f'{paths.NAME}:{self.key_prefix}-{key}'
+        return f'{_name()}:{self.key_prefix}-{key}'
 
     def tasks(self, ctx, st, now, events):
         """Opens a task per check that counts as broken and has none for this episode; notes recoveries (and, with
@@ -526,7 +536,7 @@ class Gancho(Base):
                 # a reopen never moves it
                 if picker is None:
                     ep, al, _ = E.settings(paths.ROOT, P=p, project=project)
-                    picker = E.Picker(paths.NAME, ep, al, own)
+                    picker = E.Picker(_name(), ep, al, own)
                 ch = by_id.get(t.get('check')) or {}
                 subj = ch.get('epic_subject') if isinstance(ch.get('epic_subject'), str) and ch['epic_subject'].strip() else self.epic_subject
                 hit = picker.place(subj, t['title'], key)
@@ -537,13 +547,13 @@ class Gancho(Base):
         body = list(rows)
         for key, t in batch.items():
             b = {'source_key': self.source_key(key), 'project': project, 'title': t['title'],
-                 'priority': t['priority'], 'reporter': paths.NAME}
+                 'priority': t['priority'], 'reporter': _name()}
             if not t.get('frozen'): b['description'] = t['description']
             if t.get('version') is not None: b['base_version'] = t['version']
             if t.get('pid') is None and t.get('epic'): b['epic'] = t['epic']
             body.append(b)
         try:
-            _, res = p._call('POST', '/agent/sync', {'agent': paths.NAME, 'generated_at': now.isoformat(), 'tasks': body})
+            _, res = p._call('POST', '/agent/sync', {'agent': _name(), 'generated_at': now.isoformat(), 'tasks': body})
         except p.PlanouError as ex:
             msg = _safe(ex.message if getattr(ex, 'status', 0) else ex, 200)
             for t in batch.values(): t['pending'] = True                  # goes again next tick

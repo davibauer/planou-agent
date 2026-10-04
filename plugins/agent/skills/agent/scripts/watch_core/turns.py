@@ -276,6 +276,7 @@ def run_hook(data, agent, now=None):
             c['answers'] = [x for x in c['answers'] if cut and x[0] >= cut]
             if not c['answers']: del chunks[aid]
             else: c['first'] = max(c['first'], cut)
+    agent = planou.name() or agent        # the name in Planou ("planou.agent", PLN0282)
     payload = build(turns, session, agent) + build_subagents(chunks, session, agent, st)
     old = [(datetime.fromisoformat(c[0]), c[1], c[2], c[3]) for c in st.get('carry') or []]
     if old:

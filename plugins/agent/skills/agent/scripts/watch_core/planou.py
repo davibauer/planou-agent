@@ -200,8 +200,8 @@ link rules are saved to go with it) and, with the queue on, the limit "Ao mesmo 
 busy from GET /agent/queue, the same numbers as `fila ver`; source "cache" and nulls when Planou does not answer).
 
 Suggestions (PLN0007, watch_core.suggestions): `sugestao` leaves a suggestion about a limit or a defect of Planou or of
-the plugins in the planou-dev inbox (no Planou key needed; 3 per agent per day; client data refused); planou-dev turns
-it into a backlog task of the Planou project reported by this agent.
+the plugins in the inbox of the planou instance (planou-dev on a machine not yet renamed; no Planou key needed; 3 per
+agent per day; client data refused); planou turns it into a backlog task of the Planou project reported by this agent.
 
 Tools (Planou "Ferramentas do agente"): the heavy tick calls set_tools(list) with one entry per source (source_tools
 builds them from the config, the broken sources of the state and how to fix each one); the list waits in
@@ -304,7 +304,7 @@ STATE_OF = {
 # Planou events -> the status label the agent's "box ticked" handler understands.
 STATUS_OF_RESOLUTION = {'done': 'Feito', 'no_action': 'Sem ação', 'discarded': 'Descartada'}
 
-_S = {'agent': None, 'root': None, 'project': None, 'confidentiality': 'title', 'publish': True, 'live': True,
+_S = {'agent': None, 'instance': None, 'root': None, 'project': None, 'confidentiality': 'title', 'publish': True, 'live': True,
       'base_url': None, 'plugin_version': None, 'drafts_text': True, 'warnings': [], 'cited': {}}
 
 
@@ -356,11 +356,13 @@ def user_agent(plugin=None):
 
 
 def configure(agent, root, project=None, confidentiality='title', publish=True, live=True, base_url=None, plugin_version=None,
-              drafts_text=True):
+              drafts_text=True, instance=None):
     """Called once per tick by the plugin. `publish=False` turns this agent off; `live=False` (test mode) sends nothing;
     `drafts_text=False` keeps the text of the drafts on this machine (the ask goes up without it). Without
-    `plugin_version`, the version of the plugin this copy ships in (the runner, the CLI and job-scout pass none)."""
-    _S.update(agent=agent, root=os.path.expanduser(root), project=project, confidentiality=confidentiality or 'title',
+    `plugin_version`, the version of the plugin this copy ships in (the runner, the CLI and job-scout pass none).
+    `agent` is the name in Planou (sync, source keys, idempotency keys, whoami fallback); `instance` the local instance
+    when it differs ("planou.agent" in its config, PLN0282), used only for what is read on this machine."""
+    _S.update(agent=agent, instance=instance or agent, root=os.path.expanduser(root), project=project, confidentiality=confidentiality or 'title',
               publish=publish is not False, live=live is not False,
               base_url=(base_url or config.get('planou.base_url') or '').rstrip('/') or None,
               plugin_version=plugin_version or _own_version(), drafts_text=drafts_text is not False)
@@ -380,6 +382,11 @@ _NAME_CACHE = []
 def _own_name():
     if not _NAME_CACHE: _NAME_CACHE.append(find_plugin_name())
     return _NAME_CACHE[0]
+
+
+def name():
+    """The name of this agent in Planou (after configure): "planou.agent" of the instance, else the instance name."""
+    return _S['agent']
 
 
 def _key_file():
@@ -1089,7 +1096,7 @@ def _opted_in(key):
     that send a heartbeat (the runner's CLI, work-watch's and job-scout's heavy tick) always agree: the server replaces
     the capability list on every heartbeat."""
     if not _S['root'] or not _S['agent']: return False
-    pc = agent_settings(_S['root'], _S['agent'])
+    pc = agent_settings(_S['root'], _S['instance'] or _S['agent'])
     return bool(pc) and pc.get(key) is True
 
 
@@ -1098,7 +1105,7 @@ def queue_enabled():
 
 
 def capabilities():
-    agent = str(_S['agent'] or '')
+    agent = str(_S['instance'] or _S['agent'] or '')
     legacy = any(agent == r or (r.endswith('-') and agent.startswith(r)) for r in DELIVERING_RUNNERS)
     agent_layout = config.is_agent_layout(_S['root'])
     if not legacy and not agent_layout: return []
@@ -4179,13 +4186,25 @@ def agent_settings(root, agent=None):
     return None
 
 
+def planou_name(instance, pc=None):
+    """The agent's name in Planou: "planou.agent" of the instance config (PLN0282: the planou-dev instance renamed to
+    planou keeps talking to Planou as planou-dev until the person renames it there too), else the instance name."""
+    v = (pc or {}).get('agent') if isinstance(pc, dict) else None
+    v = v.strip() if isinstance(v, str) else ''
+    return v if AGENT_NAME_RE.fullmatch(v) else instance
+
+
+AGENT_NAME_RE = re.compile(r'[a-z0-9][a-z0-9_-]{0,60}')
+
+
 def configure_agent(agent, root=None, plugin_version=None):
     """configure() from the agent's own config: what the runner, the CLI and the cost hook use. Without a "planou"
-    block the module stays off. Draft text: "drafts_in_planou" in the block (default true, false for work-watch)."""
+    block the module stays off. Draft text: "drafts_in_planou" in the block (default true, false for work-watch).
+    `agent` is the instance; the name in Planou is planou_name() ("planou.agent", default the instance)."""
     root = os.path.expanduser(root) if root else agent_root(agent)
     pc = agent_settings(root, agent)
     default_conf = 'minimum' if _work_watch(agent) else 'title'
-    configure(agent, root, project=(pc or {}).get('project'), confidentiality=(pc or {}).get('confidentiality') or default_conf,
+    configure(planou_name(agent, pc), root, instance=agent, project=(pc or {}).get('project'), confidentiality=(pc or {}).get('confidentiality') or default_conf,
               publish=bool(pc) and pc.get('publish', True) is not False, live=(pc or {}).get('live', True),
               plugin_version=plugin_version, drafts_text=(pc or {}).get('drafts_in_planou', not _work_watch(agent)) is True)
     return pc
@@ -5321,7 +5340,7 @@ def main(argv=None):
     if a.cmd == 'active':
         return 0 if active() else 1
     if a.cmd == 'status':
-        print(json.dumps({'agent': _S['agent'], 'root': _S['root'], 'base_url': _S['base_url'], 'enabled': bool(config.get('planou.enabled')),
+        print(json.dumps({'agent': _S['agent'], 'instance': _S['instance'], 'root': _S['root'], 'base_url': _S['base_url'], 'enabled': bool(config.get('planou.enabled')),
                           'key': bool(_key()), 'publish': _S['publish'], 'live': _S['live'], 'active': active(),
                           'project': _S['project'], 'confidentiality': _S['confidentiality'], 'drafts_text': _S['drafts_text'],
                           'open_asks': len(_load('open_asks.json', {})),

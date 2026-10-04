@@ -33,6 +33,7 @@ import fcntl, glob, json, os, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import drive_probe, team_agents, team_lock   # noqa: E402
+from watch_core.config import NOT_LEGACY   # noqa: E402
 
 MODE = {'canary': 'canário', 'released': '', 'pinned': 'fixa', 'rollback': 'voltou', 'refused': 'recusada', 'live': 'disco'}
 STATE = {'canary': 'canário rodando', 'released': 'liberada', 'refused': 'recusada'}
@@ -114,7 +115,9 @@ def runner_dir(agent, entry=None):
     n = agent['name']
     given = (entry or {}).get('runner_dir')
     if isinstance(given, str) and given.strip(): return os.path.expanduser(given.strip())
-    if agent.get('agent_plugin'): return os.path.join(home(), '.config', 'agent', n, 'cache', 'runner')
+    # planou (and the team's own folders) never has a legacy ~/.config/<name> runner: that is Planou's folder (PLN0282)
+    if agent.get('agent_plugin') or n in NOT_LEGACY:
+        return os.path.join(home(), '.config', 'agent', n, 'cache', 'runner')
     base = os.path.join(home(), '.config', n)
     if not os.path.isdir(base): return None
     for d in (os.path.join(base, 'cache', 'runner'), os.path.join(base, 'runner')):

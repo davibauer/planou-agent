@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.86.0 (2026-10-04)
+- Preparação para a instância `planou-dev` passar a se chamar `planou` (PLN0282). As sugestões dos agentes vão para a caixa da instância `planou` quando ela existe na máquina e, senão, para a do `planou-dev`, como antes; a variável `AGENT_SUGGESTIONS_TARGET` ou `suggestions_target` no config de quem sugere escolhem outra instância. Só contam pastas em `~/.config/agent`, então a pasta própria do Planou em `~/.config/planou` nunca recebe sugestão.
+- Opção nova `planou.agent` no config da instância: o nome do agente no Planou quando é diferente do nome da instância. O sync, as chaves das tarefas, dos pedidos e dos épicos, o "Reportada por" das sugestões e da saúde, os turnos de custo e o whoami usam esse nome; sem a opção nada muda. O `--validate` confere o formato e diz com que nome a instância fala no Planou.
+- A instância `planou` nunca usa a pasta `~/.config/planou`, que é do próprio Planou: sem `~/.config/agent/planou`, ela usa e cria essa pasta, em vez de cair na antiga.
+- Textos e documentos citam a instância do time como `planou`.
+
 ## 0.85.1 (2026-10-04)
 - Instalador: o link da skill que aponta para uma cópia mais antiga do plugin passa para a cópia instalada sozinho quando nada se perde (cópia sem git, ou clone sem mudança local, sem stash e sem commit fora do origin). O destino antigo fica guardado em `~/.local/share/planou/previous-links/` e a linha do instalador diz como voltar. Clone com trabalho local continua mantido, com o aviso de cópia velha (PLN0336).
 - `planou-agent`: quando a cópia em uso não tem a janela do funcionário (employee.sh) ou é mais antiga que a instalada, abre pela cópia instalada e avisa numa linha; `PLANOU_EMPLOYEE_SH` continua mandando.

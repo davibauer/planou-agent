@@ -544,7 +544,7 @@ def pump(agent, root=None, pid=None, now=None):
     size = os.path.getsize(path)
     grew = size > (cur.get('size') or 0) and cur.get('session') == session
     was = {k: cur.get(k) for k in ('working', 'working_at')} if cur.get('session') == session else {}
-    messages, costs = collect(path, session, agent, cur, conversation_on(pc))
+    messages, costs = collect(path, session, planou.name() or agent, cur, conversation_on(pc))   # name in Planou (PLN0282)
     cur.update(was)
     cur['size'] = size
     _, _, w1 = deliver('turns', costs, '/turns', 'turns', BATCH_TURNS)

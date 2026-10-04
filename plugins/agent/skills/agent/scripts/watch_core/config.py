@@ -16,7 +16,7 @@ plugin (a generated copy of shared/watch_core, see the repo README); what belong
 Agent folders (agent plugin 0.1.0): `agent_root(name)` is the one resolver every caller uses (the runners, planou,
 transcript, the launcher's hooks). ~/.config/agent/<name>/ wins when it exists; otherwise the legacy place:
 ~/.config/work-watch/<x>/ for work-watch-<x>, ~/.config/<name>/ for any other agent. So an agent keeps working in place
-until its folder moves, and a new agent (planou-dev) is born in ~/.config/agent/.
+until its folder moves, and a new agent (planou, born as planou-dev) is born in ~/.config/agent/.
 
 Legacy locations (before 25/09/2026, when these libraries lived loose in ~/.claude/skills/vigia-*) are still read
 when the new file does not exist yet; `python3 -m watch_core.config --migrate` copies them over.
@@ -114,15 +114,24 @@ def agent_base():
     return os.path.expanduser(AGENT_DIR)
 
 
+# ~/.config/<name> folders that belong to something else, never to an agent (PLN0282): "planou" is Planou's own folder
+# (locks, deploy log, rules, secrets), so the instance planou must never fall back to it; the others are the folders
+# of the team itself. An agent with one of these names has no legacy folder: it lives in ~/.config/agent/<name>.
+NOT_LEGACY = frozenset({'planou', 'agent', 'team', 'watch-core', 'work-watch', 'agent-provisioner'})
+
+
 def legacy_agent_root(name):
-    """Where an agent lived before the agent plugin: ~/.config/work-watch/<x> for work-watch-<x>, ~/.config/<name>."""
+    """Where an agent lived before the agent plugin: ~/.config/work-watch/<x> for work-watch-<x>, ~/.config/<name>.
+    A name of NOT_LEGACY has no legacy folder: its answer is ~/.config/agent/<name>, never ~/.config/<name>."""
     if name.startswith(WORK_WATCH_PREFIX):
         return os.path.expanduser(f'~/.config/work-watch/{name[len(WORK_WATCH_PREFIX):]}')
+    if name in NOT_LEGACY: return os.path.join(agent_base(), name)
     return os.path.expanduser(f'~/.config/{name}')
 
 
 def agent_root(name):
-    """Folder of an agent: ~/.config/agent/<name> when it exists, else the legacy folder (legacy_agent_root)."""
+    """Folder of an agent: ~/.config/agent/<name> when it exists, else the legacy folder (legacy_agent_root); for a name
+    of NOT_LEGACY always ~/.config/agent/<name> (created by the first write, like any new instance)."""
     new = os.path.join(agent_base(), name)
     return new if os.path.isdir(new) else legacy_agent_root(name)
 

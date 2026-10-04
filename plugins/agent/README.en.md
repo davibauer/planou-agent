@@ -39,7 +39,7 @@ returns one line per job, with the detail in `data/judgments/<id>.md`.
 - Hooks: `release_due` (a batch release is due; the queue is driven by `agent.py <instance> --release-queue`) and
   `deploy_log` (one wake per new line of the deploy log; a deploy of the release the session closed does not wake). With Planou on, the release rules come from the project's
   Release section (local options are the fallback), the queue is mirrored there and each deploy goes to the project's
-  version history. `suggestions` (planou-dev) turns the other agents' suggestions (`watch_core.planou ... sugestao`,
+  version history. `suggestions` (planou) turns the other agents' suggestions (`watch_core.planou ... sugestao`,
   an inbox file, 3 per agent per day, client data refused) into backlog tasks of the Planou project reported by the
   agent that suggested them, with "+1" for the same one again. `health` runs read-only checks (http, command, disk,
   file freshness, runners, broken sources); a check broken for `after` ticks in a row opens a backlog task with the
