@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.83.1 (2026-10-04)
+- Instalador: quando mantém o link da skill `agent` ou `work-watch` apontando para outra cópia do plugin (um clone de desenvolvimento), mostra a versão dessa cópia e a recém instalada; se a mantida for mais antiga, avisa com destaque e mostra como atualizar (`git -C <clone> pull --ff-only`) ou como trocar o link para a cópia instalada.
+- Instalador: avisa quando o serviço agent-provisioner roda uma cópia mais antiga que a recém instalada (pelo link da skill ou por um ExecStart mantido), com o comando para atualizar e reiniciar o serviço.
+
 ## 0.83.0 (2026-10-04)
 - Retro: cada ação da ata diz a métrica do projeto que deve mexer (autonomia, retrabalho, horas paradas ou custo por entrega), escolhida pelos valores que o Planou mediu no período; o valor de partida é o Planou que mede, e `retro ata` mostra a métrica e a partida de cada ação.
 - Retro: a contribuição e a ata abrem conferindo o efeito das ações da retro anterior (melhorou, igual, piorou ou sem dado). A linha da cerimônia já lista as que ficaram iguais ou pioraram, e essas não voltam iguais: mudam a abordagem ou caem.

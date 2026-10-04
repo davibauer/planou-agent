@@ -265,14 +265,53 @@ fi
 VERSION=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
   "$DEST/plugins/agent/.claude-plugin/plugin.json" 2>/dev/null || echo '?')
 
-# skills: a link this installer made (or a broken one) follows the copy; anything else stays
+# the version of the plugin copy that holds a path (a skill folder or a provisioner.py; links resolved), or ?
+copy_version() {
+  "$PY" - "$1" <<'PYEOF' 2>/dev/null || echo '?'
+import json, os, sys
+d = os.path.realpath(sys.argv[1])
+for _ in range(6):
+    f = os.path.join(d, '.claude-plugin', 'plugin.json')
+    if os.path.isfile(f):
+        print(json.load(open(f))['version']); break
+    d = os.path.dirname(d)
+else:
+    print('?')
+PYEOF
+}
+# true when version $1 is older than $2 (an unknown version is never older)
+older() {
+  "$PY" - "$1" "$2" <<'PYEOF' 2>/dev/null
+import re, sys
+def v(s):
+    if not re.match(r'^\d+(\.\d+)*$', s): sys.exit(1)
+    return tuple(int(x) for x in s.split('.'))
+sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)
+PYEOF
+}
+# how to bring a kept copy up to date: git pull when it is a clone, and the link swap to the installed copy
+stale_hint() {
+  root=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -z "$root" ] || warn "  para atualizar a copia mantida: git -C $root pull --ff-only"
+  [ -z "${2:-}" ] || warn "  ou, para usar a copia instalada: ln -sfn $3 $2"
+}
+
+# skills: a link this installer made (or a broken one) follows the copy; anything else stays (a clone of development);
+# a kept link shows both versions and warns when it is older than the copy just installed (PLN0326)
 link_skill() {
   name=$1 target=$2 link="$SKILLS/$1"
   mkdir -p "$SKILLS"
   if [ -L "$link" ] && [ -e "$link" ]; then
     cur=$(readlink "$link")
     if [ "$cur" = "$target" ]; then say "skill $name: ok ($target)"
-    else say "skill $name: mantida (aponta para $cur, outra copia do plugin)"; fi
+    else
+      kept=$(copy_version "$link")
+      say "skill $name: mantida (aponta para $cur, outra copia do plugin, versao $kept; a instalada em $DEST e a $VERSION)"
+      if older "$kept" "$VERSION"; then
+        warn "ATENCAO: a skill $name usa a copia em $cur, na versao $kept, mais antiga que a $VERSION recem instalada"
+        stale_hint "$(cd "$link" && pwd -P)" "$link" "$target"
+      fi
+    fi
   elif [ -e "$link" ]; then
     say "skill $name: mantida ($link ja existe e nao e link)"
   else
@@ -367,7 +406,24 @@ case "$MODE" in
     case "$out" in
       *"ExecStart mantido"*) say "servico: unit agent-provisioner gravada; ExecStart mantido (roda outra copia do plugin)";;
       *) say "servico: unit agent-provisioner gravada (systemd --user)";;
-    esac;;
+    esac
+    # the copy the service runs (a kept ExecStart, else the skill link): older than the installed one, say so (PLN0326)
+    unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/agent-provisioner.service"
+    svc_py=
+    for t in $(sed -n 's/^ExecStart=//p' "$unit" 2>/dev/null | head -n 1); do
+      case "$t" in *provisioner.py) svc_py=$(printf '%s\n' "$t" | sed "s|%h|$HOME|g"); break;; esac
+    done
+    if [ -n "$svc_py" ] && [ -f "$svc_py" ]; then
+      svc_ver=$(copy_version "$svc_py")
+      if older "$svc_ver" "$VERSION"; then
+        svc_dir=$(cd "$(dirname "$svc_py")" && pwd -P)
+        warn "ATENCAO: o servico agent-provisioner roda $svc_py, da versao $svc_ver, mais antiga que a $VERSION recem instalada; enquanto isso, o servico e este instalador rodam versoes diferentes"
+        stale_hint "$svc_dir"
+        warn "  depois: systemctl --user restart agent-provisioner.service"
+      else
+        say "servico: roda a versao $svc_ver ($svc_py)"
+      fi
+    fi;;
   launchd)
     mkdir -p "$(dirname "$PLIST")" "$HOME/Library/Logs"
     xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
