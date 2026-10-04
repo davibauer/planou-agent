@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.82.1 (2026-10-03)
+- Com `"confidentiality": "minimum"`, a revisão ou o QA próprio de uma entrega sem PR (release em lote, só a branch) volta a achar a branch: a nota da passagem continua sem subir para o Planou e a branch fica guardada só na instância (`data/planou_own_branches.json`), lida de volta na linha da fila, em `fila ver`, no `DEVOLVIDA` e no retrabalho. O registro some quando a tarefa é concluída ou passa para outro.
+- O texto neutro do `fila ajuste` sob `minimum` só diz "o parecer está na PR" quando há PR; sem PR diz "o parecer está na sessão do agente (entrega sem PR)".
+
 ## 0.82.0 (2026-10-03)
 - Toda tarefa nova que o agente cria no Planou nasce sob um épico, com a mesma regra das sugestões (PLN0275): o sync das fontes (a área é a fonte do item), o backlog do comportamento product (plano sem `"epic"`; `"epic": false` deixa sem épico) e o gancho health (área "saúde dos agentes", ou `epic_subject`). Um apelido como `"saude"` põe a checagem de saúde quebrada sob o épico de Agentes.
 - Os épicos agora ficam em `planou.epics` e `planou.epic_aliases` do config da instância; o `epics`/`aliases` do gancho suggestions continua valendo quando não há `planou.epics`. Sem épicos no config, nada muda: a tarefa fica sem épico e o aviso é o mesmo.

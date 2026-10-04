@@ -122,7 +122,8 @@ task goes to the next column and to its owner (`PASSOU: ...`), and a 409 no_next
 asks for it explicitly, without the fallback.
 One instance, the whole cycle (PLN0281, Planou 0.76.0 PLN0286): when the next column is this same agent's (dev, then
 review or QA), Planou queues the task to it again with `handed_off_by` naming this agent and the note (the branch), like
-between agents. Nothing is kept locally: own_handoff() reads it from the entry (the name against the configured one and
+between agents. Nothing is kept locally (except under "minimum", where the note never goes up: the branch of a
+handoff to itself stays in data/planou_own_branches.json, see keep_own_branch): own_handoff() reads it from the entry (the name against the configured one and
 GET /agent/whoami), the queue line says `passada por voce mesmo ...` and sends the review or QA to a NEW worker (never
 the one that delivered), `fila ver` shows `mesma_instancia`. `fila ajuste` on such a task answers 200 like between
 agents (`DEVOLVIDA`, back to this agent's dev column); the `-- AJUSTE PEDIDO <PID>` that follows (`requested_by` is this
@@ -1571,7 +1572,8 @@ def own_handoff(p, now=None):
     st = _column_state(p.get('project'), column, now)
     role = BEHAVIOR_OF_ROLE.get(role_name((st or {}).get('owner_role'))) or column_role(column)
     if not named and not (role in INDEPENDENT_ROLES and mine(st) and _also_dev(p.get('project'), column, now)): return None
-    return {'column': column, 'role': role, 'note': (one_line(by.get('note'), 300) or None) if named else None, 'named': named}
+    note = (one_line(by.get('note'), 300) if named else None) or own_branch(p)
+    return {'column': column, 'role': role, 'note': note or None, 'named': named}
 
 
 def own_handoff_line(own, pr=None):
@@ -1591,6 +1593,57 @@ def own_handoff_line(own, pr=None):
         return (f'{head} -> nao e tarefa nova e nao pede worker de codigo: `fila ver` e seguir o batch-release '
                 '(`--release-queue add <branch> <PID>` e `fila in_review`)')
     return ''          # any other own column (an analysis before A fazer, the dev's own): the usual lines, it is work
+
+
+# Under "minimum" the note of a handoff never goes up (it is free text: a branch name may carry a client's name), so
+# Planou's handed_off_by comes back without it. In a batch release with no PR the branch is all the new review worker
+# has: the plugin keeps only that note, by task, in the instance's data/ (never sent), when the handoff gives the task
+# back to this same agent, and reads it again in own_handoff, in the rework line and in `fila ajuste`. It goes away when
+# the task is concluded or passed to someone else, and after OWN_BRANCH_DAYS.
+OWN_BRANCH_FILE = 'planou_own_branches.json'
+OWN_BRANCH_DAYS = 60
+
+
+def _own_branch_path():
+    return os.path.join(_S['root'], 'data', OWN_BRANCH_FILE)
+
+
+def _own_branches():
+    try:
+        with open(_own_branch_path()) as f: d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    return d.get('tasks') if isinstance(d, dict) and isinstance(d.get('tasks'), dict) else {}
+
+
+def keep_own_branch(tid, pid, note, now=None):
+    """Keeps the note of a handoff to this same agent (the branch) under "minimum", locally only."""
+    note = one_line(note, 300)
+    if not (tid or pid) or not note: return
+    stamp = (now or datetime.now(timezone.utc))
+    cut = (stamp - timedelta(days=OWN_BRANCH_DAYS)).isoformat()
+    with fileio.locked(_own_branch_path()):
+        tasks = {k: v for k, v in _own_branches().items() if isinstance(v, dict) and (v.get('at') or '') >= cut}
+        tasks[tid or pid] = {'pid': pid, 'note': note, 'at': stamp.isoformat()}
+        fileio.write_json(_own_branch_path(), {'tasks': tasks}, ensure_ascii=False, indent=1)
+
+
+def forget_own_branch(tid, pid=None):
+    if not os.path.exists(_own_branch_path()): return
+    with fileio.locked(_own_branch_path()):
+        tasks = _own_branches()
+        keep = {k: v for k, v in tasks.items() if k != tid and not (pid and isinstance(v, dict) and v.get('pid') == pid)}
+        if keep != tasks: fileio.write_json(_own_branch_path(), {'tasks': keep}, ensure_ascii=False, indent=1)
+
+
+def own_branch(p):
+    """The branch kept locally for a task (queue payload or entry) by keep_own_branch, or None."""
+    if not _S['root'] or not isinstance(p, dict): return None
+    tasks = _own_branches()
+    tid, pid = p.get('task_id'), p.get('pid')
+    rec = tasks.get(tid) if tid else None
+    if not rec and pid: rec = next((v for v in tasks.values() if isinstance(v, dict) and v.get('pid') == pid), None)
+    return one_line((rec or {}).get('note'), 300) or None
 
 
 def own_cycle_ask(a, project=None, now=None):
@@ -1653,12 +1706,13 @@ def line(ev):
             if not released(p):
                 return f'{head} -> RETRABALHO NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA){asks}'
             pr = one_line(chg.get('pr_url') or p.get('pr_url'), 300)
+            br = None if pr else own_branch(p)
             # an ask of this agent's own review or QA (PLN0286): an in_review to a next column of the same owner is no
             # handoff, so the rework goes back with `fila handoff` and the review is again a new worker's
             back = ('`fila handoff` (a revisao propria volta pela fila para um worker NOVO)'
                     if any(own_cycle_ask(a, p.get('project')) for a in chg.get('asks') or []) else '`fila in_review` de novo')
-            return (f'{head} -> RETRABALHO (ajuste pedido), nao e tarefa nova: `fila started`, worker na mesma branch e na '
-                    f'mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste, depois {back}{asks}')
+            return (f'{head} -> RETRABALHO (ajuste pedido), nao e tarefa nova: `fila started`, worker na mesma branch'
+                    f'{f" ({br})" if br else ""} e na mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste, depois {back}{asks}')
         pr = one_line(p.get('pr_url'), 300)
         if not released(p):
             return f'{head} -> NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA)' + (f'; PR: {pr}' if pr else '')
@@ -2495,7 +2549,9 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     _wait_changes(tid, entry, ref)
     # the note is free text the server shows as it came: under "minimum" it stays in the session (Planou then shows its
     # neutral "O agente parou e precisa de você para seguir."); the PR link goes up like any origin URL
-    if _S['confidentiality'] == 'minimum': note = None
+    minimum = _S['confidentiality'] == 'minimum'
+    local_note = note if minimum else None      # the branch of a handoff to itself stays here (keep_own_branch)
+    if minimum: note = None
     files = []
     if note: note, files = without_paths(note)       # a file the note cites goes as an attachment (PLN0052)
     if state == 'started' and _S['confidentiality'] != 'minimum':
@@ -2564,6 +2620,11 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
             for k, v in (('estimate_h', estimate_h), ('remaining_h', remaining_h)):
                 if v is not None: q['tasks'][tid][k] = v
         _save('queue.json', q)
+    if minimum and sent in ('done', 'handoff'):
+        back = res.get('state') == 'handoff' and (_handed_to_me(entry, res, now) or bool(
+            waiting_for_role(entry, res, now) and mine(_state_of(entry, res.get('project_state'), now))))
+        if back and local_note: keep_own_branch(res.get('task_id') or tid, pid, local_note, now)
+        elif not back: forget_own_branch(res.get('task_id') or tid, pid)     # concluded, or with someone else
     if state == 'started' and pid: current_task(pid, now=now)
     elif state != 'started': _stop_marker(pid, now)
     if files:
@@ -2575,6 +2636,8 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
 CHANGES_TEXT_MAX = 2000
 # under "minimum" the reviewer's findings stay on the PR and in the session: Planou gets only this neutral text
 CHANGES_MINIMUM_TEXT = 'Ajuste pedido na revisao: o parecer esta na PR.'
+# without a PR (a batch release delivers only a branch) the findings are only in the agent's session
+CHANGES_MINIMUM_NO_PR_TEXT = 'Ajuste pedido na revisao: o parecer esta na sessao do agente (entrega sem PR).'
 # `to` of request-changes (Planou 0.49.0, PLN0164): author = whoever did the work (the first agent of the handoffs, the
 # server's default), previous = whoever passed the task to the current column (the old behavior)
 CHANGES_TO = ('author', 'previous')
@@ -2594,8 +2657,9 @@ def request_changes(text, ref=None, pr_url=None, now=None, to=None):
     if pr_url and not re.match(r'https?://\S+$', str(pr_url).strip()): raise PlanouError(0, 'pr_url', '--pr-url: link http(s) da PR')
     if to is not None and to not in CHANGES_TO: raise PlanouError(0, 'to', f'--to: {" ou ".join(CHANGES_TO)}')
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
-    if _S['confidentiality'] == 'minimum': text = CHANGES_MINIMUM_TEXT
     tid, entry = _queue_entry(ref)
+    if _S['confidentiality'] == 'minimum':
+        text = CHANGES_MINIMUM_TEXT if (pr_url or (entry or {}).get('pr_url')) else CHANGES_MINIMUM_NO_PR_TEXT
     body = {'text': text, **({'pr_url': str(pr_url).strip()} if pr_url else {}), **({'to': to} if to else {})}
     stamp = (now or datetime.now(timezone.utc)).isoformat()
 
@@ -4146,6 +4210,8 @@ def queue_view():
                                 'pedido_em': last.get('at'),
                                 'pedido_por': requested_by(last.get('by'), last.get('by_kind'), last.get('by_role'),
                                                            last.get('in'))}
+        br = None if row['ajuste_pedido']['pr_url'] else own_branch(row)
+        if br: row['ajuste_pedido']['branch'] = br
     rows = list(tasks.values())
     for v in rows:
         v['status'] = 'liberada' if released(v) else 'na fila'
@@ -4257,7 +4323,8 @@ def _fila(a, ap):
         ps = res.get('project_state')
         ps = ps.get('name') if isinstance(ps, dict) else ps
         pid = res.get('pid') or a.arg[1]
-        pr = f'na mesma PR{" (" + res["pr_url"] + ")" if res.get("pr_url") else ""}'
+        br = None if res.get('pr_url') else own_branch({'task_id': res.get('task_id'), 'pid': pid})
+        pr = f'na mesma PR ({res["pr_url"]})' if res.get('pr_url') else f'na mesma branch ({br})' if br else 'na mesma PR'
         if (res.get('assignee') or {}).get('kind', 'agent') == 'agent' and is_me(who):
             # PLN0286: the own review or QA sends it back to this same agent's dev column, like between agents
             print(f'DEVOLVIDA: {pid} voltou para {ps or "a coluna do dev"} ({who}, este mesmo agente) como retrabalho, {pr}: '

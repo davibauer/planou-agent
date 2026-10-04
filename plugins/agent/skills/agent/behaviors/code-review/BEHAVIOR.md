@@ -100,7 +100,9 @@ sem passar pela pessoa:
    branch e PR; o dev recebe `-- AJUSTE PEDIDO <PID> (<função do revisor> <nome>): ...` (a Função do funcionário no
    Planou; sem ela, o nome da coluna, e num Planou antigo `revisor`). A saída traz `DEVOLVIDA: <PID> voltou para
    <coluna> (<dev>)`: a tarefa sai da fila do revisor e a vaga dele libera (não vem `-- FILA SAIU`). Com
-   `"confidentiality": "minimum"` o texto não sobe: vai só "o parecer está na PR".
+   `"confidentiality": "minimum"` o texto não sobe: vai só "o parecer está na PR" (sem PR, "o parecer está na sessão
+   do agente"). Nesse nível a nota do handoff também não sobe: na revisão própria sem PR a branch fica guardada só na
+   instância (`data/planou_own_branches.json`) e volta na linha da fila, em `fila ver` e no retrabalho.
 3. Contar ao usuário em uma linha: tarefa, o ajuste em poucas palavras, o link do parecer.
 4. Saídas que não devolvem:
    - `SEM DEV: ...` (409 `no_previous_owner`): a tarefa não chegou pelo handoff de outro agente (a pessoa a pôs na

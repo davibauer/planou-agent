@@ -118,7 +118,7 @@ configuração do projeto; avisar o usuário.
    para a coluna de quem fez o trabalho (o dev, mesmo com uma revisão entre os dois) e para a frente da fila dele como
    retrabalho, na mesma branch e PR; ele recebe `-- AJUSTE PEDIDO <PID> (<função do QA> <nome>): ...`. A saída traz
    `DEVOLVIDA: <PID> voltou para <coluna> (<quem>)` e a vaga do QA libera. Com `"confidentiality": "minimum"` o texto
-   não sobe. Sem `--to` vale o padrão do Planou (`author`, quem fez); `--to previous` devolve a quem passou a tarefa ao
+   não sobe (sem PR, vai "o parecer está na sessão do agente"; a branch da passagem própria fica só na instância). Sem `--to` vale o padrão do Planou (`author`, quem fez); `--to previous` devolve a quem passou a tarefa ao
    QA (o revisor), só quando o defeito é da revisão.
    Com `send_back` `pessoa`: `printf '%s' "Ajuste pedido no QA de <PID> (<sha7>): <lista curta>. Parecer na PR:
    <link>" | $PL fila blocked <PID> --note -`.
