@@ -246,7 +246,78 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CeremonyFactsResponse"
+                  "required": [
+                    "meeting_id",
+                    "project",
+                    "period_from",
+                    "period_to",
+                    "generated_at",
+                    "approximate",
+                    "agents",
+                    "rework",
+                    "blocked",
+                    "needs_you",
+                    "cost",
+                    "metrics"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "meeting_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "project": {
+                      "$ref": "#/components/schemas/V1CeremonyProject"
+                    },
+                    "period_from": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "period_to": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "generated_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "approximate": {
+                      "type": "boolean"
+                    },
+                    "agents": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1CeremonyAgentFacts"
+                      }
+                    },
+                    "rework": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1CeremonyReworkFact"
+                      }
+                    },
+                    "blocked": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1CeremonyBlockedFact"
+                      }
+                    },
+                    "needs_you": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1CeremonyNeedsYouFact"
+                      }
+                    },
+                    "cost": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1CeremonyCostFact"
+                      }
+                    },
+                    "metrics": {
+                      "$ref": "#/components/schemas/V1CeremonyMetrics"
+                    }
+                  }
                 }
               }
             }
@@ -330,6 +401,11 @@
                         "repeat_of": {
                           "type": "string",
                           "format": "uuid",
+                          "nullable": true
+                        },
+                        "metric": {
+                          "type": "string",
+                          "default": null,
                           "nullable": true
                         }
                       }
@@ -989,6 +1065,7 @@
                             },
                             "content": {
                               "type": "string",
+                              "description": "The text of the file, with sha256 of exactly this text: only on the editable kinds (instructions, context, behavior_config; up to 200 KB) and on lessons (read only, this agent's recent days, up to 32 KB; the Papel tab shows each lesson with its state from the [..] prefix).",
                               "nullable": true
                             },
                             "title": {
@@ -5482,6 +5559,11 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "metric": {
+            "type": "string",
+            "default": null,
+            "nullable": true
           }
         }
       },
@@ -5982,6 +6064,14 @@
                   "type": "string",
                   "nullable": true
                 }
+              },
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "nullable": true
               }
             }
           },
@@ -5993,7 +6083,11 @@
                 "meeting_number",
                 "title",
                 "pid",
-                "result"
+                "result",
+                "metric",
+                "baseline",
+                "current",
+                "effect"
               ],
               "type": "object",
               "properties": {
@@ -6013,6 +6107,22 @@
                 },
                 "result": {
                   "type": "string"
+                },
+                "metric": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "baseline": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "current": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "effect": {
+                  "type": "string",
+                  "nullable": true
                 }
               },
               "nullable": true
@@ -6039,7 +6149,8 @@
           "rework",
           "blocked",
           "needs_you",
-          "cost"
+          "cost",
+          "metrics"
         ],
         "type": "object",
         "properties": {
@@ -6094,6 +6205,9 @@
             "items": {
               "$ref": "#/components/schemas/V1CeremonyCostFact"
             }
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/V1CeremonyMetrics"
           }
         }
       },
@@ -6254,6 +6368,11 @@
                   "type": "string",
                   "format": "uuid",
                   "nullable": true
+                },
+                "metric": {
+                  "type": "string",
+                  "default": null,
+                  "nullable": true
                 }
               }
             },
@@ -6364,7 +6483,44 @@
           "actions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/V1CeremonyActionCreated"
+              "required": [
+                "action_id",
+                "title",
+                "pid",
+                "repeat_of",
+                "metric",
+                "baseline"
+              ],
+              "type": "object",
+              "properties": {
+                "action_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "pid": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "repeat_of": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "metric": {
+                  "type": "string",
+                  "default": null,
+                  "nullable": true
+                },
+                "baseline": {
+                  "type": "number",
+                  "format": "double",
+                  "default": null,
+                  "nullable": true
+                }
+              }
             }
           },
           "suggestions": {
@@ -6953,6 +7109,14 @@
                   "type": "string",
                   "nullable": true
                 }
+              },
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "nullable": true
               }
             }
           },
@@ -6964,7 +7128,11 @@
                 "meeting_number",
                 "title",
                 "pid",
-                "result"
+                "result",
+                "metric",
+                "baseline",
+                "current",
+                "effect"
               ],
               "type": "object",
               "properties": {
@@ -6984,6 +7152,22 @@
                 },
                 "result": {
                   "type": "string"
+                },
+                "metric": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "baseline": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "current": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "effect": {
+                  "type": "string",
+                  "nullable": true
                 }
               },
               "nullable": true
@@ -7997,6 +8181,7 @@
                     },
                     "content": {
                       "type": "string",
+                      "description": "The text of the file, with sha256 of exactly this text: only on the editable kinds (instructions, context, behavior_config; up to 200 KB) and on lessons (read only, this agent's recent days, up to 32 KB; the Papel tab shows each lesson with its state from the [..] prefix).",
                       "nullable": true
                     },
                     "title": {
@@ -11719,7 +11904,9 @@
           "action_id",
           "title",
           "pid",
-          "repeat_of"
+          "repeat_of",
+          "metric",
+          "baseline"
         ],
         "type": "object",
         "properties": {
@@ -11737,6 +11924,17 @@
           "repeat_of": {
             "type": "string",
             "format": "uuid",
+            "nullable": true
+          },
+          "metric": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "baseline": {
+            "type": "number",
+            "format": "double",
+            "default": null,
             "nullable": true
           }
         }
@@ -11871,6 +12069,56 @@
             "format": "int32"
           }
         }
+      },
+      "V1CeremonyMetrics": {
+        "required": [
+          "autonomy",
+          "autonomy_deliveries",
+          "autonomy_min_samples",
+          "rework",
+          "blocked_hours",
+          "deliveries",
+          "cost_usd",
+          "cost_per_delivery"
+        ],
+        "type": "object",
+        "properties": {
+          "autonomy": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "autonomy_deliveries": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "autonomy_min_samples": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rework": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "blocked_hours": {
+            "type": "number",
+            "format": "double"
+          },
+          "deliveries": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "cost_per_delivery": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "default": null
       },
       "V1CeremonyNeedsYouFact": {
         "required": [
@@ -12007,6 +12255,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
+            "nullable": true
           }
         }
       },

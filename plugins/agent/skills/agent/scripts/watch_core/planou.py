@@ -4449,6 +4449,27 @@ def _who(v):
     return one_line((v or {}).get('display_name') or (v or {}).get('name'), 60) if isinstance(v, dict) else ''
 
 
+EFFECT_WORDS = {'improved': 'melhorou', 'same': 'igual', 'worse': 'piorou', 'unknown': 'sem dado'}
+
+
+def effects_note(p):
+    """What the line says of the earlier actions' effect (Planou PLN0129): each previous action with a metric that Planou
+    already checked, those that stayed the same or got worse by PID (they do not come back as they were: new approach or
+    drop), the others counted. Empty when no earlier action has an effect yet."""
+    checked = [x for x in p.get('previous_actions') or [] if isinstance(x, dict) and x.get('effect')]
+    if not checked: return ''
+    bad = [f'{one_line(x.get("pid") or x.get("title"), 40)} {one_line(x.get("metric"), 20)} {EFFECT_WORDS.get(x["effect"], x["effect"])}'
+           for x in checked if x['effect'] in ('same', 'worse')]
+    rest = {}
+    for x in checked:
+        if x['effect'] not in ('same', 'worse'):
+            w = EFFECT_WORDS.get(x['effect'], one_line(x['effect'], 12))
+            rest[w] = rest.get(w, 0) + 1
+    bits = bad[:5] + [f'{n} {w}' for w, n in rest.items()]
+    return (f'; abrir conferindo o efeito das acoes anteriores ({", ".join(bits)})'
+            + ('; igual ou piorou nao volta igual: muda a abordagem ou cai' if bad else ''))
+
+
 def ceremony_line(kind, p):
     """The `-- CERIMONIA` line of a ceremony event (light loop and heavy tick)."""
     name = one_line(p.get('ceremony') or 'retro', 20)
@@ -4475,7 +4496,7 @@ def ceremony_line(kind, p):
         fac = _who(p.get('facilitator'))
         return (f'{CEREMONY_PREFIX} {head}: contribuicao ate {due}' + (f' (facilita {fac})' if fac else '') +
                 f' -> `retro dados {mid}`, escrever a contribuicao a partir dos proprios dados, toda proposta citando '
-                f'PIDs reais, e `retro contribuir {mid} --text -`; guia: {CEREMONY_GUIDE}')
+                f'PIDs reais, e `retro contribuir {mid} --text -`{effects_note(p)}; guia: {CEREMONY_GUIDE}')
     if kind == 'ceremony_vote':
         n = len(p.get('items') or [])
         return (f'{CEREMONY_PREFIX} VOTO {head}: votos ate {due} (ate {p.get("votes_per_voter") or "?"} de {n} '
@@ -4487,8 +4508,9 @@ def ceremony_line(kind, p):
     return (f'{CEREMONY_PREFIX} ATA {head} (voce facilita; {n} contribuic{"ao" if n == 1 else "oes"}'
             + (f', faltou: {missing}' if missing else '') + f'): ata ate {due} -> `retro ver {mid}` para as '
             f'contribuicoes' + (' e os votos (mais votados primeiro)' if voted else '') + f', agrupar, no maximo '
-            f'{(p.get("rules") or {}).get("max_actions") or 3} acoes com casos, marcar repeticao, e '
-            f'`retro ata {mid} --text -`; guia: {CEREMONY_GUIDE}')
+            f'{(p.get("rules") or {}).get("max_actions") or 3} acoes com casos'
+            + (', cada uma com a metrica que deve mexer' if (p.get('rules') or {}).get('metrics') else '')
+            + f', marcar repeticao, e `retro ata {mid} --text -`{effects_note(p)}; guia: {CEREMONY_GUIDE}')
 
 
 def _blocked_hours(h):
@@ -4575,6 +4597,14 @@ def retro_facts(meeting_id):
     return out
 
 
+def _metric_value(v):
+    """The starting value Planou measured for an action's metric (null: too few deliveries to measure)."""
+    if v is None: return 'sem dado'
+    try: v = float(v)
+    except (TypeError, ValueError): return '?'
+    return f'{v:g}' if v == int(v) else f'{v:.2f}'
+
+
 CEREMONY_REFUSALS = {
     'cases_required': 'RECUSADA: toda proposta (e toda acao da ata) cita pelo menos um caso real: {"pid": "ABC0001", "note": "o que aconteceu"}.',
     'unknown_case': 'RECUSADA: {m} Cite so tarefas que existem no Planou.',
@@ -4634,7 +4664,9 @@ def _retro(a, ap):
         _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/minutes',
                        {k: body[k] for k in ('summary', 'decisions', 'actions', 'lessons', 'cost_usd') if k in body})
         print(json.dumps(res, ensure_ascii=False))
-        acts = ', '.join(f'{x.get("pid")}' + (' (repete acao anterior)' if x.get('repeat_of') else '') for x in res.get('actions') or [])
+        acts = ', '.join(f'{x.get("pid")}' + (' (repete acao anterior)' if x.get('repeat_of') else '')
+                         + (f' [{x["metric"]}, partida {_metric_value(x.get("baseline"))}]' if x.get('metric') else '')
+                         for x in res.get('actions') or [])
         print(f'ATA ENVIADA: {acts or "sem acoes"}; as acoes estao no backlog do projeto, esperando a aprovacao do usuario.'
               if res.get('result') != 'unchanged' else 'ATA JA ESTAVA LA: nada mudou.')
         return 0
