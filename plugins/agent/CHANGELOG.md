@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.82.2 (2026-10-03)
+- Provisionador num computador remoto volta a falar com o app.planou.com: toda chamada (parear, buscar a chave, mandar o status, ver a versão nova e baixar) agora se identifica como `planou-agent-provisioner/<versão>`, e o Cloudflare deixa de recusar com 403 (código 1010).
+
 ## 0.82.1 (2026-10-03)
 - Com `"confidentiality": "minimum"`, a revisão ou o QA próprio de uma entrega sem PR (release em lote, só a branch) volta a achar a branch: a nota da passagem continua sem subir para o Planou e a branch fica guardada só na instância (`data/planou_own_branches.json`), lida de volta na linha da fila, em `fila ver`, no `DEVOLVIDA` e no retrabalho. O registro some quando a tarefa é concluída ou passa para outro.
 - O texto neutro do `fila ajuste` sob `minimum` só diz "o parecer está na PR" quando há PR; sem PR diz "o parecer está na sessão do agente (entrega sem PR)".

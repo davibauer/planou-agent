@@ -90,6 +90,22 @@ from datetime import datetime
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(SCRIPTS)
 BEHAVIORS_DIR = os.path.join(SKILL_DIR, 'behaviors')
+PLUGIN_DIR = os.path.dirname(os.path.dirname(SKILL_DIR))
+
+
+def _user_agent():
+    """`planou-agent-provisioner/<plugin version>`, read once. Every urllib Request carries it: the Cloudflare in front of
+    app.planou.com answers 403 "error code: 1010" to urllib's default (Python-urllib/3.x)."""
+    try:
+        with open(os.path.join(PLUGIN_DIR, '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
+            v = str(json.load(f).get('version') or '').strip()
+        if re.fullmatch(r'[0-9A-Za-z.+-]{1,40}', v): return 'planou-agent-provisioner/' + v
+    except (OSError, ValueError, AttributeError):
+        pass
+    return 'planou-agent-provisioner'
+
+
+USER_AGENT = _user_agent()
 
 NAME_RE = re.compile(r'[a-z0-9][a-z0-9-]{0,60}')          # the agents.json rule (no "_"), also blocks path tricks
 SECRET_RE = re.compile(r'pl_[a-z]{2}_[A-Za-z0-9_\-]+')
@@ -235,6 +251,7 @@ class Planou:
                                      method=method)
         req.add_header('Authorization', 'Bearer ' + self._cred)
         req.add_header('Accept', 'application/json')
+        req.add_header('User-Agent', USER_AGENT)
         if data is not None: req.add_header('Content-Type', 'application/json')
         try:
             with self._open(req, timeout=self.timeout) as r:
@@ -1050,7 +1067,7 @@ def install_root():
 
 def latest_release(base, timeout=30):
     """The tag (vX.Y.Z) of the latest release, from where <base>/latest redirects (no GitHub API: no rate limit)."""
-    req = urllib.request.Request(base.rstrip('/') + '/latest', headers={'User-Agent': 'planou-agent-provisioner'})
+    req = urllib.request.Request(base.rstrip('/') + '/latest', headers={'User-Agent': USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         final = r.geturl()
     tag = final.rstrip('/').rsplit('/', 1)[-1]
@@ -1058,7 +1075,7 @@ def latest_release(base, timeout=30):
 
 
 def fetch(url, dest, timeout=120):
-    req = urllib.request.Request(url, headers={'User-Agent': 'planou-agent-provisioner'})
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as r, open(dest, 'wb') as f:
         shutil.copyfileobj(r, f)
 
@@ -1423,6 +1440,7 @@ def post_pair(base_url, code, name, os_name, timeout):
     data = json.dumps({'code': code, 'name': name, 'os': os_name}).encode()
     req = urllib.request.Request(base_url + '/provisioner/pair', data=data, method='POST')
     req.add_header('Accept', 'application/json')
+    req.add_header('User-Agent', USER_AGENT)
     req.add_header('Content-Type', 'application/json')
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
