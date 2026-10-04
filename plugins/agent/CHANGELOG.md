@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.87.0 (2026-10-04)
+- O sinal de vida que vai ao Planou diz também que cópia do plugin o funcionário lê (clone git, cópia instalada, cópia fixada pelo canário ou outra) e onde ela fica, com a pasta pessoal abreviada como `~`. Com isso a ficha do funcionário no Time mostra o comando certo para atualizar quando o plugin fica atrás da versão publicada. O Planou só mostra o comando: nada roda no computador à distância.
+
 ## 0.86.0 (2026-10-04)
 - Preparação para a instância `planou-dev` passar a se chamar `planou` (PLN0282). As sugestões dos agentes vão para a caixa da instância `planou` quando ela existe na máquina e, senão, para a do `planou-dev`, como antes; a variável `AGENT_SUGGESTIONS_TARGET` ou `suggestions_target` no config de quem sugere escolhem outra instância. Só contam pastas em `~/.config/agent`, então a pasta própria do Planou em `~/.config/planou` nunca recebe sugestão.
 - Opção nova `planou.agent` no config da instância: o nome do agente no Planou quando é diferente do nome da instância. O sync, as chaves das tarefas, dos pedidos e dos épicos, o "Reportada por" das sugestões e da saúde, os turnos de custo e o whoami usam esse nome; sem a opção nada muda. O `--validate` confere o formato e diz com que nome a instância fala no Planou.

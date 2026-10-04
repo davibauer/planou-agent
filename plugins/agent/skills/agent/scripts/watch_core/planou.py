@@ -376,6 +376,47 @@ def _own_version():
     return _VERSION_CACHE[0]
 
 
+_COPY_CACHE = []
+
+
+def plugin_copy(start=None):
+    """(kind, path) of the copy of the plugin this watch_core runs from, for the heartbeat (PLN0332): 'snapshot' under
+    the rollout cache (~/.cache/team/plugins), 'clone' inside a git checkout (the path is the repo root; the search
+    stops below the home folder), 'installed' under the folder with `.planou-install` and no `.git` (install.sh, the
+    same rule as the provisioner), 'other' otherwise (the plugin folder). The home prefix becomes `~`. (None, None) for the shared source, which belongs to no plugin."""
+    d = os.path.dirname(os.path.realpath(start or __file__))
+    plugin = None
+    for _ in range(8):
+        if os.path.isfile(os.path.join(d, '.claude-plugin', 'plugin.json')):
+            plugin = d
+            break
+        up = os.path.dirname(d)
+        if up == d: break
+        d = up
+    if not plugin: return None, None
+    home = os.path.realpath(os.path.expanduser('~'))
+
+    def short(p):
+        return '~' + p[len(home):] if p == home or p.startswith(home + os.sep) else p
+
+    cache = os.path.realpath(os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.join(home, '.cache'), 'team', 'plugins'))
+    if plugin.startswith(cache + os.sep): return 'snapshot', short(plugin)
+    d = plugin
+    for _ in range(8):
+        if d == home: break                    # a dotfiles repo at ~/.git would turn the command into `git -C ~ pull`
+        if os.path.exists(os.path.join(d, '.git')): return 'clone', short(d)
+        if os.path.exists(os.path.join(d, '.planou-install')): return 'installed', short(d)   # the provisioner's rule: marker, no .git
+        up = os.path.dirname(d)
+        if up == d: break
+        d = up
+    return 'other', short(plugin)
+
+
+def _own_copy():
+    if not _COPY_CACHE: _COPY_CACHE.append(plugin_copy())
+    return _COPY_CACHE[0]
+
+
 _NAME_CACHE = []
 
 
@@ -1186,6 +1227,8 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     now = now or datetime.now(timezone.utc)
     reaped = reap_workers(now) if phase == 'tick' else []
     body = {'phase': phase, 'broken_sources': list(broken_sources), 'host': socket.gethostname(), 'plugin_version': _S['plugin_version']}
+    kind, where = _own_copy()
+    if kind: body.update(plugin_kind=kind, plugin_path=where)    # which copy to update (PLN0332)
     caps = capabilities()
     if caps: body['capabilities'] = caps       # absent = the server keeps what it had (the launcher's session_closed)
     rs = roles() if caps and not _roles_held(now) else None

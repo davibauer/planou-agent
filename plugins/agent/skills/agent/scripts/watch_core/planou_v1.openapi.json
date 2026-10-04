@@ -1238,6 +1238,20 @@
                     },
                     "additionalProperties": false,
                     "nullable": true
+                  },
+                  "plugin_kind": {
+                    "enum": [
+                      "clone",
+                      "installed",
+                      "snapshot",
+                      "other"
+                    ],
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "plugin_path": {
+                    "type": "string",
+                    "nullable": true
                   }
                 }
               }
@@ -8501,6 +8515,20 @@
               }
             },
             "additionalProperties": false,
+            "nullable": true
+          },
+          "plugin_kind": {
+            "enum": [
+              "clone",
+              "installed",
+              "snapshot",
+              "other"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "plugin_path": {
+            "type": "string",
             "nullable": true
           }
         }
