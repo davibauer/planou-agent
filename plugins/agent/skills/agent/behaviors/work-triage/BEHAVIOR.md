@@ -124,6 +124,8 @@ reabrir ou editar uma tarefa no Planou vale como a caixinha da página. O que ch
 - Fila do agente (`"task_queue": true`): comportamento `task-queue`, com o limite desta família: PR **em rascunho**
   com os testes passando, e nada de marcar pronta, merge, deploy, cluster, GMUD ou mensagem sem o OK do usuário, a não
   ser o que a autonomia do `instructions.md` liberar.
+- **Foco do dia**: no projeto de que a instância é dona, o tick recalcula as até 3 tarefas do dia a cada novidade e
+  grava só quando a ordem muda (regras na seção "Foco do dia" do comportamento `task-queue`). A sessão não mexe nele.
 
 ## Espaço de trabalho
 

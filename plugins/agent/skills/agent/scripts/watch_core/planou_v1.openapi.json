@@ -1551,6 +1551,237 @@
         }
       }
     },
+    "/v1/agent/projects/{key}/focus": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "required": [
+                    "project",
+                    "day",
+                    "max",
+                    "can_write",
+                    "slots",
+                    "removed",
+                    "last_change_at",
+                    "promises",
+                    "changed"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "project": {
+                      "type": "string"
+                    },
+                    "day": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "max": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "can_write": {
+                      "type": "boolean"
+                    },
+                    "slots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1FocusSlot"
+                      }
+                    },
+                    "removed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_change_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "promises": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1FocusPromise"
+                      }
+                    },
+                    "changed": {
+                      "type": "boolean",
+                      "default": null,
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Why the order changed, in one sentence. Required."
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "task": {
+                          "type": "string",
+                          "description": "The task's pid (SIT0042) or id."
+                        },
+                        "reason_kind": {
+                          "enum": [
+                            "promised",
+                            "blocks",
+                            "due_today",
+                            "overdue",
+                            "priority",
+                            "other"
+                          ],
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "required": [
+                    "project",
+                    "day",
+                    "max",
+                    "can_write",
+                    "slots",
+                    "removed",
+                    "last_change_at",
+                    "promises",
+                    "changed"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "project": {
+                      "type": "string"
+                    },
+                    "day": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "max": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "can_write": {
+                      "type": "boolean"
+                    },
+                    "slots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1FocusSlot"
+                      }
+                    },
+                    "removed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "last_change_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "promises": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V1FocusPromise"
+                      }
+                    },
+                    "changed": {
+                      "type": "boolean",
+                      "default": null,
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agent/projects/{key}/release-queue": {
       "put": {
         "tags": [
@@ -12601,6 +12832,230 @@
           }
         },
         "nullable": true
+      },
+      "V1FocusItem": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "The task's pid (SIT0042) or id."
+          },
+          "reason_kind": {
+            "enum": [
+              "promised",
+              "blocks",
+              "due_today",
+              "overdue",
+              "priority",
+              "other"
+            ],
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "V1FocusPromise": {
+        "required": [
+          "task_id",
+          "pid",
+          "title",
+          "channel",
+          "target",
+          "url",
+          "done",
+          "in_focus"
+        ],
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pid": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channel": {
+            "enum": [
+              "slack",
+              "meeting",
+              "email",
+              "other"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "in_focus": {
+            "type": "boolean"
+          }
+        }
+      },
+      "V1FocusRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why the order changed, in one sentence. Required."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string",
+                  "description": "The task's pid (SIT0042) or id."
+                },
+                "reason_kind": {
+                  "enum": [
+                    "promised",
+                    "blocks",
+                    "due_today",
+                    "overdue",
+                    "priority",
+                    "other"
+                  ],
+                  "type": "string",
+                  "nullable": true
+                },
+                "reason": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            },
+            "nullable": true
+          }
+        }
+      },
+      "V1FocusResponse": {
+        "required": [
+          "project",
+          "day",
+          "max",
+          "can_write",
+          "slots",
+          "removed",
+          "last_change_at",
+          "promises",
+          "changed"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "can_write": {
+            "type": "boolean"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V1FocusSlot"
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "last_change_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "promises": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V1FocusPromise"
+            }
+          },
+          "changed": {
+            "type": "boolean",
+            "default": null,
+            "nullable": true
+          }
+        }
+      },
+      "V1FocusSlot": {
+        "required": [
+          "position",
+          "task_id",
+          "pid",
+          "title",
+          "reason_kind",
+          "reason",
+          "pinned",
+          "done",
+          "locked"
+        ],
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pid": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "reason_kind": {
+            "enum": [
+              "promised",
+              "blocks",
+              "due_today",
+              "overdue",
+              "priority",
+              "person",
+              "other"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "done": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          }
+        }
       },
       "V1Pause": {
         "required": [

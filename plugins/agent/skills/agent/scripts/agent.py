@@ -348,6 +348,9 @@ def planou_after(ctx, fontes):
     try: planou.set_tools(tools(ctx.cfg, fontes, ctx.s), agora)
     except Exception as e: lines.append(f'AVISO (planou): ferramentas: {type(e).__name__}: {str(e)[:120]}')
     lines += send_docs(ctx.cfg, agora)
+    if (ctx.cfg.get('planou') or {}).get('focus') is not False:      # Foco do dia: only the keeper writes (PLN0379)
+        from watch_core import focus
+        lines += focus.keep(now=agora)
     return lines + planou.heartbeat('tick', broken_sources=[f for f, _ in ctx.quebrados], now=agora)
 
 

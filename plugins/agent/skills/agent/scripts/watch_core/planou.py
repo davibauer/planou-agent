@@ -913,6 +913,11 @@ def sync(items, now=None):
                 entry = {'pid': r['pid'], 'version': r.get('version'), 'title': t.get('title'), 'due': t.get('due'),
                          'state': t.get('state') or prev.get('state'),
                          'project_state': t.get('project_state') if 'state' in t else prev.get('project_state')}
+                # the Prazo, only when the agent knows it (watch_core.focus lowers a dated slot only then): the one it
+                # sent, the one it knew, or none for a task it just created; a sync without one keeps Planou's (unknown)
+                if 'deadline' in t: entry['deadline'] = t['deadline']
+                elif 'deadline' in prev: entry['deadline'] = prev['deadline']
+                elif r.get('result') == 'created': entry['deadline'] = None
                 for k in ('refining', 'backlog', 'self_sent'):
                     if prev.get(k): entry[k] = prev[k]
                 if _in_backlog(notes): entry['backlog'] = True
@@ -2137,6 +2142,7 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             tasks[code] = {**(tasks.get(code) or {}), 'pid': p.get('pid'), 'version': p.get('version'),
                            'title': p.get('title'), 'due': _date(p.get('due')), 'state': p.get('state'),
                            'project_state': ps0.get('name') if isinstance(ps0, dict) else ps0}
+            if 'deadline' in p: tasks[code]['deadline'] = _date(p.get('deadline'))
         sent = tasks.get(code) or {}
         partial = 'changed' in p and kind != 'task_deleted'
         if partial:
@@ -2164,8 +2170,9 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             tasks[code] = {**sent, 'pid': p.get('pid'), 'version': p.get('version')}
             if edit and not partial:
                 tasks[code].update(title=p.get('title'), due=_date(p.get('due')), state=p.get('state'))
+                if 'deadline' in p: tasks[code]['deadline'] = _date(p.get('deadline'))
             elif partial:
-                for f in ('title', 'due', 'state'):
+                for f in ('title', 'due', 'deadline', 'state'):
                     if f in applied: tasks[code][f] = _local_value(f, applied[f])
             if ps and on_state: tasks[code]['project_state'] = ps
             if partial and code in kept_bodies:

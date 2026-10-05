@@ -230,6 +230,24 @@ entrega nem puxa essas tarefas e elas não ocupam vaga. O sync manda toda decis�
 `"confidentiality": "minimum"` e numa instância em inglês (`Decide:` vira `Decidir:`). Tarefa que o agente cria à mão
 para a pessoa decidir leva o mesmo prefixo.
 
+## Foco do dia (o tick cuida)
+
+O Planou guarda até 3 tarefas por projeto que fecham o dia. Quem ordena é o agente dono do projeto, ou o `planou` num
+projeto sem dono (o `GET /v1/agent/projects/{key}/focus` diz `can_write`). Cada tick pesado faz isso sozinho, sem acordar
+a sessão (`watch_core/focus.py`): lê o foco de cada projeto alocado quando algo do agente mudou (pedido novo, bloqueio,
+prazo, entrega, tarefa da fila) ou a cada 15 min (promessa, fixar e tirar da pessoa não chegam por evento) e grava só
+quando a sequência muda, com o motivo em uma linha (quem entrou, quem saiu e por quê). A ordem segue a regra do servidor
+sobre o que o agente conhece (prometida para hoje, bloqueia outra, atrasada ou vence hoje, P1); vaga `locked` fica na
+posição, tarefa em `removed` não volta no dia, promessa aberta de hoje entra e nunca sai (também a marcada antes para
+este dia, que o Planou não fixa sozinho), e tarefa que o agente não conhece fica no empate. O agente vê só parte do
+projeto, então só sobe uma vaga do servidor: `blocks` nunca cai, atrasada ou vence hoje só cai quando ele conhece a data
+e o Prazo da tarefa, e a vaga que fica guarda o motivo do servidor. Dia que ninguém montou
+ainda (`last_change_at` vazio) fica com o servidor, que monta pela regra quando a pessoa abre o foco.
+- A sessão **nunca** grava o foco à mão nem mexe em data, prioridade, promessa, fixar ou tirar: isso é da pessoa.
+- O que foi gravado fica em `cache/planou/focus.log`; recusa (`focus_locked`, `focus_removed`, `focus_not_keeper`, 422)
+  é linha `AVISO (planou): foco do dia ...` em `cache/planou/avisos.log`, sem nova tentativa; 409 `focus_conflict` lê de
+  novo e tenta uma vez. Desligar: `"planou": {"focus": false}` no config da instância.
+
 ## Limite
 
 Vale a autonomia mais restrita entre a da tarefa (`fila ver`) e a da instância (`autonomy` do config). O que está em

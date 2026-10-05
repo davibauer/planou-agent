@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.94.0 (2026-10-05)
+- Foco do dia (Planou 0.93.0): o agente dono do projeto, ou o `planou` num projeto sem dono, recalcula a cada tick com novidade as até 3 tarefas que fecham o dia e grava só quando a ordem muda, com o motivo em uma linha. Respeita as vagas fixadas ou concluídas, o que a pessoa tirou e as promessas de hoje (também a marcada antes para este dia), nunca mexe em data, prioridade ou promessa e não acorda a sessão. Como vê só parte do projeto, nunca tira do foco uma tarefa que o Planou pôs por bloquear outra ou pelo Prazo sem saber disso, e mantém o motivo que o Planou deu. Desliga com `"planou": {"focus": false}`.
+
 ## 0.93.1 (2026-10-05)
 - Ambiente de teste do QA: comando que passa do tempo agora para junto com tudo o que ele abriu (antes os processos filhos seguiam rodando), e o `down` só para o servidor de teste quando o grupo de processos ainda é dele, nunca um processo que ganhou o mesmo número depois.
 - Docker compose descoberto: a URL do teste é a porta do app (serviço web, app, front...), nunca a do banco; a pergunta cita o serviço, avisa bind em sintaxe longa, volume com `../` e secrets/configs com `file:`, e diz o que dois testes ao mesmo tempo dividem (`container_name`, volume externo ou com nome fixo). Com uma porta fixa do compose já em uso (ou nome fixo de container ou volume com outro QA do mesmo projeto no ar), o QA não sobe um segundo ambiente por cima, e um aviso novo que a pessoa não viu ao aprovar faz a pergunta voltar.

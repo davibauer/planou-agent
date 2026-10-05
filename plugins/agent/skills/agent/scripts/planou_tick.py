@@ -48,6 +48,7 @@ from watch_core import planou
 from watch_core import deadlines
 from watch_core import tasks as tc
 from watch_core import daily as dvm
+from watch_core import focus
 
 # realpath: the skill is often installed as a symlink (~/.claude/skills/work-watch -> the plugin's skill folder), and
 # three levels above the link is ~/.claude, not the plugin
@@ -534,6 +535,13 @@ def regras_links(cfg):
     return out
 
 
+def prioridades(its, agora):
+    """{pid: Planou priority} of the synced items (state.json keeps the pid, not the priority), for the Foco do dia."""
+    hoje = agora.astimezone().date().isoformat()
+    pids = {c: (t or {}).get('pid') for c, t in (planou._load('state.json', {}).get('tasks') or {}).items()}
+    return {pids[c]: planou._priority(it.get('prio'), planou._date(it.get('prazo')), hoje) for c, it in its.items() if pids.get(c)}
+
+
 def after(ctx, ganchos=()):
     """Heavy tick, after the hooks: full list, asks, sign of life. Returns lines."""
     s = ctx.s
@@ -547,6 +555,8 @@ def after(ctx, ganchos=()):
     if not falhou:                    # Planou down: the asks wait for the next tick (one failure line is enough)
         linhas += planou.reconcile_asks({**pedidos(s, its, conf), **pedidos_credenciais(ctx, conf)})
         linhas += decisoes(ctx, conf)
+        if (settings(ctx.cfg) or {}).get('focus') is not False:     # Foco do dia: only the keeper writes (PLN0379)
+            linhas += focus.keep(prioridades(its, agora), now=agora)
     try:
         planou.set_tools(ferramentas(ctx), agora)
     except Exception as e:                        # never costs the sign of life
