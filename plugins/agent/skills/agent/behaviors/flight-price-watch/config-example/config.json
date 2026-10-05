@@ -89,7 +89,11 @@
      "title": "Conferir validade dos passaportes",
      "notes": ""
     }
-   ]
+   ],
+   "card": {
+    "name": "Plano A",
+    "chosen": true
+   }
   }
  ],
  "fx": {
@@ -114,5 +118,6 @@
  "sheet": {
   "id": "",
   "every_hours": 6
- }
+ },
+ "plan_cards": false
 }

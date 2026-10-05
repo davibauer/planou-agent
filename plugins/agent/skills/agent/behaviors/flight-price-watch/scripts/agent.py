@@ -23,6 +23,7 @@
   agent.py --dashboard ID          writes the trip page (cache/dashboard/ID.html) for the model to publish
   agent.py --sheet                 rewrites the Google Sheets spreadsheet now (the tick does it every sheet.every_hours)
   agent.py --done STEP             marks a model step as done (expedia, hoteis, calendario, painel, miles:<program>)
+  agent.py --plan-cards             one Planou card per trip plan, as JSON (read only; the agent plugin syncs it: cards.py)
   agent.py --compare [ID]          each category of the new trip against the last trip to the same destination
                                    (config/past_trips.json), in the same currency and unit (per night, per day, total)
 
@@ -36,7 +37,7 @@ Exit: 0 = ok (empty output = nothing new), 2 = source broken ("AGENTE QUEBRADO (
 import os, sys, json, tempfile, time, datetime as dt
 
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
-import paths, miles, compare, gflights, fx, timeline, dashboard, sheets
+import paths, miles, compare, gflights, fx, timeline, dashboard, sheets, cards
 
 INF = float('inf')
 SYMBOL = {'BRL': 'R$', 'USD': 'US$', 'EUR': '€'}
@@ -793,6 +794,21 @@ def sheet_cmd():
     print(f"planilha atualizada ({n} abas): https://docs.google.com/spreadsheets/d/{cfg['sheet']['id']}")
 
 
+# ---------- Planou cards ----------
+
+def jsonl(path):
+    if not os.path.exists(path): return []
+    with open(path, encoding='utf-8') as f: return [json.loads(l) for l in f if l.strip()]
+
+
+def plan_cards_cmd():
+    """--plan-cards: {code: item} of every trip plan as JSON (cards.py), without searching or saving anything."""
+    cfg, state = config(), load_json(paths.STATE, {})
+    items = cards.build(cfg, state, load_alerts(), jsonl(paths.HOTEL_PRICES), jsonl(paths.PRICES),
+                        lambda amount, cur: to_home(amount, cur, cfg), money)
+    print(json.dumps(items, ensure_ascii=False))
+
+
 # ---------- report ----------
 
 def report(only=None):
@@ -887,6 +903,7 @@ def main(argv):
         i = a.index('--hotels'); hotels_cmd(a[i + 1] if len(a) > i + 1 else None); return 0
     if '--dashboard' in a: dashboard_cmd(a[a.index('--dashboard') + 1]); return 0
     if '--sheet' in a: sheet_cmd(); return 0
+    if '--plan-cards' in a: plan_cards_cmd(); return 0
     if '--points' in a: points(a[a.index('--points') + 1:]); return 0
     if '--bonus' in a: bonus_cmd(a[a.index('--bonus') + 1:]); return 0
     if '--quote' in a: quote_cmd(a[a.index('--quote') + 1:]); return 0

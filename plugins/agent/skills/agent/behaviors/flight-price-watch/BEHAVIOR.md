@@ -102,6 +102,29 @@ O runner não tem os conectores (Expedia, Booking, Gmail, Calendar, Artifact, Ch
 - **painel** (`dashboard` no config, alternativa à planilha): `$A --dashboard <viagem>` escreve uma página; publicar com a ferramenta Artifact (primeira vez com `icon`; depois a mesma URL, guardada em `dashboard.urls.<viagem>`). Com a planilha configurada, preferir a planilha.
 - `== MILHAS: bônus de X%...`: bônus de transferência de `miles_search_bonus`% ou mais (padrão 50) num programa do config. Pesquisar o resgate nas datas do plano no site do programa, pelo Chrome do usuário (só leitura, sem login, sem emitir), registrar com `--award` e marcar `--done miles:<programa>`. Sem bônus alto, não pesquisar: o empate raramente fecha.
 
+## Cards no Planou (um por plano)
+
+Com `"plan_cards": {"detail": true}` no config (e `planou` e `"live": true`), cada viagem do config vira um card no
+projeto do Planou da instância, para acompanhar os planos sem abrir o terminal ou a planilha. Uma viagem com várias
+opções de datas são várias viagens no config (como na aba Resumo da planilha): 4 planos, 4 cards.
+- **Título**: nome, datas do plano, `(escolhido)` no plano que o usuário escolheu, voo e voo+hotéis para o grupo
+  (`Plano A 10→24/11 (escolhido) · voo R$ 12,4 mil p/3 · voo+hotéis ~R$ 21,9 mil`).
+- **Descrição**: roteiro (`itinerary`), voo (compra; senão o último preço real do par do `plan` para o grupo, do
+  Expedia, alerta do Google ou `--real`; senão a grade do Google vezes os viajantes, marcada como estimativa), hotéis
+  (reserva ou último `--hotel-price`), voo+hotéis, meta e referência.
+- **Quando**: em todo tick ao vivo (inclusive com fonte quebrada) e logo depois de `$A --done expedia` e
+  `$A --done hoteis`, para os preços novos do dia subirem na hora. `$A --plan-cards` sincroniza na hora;
+  `--plan-cards --dry` só mostra o que subiria (JSON).
+- **Estado**: viagem em `watching` = card aberto (sem motivo de pronto: fica como sugestão, nunca vira trabalho da
+  fila). Voo comprado (`--booked ... voo`, ou `status: booked`/`done`) fecha o card como feito; `status: paused` (ou
+  outro) fecha sem ação; viagem tirada do config fecha sem ação. Comprou um plano: pausar os outros (`status: paused`).
+- **Por viagem**, opcional, `card`: `{"name": "Plano A", "chosen": true, "code": "plano-a"}`. `name` é o nome curto do
+  título (padrão: o `name` da viagem); `chosen` dá prioridade alta (os outros ficam com a normal); `code` é a chave do
+  card (padrão `plano-<id>`), para adotar um card que já existe no Planou com essa chave em vez de criar outro.
+- **Confidencialidade**: o texto é só a viagem do próprio usuário. Com `"detail": true` ele sobe inteiro mesmo com a
+  instância em `title`; com `"plan_cards": true` vale a confidencialidade da instância (em `title` o card fica só com o
+  título); `minimum` sempre vence. Edição feita à mão na descrição pelo Planou não é sobrescrita.
+
 ## Planilha no Google Sheets
 
 O jeito principal de acompanhar a viagem: uma planilha do usuário que o próprio agente reescreve a cada `sheet.every_hours` (padrão 6 h), sem depender do modelo. Abas do agente: **Resumo** (planos lado a lado), **Plano: <viagem>** (roteiro e custos contra a viagem anterior), **Voo** (preço real por dia de cada plano, com meta e referência, e um gráfico), **Voo (leituras)**, **Hotéis**, **Dólar** e **Prazos**. Abas com outro nome são do usuário e o agente nunca mexe nelas: sugerir que anotações dele fiquem numa aba própria.
@@ -146,6 +169,7 @@ Os pontos valem o que dariam em dinheiro (cashback): `points.cash_value / points
 - `combinacao [id]` / "qual a melhor opção?": `$A --miles [id]`: empate por programa com os bônus ativos e as combinações dinheiro/milhas, somadas para todos. Juntar com o `--report` (datas) numa recomendação só.
 - `milhas`: `$A --points MILHAS TAXAS PRECO_EM_DINHEIRO [--bonus PCT] [--program nome]` diz se o resgate compensa contra pagar em dinheiro, avaliando os pontos pelo que valem em cashback. As milhas e taxas do resgate o usuário traz do site do programa (o agente não loga lá).
 - `viagem nova`, `pausar <id>` (`status: paused`), `comprei <id>` (`status: booked`, guardar o que foi comprado e por quanto no `reference` da próxima viagem parecida).
+- `cards`: `$A --plan-cards [--dry]` (seção Cards no Planou).
 - `parar`: `bash $S/scripts/runner.sh travel-agent stop`.
 
 ```permissions

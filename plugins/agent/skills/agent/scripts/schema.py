@@ -136,7 +136,8 @@ JOB_SCOUT_KEYS = {'searches', 'include', 'exclude', 'points', 'min_score', 'boar
                   'tick_hooks', 'daily_tasks', 'kpi_targets', 'shortlist_skip_process', 'saturation', 'test', 'mode'}
 # flight-price-watch (behaviors/flight-price-watch, the travel-agent instance): the keys of its config.json (trips, points, alert rules; config-example)
 TRAVEL_AGENT_KEYS = {'currency', 'pause_seconds', 'min_drop_pct', 'rise_warn_pct', 'points', 'gmail', 'trips', 'fx',
-                     'expedia_flights', 'calendar', 'dashboard', 'remind_days', 'miles_search_bonus', 'steps_hours', 'sheet'}
+                     'expedia_flights', 'calendar', 'dashboard', 'remind_days', 'miles_search_bonus', 'steps_hours', 'sheet',
+                     'plan_cards'}
 REPO_STR_KEYS = ('name', 'worktrees', 'base', 'rules', 'map', 'gh_account', 'done', 'fragments')
 # options that take one of a few values: (behavior, option) -> the values
 OPTION_CHOICES = {('acceptance-testing', 'send_back'): ('ajuste', 'pessoa')}

@@ -14,12 +14,19 @@ not live in one process, so this plugin's agent.py runs travel-agent's in a proc
   agent.py travel-agent --dry | --trip ID  the same, as travel-agent takes them; in test mode ("live" not true) always dry
   agent.py travel-agent --report | --miles | --compare | --hotels | --points ... | --gmail ... | --booked ...
                                          any other travel-agent command, answered by travel-agent's agent.py
+  agent.py travel-agent --plan-cards [--dry]
+                                         one Planou card per trip plan (PLN0374, "plan_cards" in the config): synced now,
+                                         or with --dry (or in test mode, or without Planou) only printed as JSON
+
+Plan cards: with "plan_cards" in the config, a live full tick and the steps that bring new prices (--done expedia,
+--done hoteis) sync the cards the engine builds (behaviors/flight-price-watch/scripts/cards.py). A closed plan goes up
+only while Planou still has its card open; a plan taken out of the config closes its card ("Sem ação").
 
 Only travel-agent's own commands pass: its agent.py runs a full tick (hundreds of searches, state saved) for any
 argument it does not know, so --pending, --since, --json or a typo are refused here. The instance name goes to the
 scripts in $AGENT_INSTANCE. The heavy tick is never shorter than MIN_INTERVAL_S (runner-env), the old runner's floor.
 """
-import os, re, subprocess, sys
+import json, os, re, subprocess, sys
 
 import paths
 from watch_core import behavior_names
@@ -32,7 +39,10 @@ SCRIPTS = os.path.join(paths.BEHAVIORS_DIR, BEHAVIOR, 'scripts')
 ENGINE = os.path.join(SCRIPTS, 'agent.py')
 # travel-agent's agent.py commands (its main), each answered without a tick
 COMMANDS = ('--report', '--gmail', '--gflights', '--real', '--hotel-price', '--booked', '--timeline', '--done', '--hotels',
-            '--dashboard', '--sheet', '--points', '--bonus', '--quote', '--compare', '--award', '--miles')
+            '--dashboard', '--sheet', '--points', '--bonus', '--quote', '--compare', '--award', '--miles', '--plan-cards')
+CARD_STEPS = ('expedia', 'hoteis')     # --done <step> after new prices: the plan cards are synced right after
+CARDS_FILE = 'plan_cards.json'         # cache/planou: {code: {title, closed_on}} of the plan cards sent
+REMOVED = 'Plano tirado da configuração do agente de viagem: card fechado.'
 BROKEN = re.compile(r'^AGENTE QUEBRADO \(([^)]+)\)', re.M)
 
 
@@ -105,6 +115,81 @@ class Planou:
         return lines + planou.heartbeat('tick', broken_sources=broken_sources)
 
 
+def cards_on(cfg):
+    """Plan cards on: "plan_cards" true (or an object) in the config, live and with "planou"."""
+    return bool(cfg.get('plan_cards')) and cfg.get('live') is True and isinstance(cfg.get('planou'), dict)
+
+
+def plan_items():
+    """{code: item} of the engine's --plan-cards (read only)."""
+    r = subprocess.run([python(), ENGINE, '--plan-cards'], env=env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if r.returncode: raise RuntimeError(f'--plan-cards saiu com {r.returncode}: {(r.stderr or "").strip()[-160:]}')
+    return json.loads(r.stdout or '{}')
+
+
+def card_batch(items, known, opened, today):
+    """What goes up and what is remembered: the open plans always; a closed plan only while Planou still has its card
+    open (its close date fixed the first time it was seen closed); a plan known before and gone from the config closes as
+    "Sem ação". Returns (batch, known after)."""
+    items = dict(items)
+    for code, prev in known.items():
+        if code not in items:
+            items[code] = {'titulo': prev.get('title') or code, 'status': 'Sem ação', 'planou_description': REMOVED,
+                           'origem': 'travel-agent', 'area': 'viagem'}
+    batch, after = {}, {}
+    for code, it in items.items():
+        if it.get('status') == 'A fazer':
+            batch[code] = it
+            after[code] = {'title': it.get('titulo')}
+        elif code in opened:
+            it = {**it, 'concluida': it.get('concluida') or (known.get(code) or {}).get('closed_on') or today}
+            batch[code] = it
+            after[code] = {'title': it.get('titulo'), 'closed_on': it['concluida']}
+    return batch, after
+
+
+def sync_cards(cfg, now=None):
+    """Syncs one card per trip plan; returns the lines for the output (empty when all went well). The text is the
+    user's own trip: with "plan_cards": {"detail": true} it goes whole even when the instance is at "title"; "minimum"
+    always wins."""
+    from watch_core import planou
+    import datetime as dt
+    items = plan_items()
+    known = planou._load(CARDS_FILE, {})
+    batch, after = card_batch(items, known, planou.open_codes(), dt.date.today().isoformat())
+    if not batch: return []
+    opts = cfg.get('plan_cards') if isinstance(cfg.get('plan_cards'), dict) else {}
+    conf = planou._S['confidentiality']
+    if opts.get('detail') is True and conf != 'minimum': planou._S['confidentiality'] = 'detail'
+    try:
+        lines = planou.sync(batch, now)
+    finally:
+        planou._S['confidentiality'] = conf
+    still = planou.open_codes()
+    planou._save(CARDS_FILE, {c: v for c, v in after.items() if 'closed_on' not in v or c in still})
+    return lines
+
+
+def cards_after(cfg, lines_out):
+    """sync_cards behind the Planou check; any failure becomes one AVISO line."""
+    try:
+        if Planou(cfg).on(): lines_out += sync_cards(cfg)
+    except Exception as e:
+        lines_out.append(f'AVISO (planou): cards dos planos: {type(e).__name__}: {str(e)[:160]}')
+    return lines_out
+
+
+def plan_cards_cmd(cfg, args):
+    """--plan-cards: sync now; --dry, test mode or no Planou: the engine's JSON only."""
+    if '--dry' in args or not cards_on(cfg) or not Planou(cfg).on():
+        sys.stdout.flush()
+        return subprocess.run([python(), ENGINE, '--plan-cards'], env=env()).returncode
+    lines = cards_after(cfg, [])
+    for l in lines: print(l)
+    if not any(l.startswith('AVISO') for l in lines): print('cards dos planos sincronizados com o Planou')
+    return 1 if any(l.startswith('AVISO') for l in lines) else 0
+
+
 def run(cfg, args, manifest=None, tools=None, output=None):
     """Runs travel-agent's agent.py with `args` for this instance; returns its exit code (2 = AGENTE QUEBRADO, as the
     runner reads it). `manifest()` and `tools()` feed the thin Planou tick; `output(lines)` -> (block, loose lines)."""
@@ -116,7 +201,12 @@ def run(cfg, args, manifest=None, tools=None, output=None):
         return 2
     cmd = [python(), ENGINE]
     sys.stdout.flush()
-    if k == 'query': return subprocess.run(cmd + args, env=env()).returncode
+    if k == 'query':
+        if args[0] == '--plan-cards': return plan_cards_cmd(cfg, args)
+        rc = subprocess.run(cmd + args, env=env()).returncode
+        if rc == 0 and args[0] == '--done' and args[1:2] and args[1] in CARD_STEPS and cards_on(cfg):
+            for l in cards_after(cfg, []): print(l)
+        return rc
     if cfg.get('live') is not True and '--dry' not in args: args.append('--dry')      # test mode: always dry
     pl, lines = None, []
     if '--dry' not in args and '--trip' not in args:        # a partial or dry tick leaves Planou alone (as --so, --dry)
@@ -129,6 +219,7 @@ def run(cfg, args, manifest=None, tools=None, output=None):
     out = r.stdout or ''
     sys.stdout.write(out)
     if pl:
+        if cards_on(cfg): cards_after(cfg, lines)
         try: lines += pl.after(broken(out))
         except Exception as e: lines.append(f'AVISO (planou): {type(e).__name__}: {str(e)[:160]}')
     if lines and output:

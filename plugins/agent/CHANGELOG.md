@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.92.0 (2026-10-05)
+- travel-agent: cada plano de viagem vira um card no projeto do Planou (com `"plan_cards": {"detail": true}` no config), com título (datas, voo e voo+hotéis para o grupo) e descrição (roteiro, voo, hotéis, total, meta e referência). O card é atualizado em todo tick e logo depois dos passos do Expedia e dos hotéis (`--done expedia`, `--done hoteis`), o plano escolhido (`card.chosen`) fica com prioridade alta, e o card fecha quando o voo é comprado (feito) ou a viagem é pausada ou sai do config (sem ação). `card.code` adota um card que já existe. `--plan-cards` sincroniza na hora e `--plan-cards --dry` mostra o que subiria.
+
 ## 0.91.2 (2026-10-05)
 - O `attach` não trata mais como recusa definitiva um anexo que o Planou só pediu para tentar de novo (por exemplo, dois envios do mesmo arquivo ao mesmo tempo) nem um erro sem motivo conhecido: o aviso mostra a mensagem do Planou e o anexo vai de novo no próximo tick. Só o limite de anexos por tarefa, o tamanho, o tipo e os erros de validação seguram o arquivo até ele mudar, e o aviso de recusa não repete mais duas vezes que o anexo não vai de novo.
 
