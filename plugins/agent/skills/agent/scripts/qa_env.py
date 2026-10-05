@@ -28,12 +28,12 @@ person's config wins (`repos`, and the environment commands as a block when `env
 exit: it runs in the background (its own process group, output in .qa-env.log of the worktree, PORT set to a free
 port), the URL is the first http(s) URL of that log, and `down` stops the group.
 """
-import argparse, json, os, re, shlex, signal, socket, subprocess, sys, time
+import argparse, json, os, re, secrets, shlex, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths, repo_discovery, schema   # noqa: E402
 from review_check import SECRETS   # noqa: E402
-from watch_core import fileio   # noqa: E402
+from watch_core import fileio, procgroup   # noqa: E402
 
 KIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'qa_kit.cjs')
 DEFAULTS = {'widths': [1360, 834, 390], 'min_target_px': 44, 'axe_tags': ['wcag2a', 'wcag2aa', 'wcag21aa'],
@@ -104,11 +104,13 @@ ANSI = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
 def background(cmd, wt, timeout, env, st):
     """A discovered dev server (Makefile or package.json): started in its own process group with its output in
     <worktree>/.qa-env.log; the URL is the first http(s) URL of the log. (url, log text); url None = it exited or
-    timed out without one."""
+    timed out without one. The group carries a random QA_ENV_TOKEN in its environment, saved with the pgid: `down`
+    stops the group only while one of its processes still has it (PLN0351: a pgid saved long ago may be another's)."""
     log = os.path.join(wt, '.qa-env.log')
+    st['token'] = secrets.token_hex(12)
     with open(log, 'wb') as out:
         p = subprocess.Popen(cmd, shell=True, cwd=wt, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
-                             env=env, start_new_session=True)
+                             env={**env, TOKEN_VAR: st['token']}, start_new_session=True)
     st['pgid'] = p.pid
     save(st)
     end = time.time() + timeout
@@ -124,14 +126,83 @@ def background(cmd, wt, timeout, env, st):
     return None, text + f'\n(passou de {timeout} s sem imprimir URL)'
 
 
-def stop_group(pgid):
-    for sig, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, 0)):
-        try: os.killpg(pgid, sig)
-        except (ProcessLookupError, PermissionError): return
-        for _ in range(int(wait * 10)):
-            try: os.killpg(pgid, 0)
-            except (ProcessLookupError, PermissionError): return
-            time.sleep(0.1)
+TOKEN_VAR = 'QA_ENV_TOKEN'
+
+
+def group_members(pgid):
+    """The pids of process group `pgid` read from /proc, or None when /proc cannot say (another system)."""
+    if not os.path.exists('/proc/self/stat'): return None
+    out = []
+    for d in os.listdir('/proc'):
+        if not d.isdigit(): continue
+        try:
+            with open(f'/proc/{d}/stat', 'rb') as f: stat = f.read()
+            if int(stat[stat.rindex(b')') + 2:].split()[2]) == pgid: out.append(int(d))
+        except (OSError, ValueError, IndexError): continue
+    return out
+
+
+def group_is_ours(st):
+    """True while the saved process group is still the one `up` started: a member has its QA_ENV_TOKEN in the
+    environment (a state saved before the token: a member working inside the worktree). False when the group is gone
+    or is another's (the number came back for something else); None when this system cannot tell (no /proc)."""
+    pgid, token = st['pgid'], st.get('token')
+    wt = os.path.realpath(st.get('worktree') or '/nonexistent')
+    members = group_members(pgid)
+    if members is None: return None
+    want = f'\0{TOKEN_VAR}={token}\0'.encode() if token else None
+    for pid in members:
+        try:
+            if want:
+                with open(f'/proc/{pid}/environ', 'rb') as f:
+                    if want in b'\0' + f.read(): return True
+            else:
+                cwd = os.path.realpath(os.readlink(f'/proc/{pid}/cwd'))
+                if cwd == wt or cwd.startswith(wt + os.sep): return True
+        except OSError: continue
+    return False
+
+
+def stop_group(st):
+    """Stops the background group of a saved run, only while it is still ours. '' when stopped or gone, else a note."""
+    if not st.get('pgid'): return ''
+    ours = group_is_ours(st)
+    if ours is False: return ''        # gone, or the number is someone else's now: never signalled
+    if ours is None:
+        return (f' (o grupo de processos {st["pgid"]} do servidor de teste nao foi conferido neste sistema e ficou; '
+                f'confira e pare a mao se ainda estiver no ar)')
+    procgroup.kill_group(st['pgid'], 5)
+    return ''
+
+
+def port_busy(port):
+    try:
+        with socket.create_connection(('127.0.0.1', int(port)), timeout=0.5): return True
+    except (OSError, ValueError):
+        return False
+
+
+def compose_busy(e, src, pid):
+    """The refusal text when the approved compose (the discovered env_up) publishes a fixed host port that already
+    answers on this machine: a second environment of the same project would fail half up, or test the other one.
+    The other runs of this instance on the same repository are named. None when free (or not a compose)."""
+    cand = ((e or {}).get('found') or {}).get('env_script') or {}
+    if cand.get('kind') != 'compose' or src.get('env_up') in (None, 'config'): return None
+    others = []
+    d = os.path.join(paths.CACHE_DIR, 'qa')
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        st = load(f[:-5]) if f.endswith('.json') else None
+        if st and st.get('pid') != pid and st.get('slug') and st.get('slug') == e.get('slug'): others.append(st['pid'])
+    if cand.get('shared') and others:      # a fixed container or volume name: the second one collides or mixes data
+        return (f'{cand["value"]} tem {", ".join(cand["shared"])}, e o ambiente de teste de {", ".join(others)} do '
+                f'mesmo projeto esta no ar: dois ao mesmo tempo colidem ou misturam dados. Derrube o outro '
+                f'(qa_env.py <instancia> down <PID>) e tente de novo.')
+    busy = [str(p) for p in (cand.get('ports') or [cand.get('port')]) if p and port_busy(p)]
+    if not busy: return None
+    who = (f' (ambiente de teste no ar de {", ".join(others)}: derrube com qa_env.py <instancia> down <PID>)' if others
+           else ' (outro ambiente de teste do mesmo projeto, de outra instancia, ou outro programa)')
+    return (f'a porta {", ".join(busy)} que {cand["value"]} publica ja esta em uso nesta maquina{who}; nao subo um '
+            f'segundo ambiente do mesmo compose por cima. Tente de novo quando a porta liberar.')
 
 
 def origin_of(o, key):
@@ -145,7 +216,7 @@ def state_file(pid):
 
 
 def git(repo, *args, timeout=300):
-    r = subprocess.run(['git', '-C', repo, *args], capture_output=True, text=True, timeout=timeout)
+    r = procgroup.run(['git', '-C', repo, *args], timeout, text=True)
     if r.returncode != 0: raise Refused(2, f'git {args[0]}: {masked(r.stderr.strip())[-400:]}')
     return r.stdout.strip()
 
@@ -153,9 +224,9 @@ def git(repo, *args, timeout=300):
 def shell(cmd, cwd, timeout, env):
     """A command of the instance's config, run by the shell in the worktree (the person wrote it, like a Makefile)."""
     try:
-        r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
+        r = procgroup.run(cmd, timeout, shell=True, cwd=cwd, text=True, env=env)
         return r.returncode, (r.stdout or '') + (r.stderr or '')
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired as e:      # the whole group stopped, grandchildren too (PLN0351)
         out = e.stdout.decode(errors='replace') if isinstance(e.stdout, bytes) else (e.stdout or '')
         return 124, out + f'\n(passou de {timeout} s)'
 
@@ -180,13 +251,19 @@ def run_line(url, o, wt):
 
 def up(cfg, pid, branch, repo_path=None, pr_url=None):
     prev = load(pid)
+    unchecked = list((prev or {}).get('unchecked_pgids') or [])
     if prev and prev.get('pgid'):          # a retest: the server of the previous up goes first, never left orphaned
-        stop_group(prev['pgid'])
-        prev.pop('pgid', None); save(prev)
+        note = stop_group(prev)
+        if note:        # this system cannot tell whether the group is still ours: said now, and kept for the down
+            print(f'QA AMBIENTE {pid}: AVISO{note}')
+            unchecked.append(prev['pgid'])
+        prev.pop('pgid', None); prev.pop('token', None)
+        if unchecked: prev['unchecked_pgids'] = unchecked
+        save(prev)
     entry = repo_entry(cfg, repo_path, pr_url)
     o = options(cfg, entry)
-    if not o.get('env_up') and not entry.get('discovered') and repo_discovery.entry_of(entry) is None:
-        repo_discovery.remember(entry['path'])          # the person's repo without env_up: read it once
+    if not o.get('env_up') and not entry.get('discovered') and not repo_discovery.current(repo_discovery.entry_of(entry)):
+        repo_discovery.remember(entry['path'])          # the person's repo without env_up: read once per rules version
         o = options(cfg, entry)
     if not o.get('env_up'):
         e = repo_discovery.entry_of(entry)
@@ -204,6 +281,7 @@ def up(cfg, pid, branch, repo_path=None, pr_url=None):
     st = {'pid': pid, 'branch': branch, 'sha': sha, 'repo': repo, 'worktree': wt, 'url': None,
           'discovered': bool(entry.get('discovered')), 'slug': entry.get('slug'),
           'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+    if unchecked: st['unchecked_pgids'] = unchecked
     save(st)
     e = repo_discovery.entry_of(entry)
     src = o.get('_sources') or {}
@@ -212,6 +290,12 @@ def up(cfg, pid, branch, repo_path=None, pr_url=None):
     if drift:          # the branch is what runs: a discovered command it changed is never run unchecked
         down(cfg, pid, quiet=True)
         raise Refused(4, 'PERGUNTAR: ' + drift)
+    # PLN0351: fixed host ports of the same compose already up (another QA of this project); a retest of this PID
+    # holds them itself (same compose project, `up -d` again)
+    busy = None if prev and prev.get('slug') == entry.get('slug') else compose_busy(e, src, pid)
+    if busy:
+        down(cfg, pid, quiet=True)
+        raise Refused(1, busy)
     env = {**os.environ, 'QA_PID': pid, 'QA_BRANCH': branch, 'QA_PROJECT': f'qa-{pid.lower()}'}
     if o.get('_background'): env.update(PORT=str(free_port()), PYTHONUNBUFFERED='1', HOST='127.0.0.1')
     output, url = '', None
@@ -285,12 +369,16 @@ def down(cfg, pid, quiet=False):
         wt = os.path.join(base, f'qa-{pid.lower()}')
     o = options(cfg, entry)
     note = ''
-    if st and st.get('pgid'): stop_group(st['pgid'])
+    if st:
+        note += stop_group(st)
+        for g in st.get('unchecked_pgids') or []:      # an earlier up's group a retest could not check (no /proc)
+            note += (f' (o grupo de processos {g} de um up anterior nao foi conferido neste sistema e pode ter ficado; '
+                     f'confira e pare a mao se ainda estiver no ar)')
     if os.path.isdir(wt):
         if o.get('env_down'):
             code, out = shell(o['env_down'], wt, o['up_timeout_s'], {**os.environ, 'QA_PID': pid,
                                                                      'QA_PROJECT': f'qa-{pid.lower()}'})
-            if code != 0: note = f' ("env_down" saiu {code}: {masked(out).strip()[-200:]})'
+            if code != 0: note += f' ("env_down" saiu {code}: {masked(out).strip()[-200:]})'
         r = subprocess.run(['git', '-C', repo, 'worktree', 'remove', '--force', wt], capture_output=True, text=True)
         if r.returncode != 0: note += f' (worktree ficou: {r.stderr.strip()[-200:]})'
     subprocess.run(['git', '-C', repo, 'worktree', 'prune'], capture_output=True)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.93.1 (2026-10-05)
+- Ambiente de teste do QA: comando que passa do tempo agora para junto com tudo o que ele abriu (antes os processos filhos seguiam rodando), e o `down` só para o servidor de teste quando o grupo de processos ainda é dele, nunca um processo que ganhou o mesmo número depois.
+- Docker compose descoberto: a URL do teste é a porta do app (serviço web, app, front...), nunca a do banco; a pergunta cita o serviço, avisa bind em sintaxe longa, volume com `../` e secrets/configs com `file:`, e diz o que dois testes ao mesmo tempo dividem (`container_name`, volume externo ou com nome fixo). Com uma porta fixa do compose já em uso (ou nome fixo de container ou volume com outro QA do mesmo projeto no ar), o QA não sobe um segundo ambiente por cima, e um aviso novo que a pessoa não viu ao aprovar faz a pergunta voltar.
+- A descoberta do repositório lê de novo o que já tinha achado quando as regras de risco mudam, sem esperar a main do repositório andar.
+- Atualização sozinha da cópia git do instalador: a tag da versão precisa estar na main do origin (tag fora da main é recusada) e o `git fetch` que passa do tempo para junto com o processo de rede que ele abriu.
+
 ## 0.93.0 (2026-10-05)
 - O funcionário passa a dizer ao Planou se a cópia do plugin que ele lê atualiza sozinha pelo provisionador e, quando não, o motivo (atualização desligada, sem provisionador, cópia de desenvolvimento, clone com mudança local, commit local, outra branch ou outro remote). A ficha mostra "Atualiza sozinho em até 30 min" sem o comando, ou o motivo e o comando. A regra é a mesma que o provisionador usa para decidir.
 - O provisionador deixa como está o clone que tem um arquivo não rastreado no lugar de um que a versão nova traz, com o motivo no log, em vez de tentar o avanço e falhar a cada 30 min.

@@ -41,7 +41,8 @@ Sources of the environment, in this order:
      what reaches the host (privileged, docker.sock, host paths, network_mode/pid host, cap_add...). Not even a
      candidate with include: or extends:, a build context outside the repository, an env_file that is not a sample
      (.env.example, .env.test, .env.sample) nor absent, or no published port. Approved: its own project name per task
-     (`-p "$QA_PROJECT"`) and the URL from its first published port;
+     (`-p "$QA_PROJECT"`) and the URL from the published port of the app (a service named web, app, front...; else
+     the first one that is not a database, cache, broker or mail port: NOT_APP_PORTS; PLN0351);
   3. a Makefile target (env-up, qa-up, up, dev, start, serve, run), run in the background by qa_env.py (the URL is the
      first http(s) URL in its log). The Makefile is read whole after joining backslash continuations: any top-level
      line that is neither a plain rule nor `NAME = literal` without `$` refuses the file (include, define, export,
@@ -70,7 +71,7 @@ import argparse, glob, hashlib, io, json, os, re, shlex, shutil, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths   # noqa: E402
-from watch_core import behavior_names, fileio   # noqa: E402
+from watch_core import behavior_names, fileio, procgroup   # noqa: E402
 
 QA = 'acceptance-testing'
 STATE_FILE = 'discovered.json'
@@ -123,9 +124,38 @@ HOST_ACCESS = (('privileged', r'(?m)^\s*privileged\s*:\s*true'), ('docker.sock',
                ('cap_add', r'(?m)^\s*cap_add\s*:'), ('devices', r'(?m)^\s*devices\s*:'),
                ('security_opt', r'(?m)^\s*security_opt\s*:'),
                ('volume de caminho do host', r'(?m)^\s*-\s*["\']?(/|~|\$)[^:\s]*:'),
+               # its own label (PLN0351): an approval saved before this rule did not see it, so the question comes back
+               ('volume acima do repositorio (../)', r'(?m)^\s*-\s*["\']?\.\./[^:\s]*:'),
+               ('bind em sintaxe longa', r'(?m)^\s*-?\s*type\s*:\s*["\']?bind\b'),
+               ('secrets/configs de arquivo (file:)', r'(?m)^\s*file\s*:'),
                ('variavel do .env', r'\$\{?[A-Za-z_]'))
+# what two test environments of the same compose share by name (PLN0351): the second up collides or mixes data
+SHARED = (('container_name fixo', r'(?m)^\s*container_name\s*:'), ('volume ou rede externa', r'(?m)^\s*external\s*:\s*true'),
+          ('volume ou rede com name fixo', r'(?m)^\s{2,}name\s*:'))
+# published ports that are not the app (database, cache, broker, mail): never the URL to test (PLN0351)
+NOT_APP_PORTS = {25, 587, 1025, 1433, 1521, 2181, 3306, 4222, 5432, 5672, 6379, 6380, 7687, 8025, 9042, 9092, 9200,
+                 9300, 11211, 15672, 26257, 27017, 33060}
+APP_SERVICES = ('web', 'app', 'front', 'frontend', 'site', 'ui', 'client', 'server', 'api', 'nginx', 'proxy')
 REF_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,199}')
 SKIP_DIRS = {'node_modules', '.git', 'dist', 'build', 'vendor', '.venv', 'venv', 'bin', 'obj'}
+
+
+def _rules_version():
+    """The version of the discovery rules: the sha256 of this file. A saved discovery made by other rules is read
+    again (PLN0351: a new risk rule reaches what was already discovered without waiting for the repository's main to
+    move). Computed from the file, so no rule change can forget to bump it."""
+    try:
+        with open(os.path.abspath(__file__), 'rb') as f: return hashlib.sha256(f.read()).hexdigest()[:12]
+    except OSError:
+        return ''
+
+
+RULES_VERSION = _rules_version()
+
+
+def current(entry):
+    """A saved discovery made by these rules."""
+    return bool(entry) and entry.get('rules_version') == RULES_VERSION
 
 
 class Failed(Exception):
@@ -206,8 +236,7 @@ def gh_env(cfg):
 
 def run(cmd, env=None, cwd=None, timeout=600, stdout_only=False):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout,
-                           stdin=subprocess.DEVNULL)
+        r = procgroup.run(cmd, timeout, text=True, env=env, cwd=cwd)     # a timeout stops git-remote-* too (PLN0351)
         return r.returncode, (r.stdout or '') + ('' if stdout_only else (r.stderr or ''))
     except subprocess.TimeoutExpired:
         return 124, f'passou de {timeout} s'
@@ -418,19 +447,49 @@ def compose(root):
     for m in re.finditer(r'(?m)^[ \t]*(?:build|context)[ \t]*:[ \t]*["\']?([^\s"\'{#]+)', code):
         v = m.group(1)
         if v.startswith(('/', '~', '$')) or '..' in v.split('/') or '://' in v: return None
-    port = None
-    for line in text.splitlines():
-        m = re.match(r'^\s*-\s*["\']?(?:(?:\d{1,3}\.){3}\d{1,3}:)?(\d{2,5}):(\d{2,5})(?:/tcp)?["\']?\s*$', line)
-        if m: port = m.group(1); break
-    if not port: return None
+    published = compose_ports(code)
+    app = [p for p in published if p[2] not in NOT_APP_PORTS]
+    if not app: return None
+    service, port, _target = next((p for name in APP_SERVICES for p in app if p[0].lower() == name), app[0])   # tuple order
     h = hashlib.sha256()
     covered = [f] + [n for n in COMPOSE_OVERRIDES + ('.env',) if os.path.isfile(os.path.join(root, n))]
     for n in covered:
         h.update(n.encode() + b'\0' + read(os.path.join(root, n)).encode() + b'\0')
     notes = [label for label, rx in HOST_ACCESS if any(re.search(rx, code_of(read(os.path.join(root, n))))
                                                        for n in covered if n != '.env')]
+    shared = [label for label, rx in SHARED if any(re.search(rx, code_of(read(os.path.join(root, n))))
+                                                   for n in covered if n != '.env')]
     return {'value': f, 'source': f'{f} (docker compose da raiz)', 'sha256': h.hexdigest(), 'kind': 'compose',
-            'port': port, 'covers': covered, 'notes': notes}
+            'port': str(port), 'service': service, 'ports': sorted({p[1] for p in published}), 'covers': covered,
+            'notes': notes, 'shared': shared}
+
+
+def compose_ports(code):
+    """[(service, host port, container port)] published by the compose text, in order: the short syntax
+    ("8080:80", "127.0.0.1:8080:80") and the long one (published: / target:). A range or a port without a fixed host
+    side publishes nothing fixed and is left out."""
+    out, service, svc_indent, in_services, item = [], None, None, False, {}
+    def flush():
+        if item.get('published') and item.get('target'): out.append((service or '?', item['published'], item['target']))
+        item.clear()
+    for line in code.splitlines():
+        if not line.strip(): continue
+        ind = len(line) - len(line.lstrip())
+        if ind == 0:
+            flush(); in_services = bool(re.match(r'^services\s*:\s*$', line)); service = svc_indent = None; continue
+        m = re.match(r'^\s*([A-Za-z0-9._-]+)\s*:\s*$', line)
+        if in_services and m and (svc_indent is None or ind <= svc_indent):
+            flush(); svc_indent, service = ind, m.group(1); continue
+        m = re.match(r'^\s*-\s*["\']?(?:(?:\d{1,3}\.){3}\d{1,3}:)?(\d{2,5}):(\d{2,5})(?:/tcp)?["\']?\s*$', line)
+        if m:
+            flush(); out.append((service or '?', int(m.group(1)), int(m.group(2)))); continue
+        m = re.match(r'^\s*(-\s*)?(published|target)\s*:\s*["\']?(\d{2,5})["\']?\s*$', line)
+        if m:
+            if m.group(1): flush()
+            item[m.group(2)] = int(m.group(3))
+        elif line.lstrip().startswith('-'): flush()
+    flush()
+    return out
 
 
 def make_rules(root):
@@ -689,6 +748,22 @@ def discover(root, base=None):
     return found
 
 
+# the warnings the question had before PLN0351: an approval saved without its warnings saw at most these
+OLD_WARNINGS = {'privileged', 'docker.sock', 'network_mode host', 'pid/ipc/userns host', 'cap_add', 'devices',
+                'security_opt', 'volume de caminho do host', 'variavel do .env'}
+
+
+def warnings_of(cand):
+    return sorted(set(cand.get('notes') or []) | set(cand.get('shared') or []))
+
+
+def unseen_warnings(cand, ok):
+    """The warnings of the candidate the person did not see when approving (a rule added later, same sha256): the
+    approval does not cover them, the question comes back."""
+    seen = set(ok['warnings']) if isinstance(ok.get('warnings'), list) else OLD_WARNINGS
+    return [w for w in warnings_of(cand) if w not in seen]
+
+
 def apply_approval(entry):
     """The environment of an approved script: env_up/env_down (and env_url) from it when the person approved this
     sha256 for this repository; while not approved, no environment (the question). Idempotent."""
@@ -698,7 +773,7 @@ def apply_approval(entry):
     for k in ENV_KEYS:
         if k != 'setup': found.pop(k, None)
     ok = (entry.get('approved') or {}).get(cand['value'])
-    if ok and ok.get('sha256') == cand['sha256']:
+    if ok and ok.get('sha256') == cand['sha256'] and not unseen_warnings(cand, ok):
         src = f'{cand["value"]} (aprovado pela pessoa em {ok.get("at")}, sha256 {cand["sha256"][:12]})'
         rel = q(cand['value'])
         if cand.get('kind') == 'compose':
@@ -755,12 +830,12 @@ def resolve(cfg, ref, project=None, refresh=False):
     st = load_state()
     base, sha = default_tip(path)
     old = st['repos'].get(slug)
-    if old and not refresh and sha and old.get('sha') == sha:
+    if old and not refresh and sha and old.get('sha') == sha and current(old):
         entry = old
     else:
         found = discover_at(path, sha, base) if sha else discover(path)
         entry = {'slug': slug, 'url': url, 'kind': kind, 'path': tilde(path), 'worktrees': WORKTREES,
-                 'sha': sha, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'found': found,
+                 'sha': sha, 'rules_version': RULES_VERSION, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'found': found,
                  'projects': list((old or {}).get('projects') or []), 'approved': dict((old or {}).get('approved') or {})}
     apply_approval(entry)
     if project and project not in entry['projects']: entry['projects'].append(project)
@@ -781,9 +856,9 @@ def remember(path):
     code, sha = run(['git', '-C', path, 'rev-parse', 'HEAD'])
     st = load_state()
     old = st['repos'].get(slug)
-    if old and old.get('sha') == sha.strip(): return old
+    if old and old.get('sha') == sha.strip() and current(old): return old
     entry = {'slug': slug, 'url': url, 'kind': kind, 'path': tilde(path), 'worktrees': WORKTREES, 'sha': sha.strip(),
-             'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'found': discover(path),
+             'rules_version': RULES_VERSION, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'found': discover(path),
              'projects': list((old or {}).get('projects') or []), 'approved': dict((old or {}).get('approved') or {})}
     apply_approval(entry)
     st['repos'][slug] = entry
@@ -874,7 +949,8 @@ def approve(cfg, ref, spec):
         raise Failed(2, f'{rel} nao e o script candidato de {entry["slug"]}' + (f' (o candidato e {cand["value"]})' if cand else ''))
     if len(want) < 7 or not cand['sha256'].startswith(want.lower()):
         raise Failed(2, f'{rel} mudou desde a pergunta (sha256 agora {cand["sha256"][:12]}): pergunte de novo')
-    entry.setdefault('approved', {})[rel] = {'sha256': cand['sha256'], 'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+    entry.setdefault('approved', {})[rel] = {'sha256': cand['sha256'], 'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+                                             'warnings': warnings_of(cand)}
     apply_approval(entry)
     st = load_state()
     st['repos'][entry['slug']] = entry
@@ -911,8 +987,11 @@ def question(entry):
     cand = ((entry or {}).get('found') or {}).get('env_script') if isinstance(entry, dict) else None
     if cand and cand.get('kind') == 'compose' and not ((entry.get('found') or {}).get('env_up')):
         warn = f' Atencao, ele pede acesso ao host: {", ".join(cand["notes"])}.' if cand.get('notes') else ''
+        if cand.get('shared'):
+            warn += (f' Dois testes ao mesmo tempo colidem ou misturam dados: {", ".join(cand["shared"])}.')
+        where = f'porta {cand["port"]}' + (f' do servico {cand["service"]}' if cand.get('service') else '')
         return (f'Achei {cand["value"]} em {slug} (sha256 {cand["sha256"][:12]}, cobre {", ".join(cand["covers"])}), com '
-                f'porta {cand["port"]} publicada: posso subir o ambiente de teste com docker compose desse arquivo?{warn} '
+                f'{where} publicada: posso subir o ambiente de teste com docker compose desse arquivo?{warn} '
                 f'Com o OK da pessoa (nunca pela recomendada): python3 $S/scripts/repo_discovery.py <instancia> {slug} '
                 f'--approve {cand["value"]}@{cand["sha256"][:12]}')
     if cand and not ((entry.get('found') or {}).get('env_up')):

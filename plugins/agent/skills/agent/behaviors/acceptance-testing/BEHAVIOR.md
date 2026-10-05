@@ -70,11 +70,16 @@ script de ambiente, docker compose da raiz, alvo de Makefile (`up`, `dev`, `star
 - Docker compose: o compose chega ao host (privileged, docker.sock, caminho do host, `network_mode: host`), então
   **também só com o OK da pessoa**, pelo mesmo `--approve compose.yaml@<sha12>`. O sha256 cobre o arquivo padrão da
   raiz, o override (`compose.override.yaml`...) e o `.env` da raiz; mudou qualquer um, pergunta de novo. A pergunta
-  cita o arquivo e avisa o que dá acesso ao host (privileged, docker.sock, volume de caminho do host, `network_mode`,
-  `pid`/`ipc`/`userns_mode: host`, `cap_add`, `devices`, `security_opt`, variável do `.env`). Nem vira candidato:
-  `include:` ou `extends:`, `build`/`context` fora do repositório, `env_file` que não seja amostra (`.env.example`,
-  `.env.test`, `.env.sample`) ou arquivo ausente, compose sem porta publicada. Aprovado, roda com `-f <arquivo>` e
-  projeto `qa-<pid>` próprio.
+  cita o arquivo e avisa o que dá acesso ao host (privileged, docker.sock, volume de caminho do host ou com `../`, bind
+  em sintaxe longa, secrets/configs com `file:`, `network_mode`, `pid`/`ipc`/`userns_mode: host`, `cap_add`,
+  `devices`, `security_opt`, variável do `.env`) e o que dois testes ao mesmo tempo dividem (`container_name`, volume
+  ou rede `external` ou com `name` fixo). Nem vira candidato: `include:` ou `extends:`, `build`/`context` fora do
+  repositório, `env_file` que não seja amostra (`.env.example`, `.env.test`, `.env.sample`) ou arquivo ausente,
+  compose sem porta publicada do app (porta de banco, cache, fila ou e-mail não conta). A URL é a porta do serviço
+  com nome de app (web, app, front...) ou a primeira que não é de banco, citada na pergunta. Aprovado, roda com
+  `-f <arquivo>` e projeto `qa-<pid>` próprio; se uma porta fixa dele já responde na máquina (ou, com nome fixo de
+  container ou volume, outro QA do mesmo projeto está no ar), o `up` sai 1 sem subir nada e cita o PID do outro. Um
+  aviso que não existia quando a pessoa aprovou (regra nova, mesmo sha256) faz a pergunta voltar.
 - Makefile: lido inteiro, e qualquer linha de topo que não seja regra ou `NOME = literal` sem `$` recusa o arquivo
   (include, define, export, override, SHELL, `.RECIPEPREFIX`, `.ONESHELL`, condicionais, `$(shell ...)`, variável de
   alvo, receita na mesma linha, `\` numa receita). A receita do alvo, linha a linha, segue o comando simples da lista;

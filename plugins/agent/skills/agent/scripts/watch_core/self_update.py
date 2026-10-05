@@ -89,13 +89,13 @@ def repo_key(url):
 def git(root, *args, timeout=GIT_TIMEOUT_S, strip=True):
     """`git -C root args` with no prompt, no optional lock (a read never holds index.lock while the provisioner
     merges) and never walking above root to another repository. Returns (code, output); a missing git or a timeout
-    raises GitError."""
+    raises GitError. A timeout stops git's whole process group, the git-remote-https of a fetch included (PLN0351)."""
+    from . import procgroup
     env = dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_CEILING_DIRECTORIES=os.path.dirname(root), LC_ALL='C',
                GIT_OPTIONAL_LOCKS='0')
     env.setdefault('GIT_SSH_COMMAND', 'ssh -oBatchMode=yes')
     try:
-        r = subprocess.run(['git', '-C', root, *args], capture_output=True, text=True, timeout=timeout, env=env,
-                           stdin=subprocess.DEVNULL)
+        r = procgroup.run(['git', '-C', root, *args], timeout, text=True, env=env)
     except FileNotFoundError:
         raise GitError('git nao encontrado')
     except subprocess.TimeoutExpired:

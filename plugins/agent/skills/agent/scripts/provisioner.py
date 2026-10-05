@@ -1123,12 +1123,13 @@ def git_clone_root():
     return su.clone_root(live_dir())
 
 
-def git(root, *args, timeout=GIT_TIMEOUT_S):
+def git(root, *args, timeout=None):
     """`git -C root args` (watch_core.self_update.git); a missing git or a timeout becomes Fail, so the service loop
-    goes on."""
+    goes on. A timeout stops git's whole process group, the git-remote-https of a fetch included (PLN0351); None is
+    GIT_TIMEOUT_S read now."""
     from watch_core import self_update as su
     try:
-        return su.git(root, *args, timeout=timeout)
+        return su.git(root, *args, timeout=GIT_TIMEOUT_S if timeout is None else timeout)
     except su.GitError as e:
         raise Fail(str(e))
 
@@ -1145,12 +1146,16 @@ def git_skip_reason(root):
 
 
 def git_update(root, tag):
-    """Fast-forward of the clone to the release tag (never the tip of main, never a rewrite): fetch the tags of
-    origin, then merge --ff-only the tag. A failure leaves the clone as it was (git refuses before touching it)."""
-    code, out = git(root, 'fetch', '-q', '--tags', 'origin')
+    """Fast-forward of the clone to the release tag (never the tip of main, never a rewrite): fetch main and the tags
+    of origin, check the tag is on origin's main (PLN0351: a tag on a side branch is refused even when it would
+    fast-forward), then merge --ff-only the tag. A failure leaves the clone as it was (git refuses before touching it)."""
+    code, out = git(root, 'fetch', '-q', '--tags', 'origin', f'+refs/heads/{GIT_BRANCH}:refs/remotes/origin/{GIT_BRANCH}')
     if code != 0: raise Fail(f'git fetch --tags origin falhou ({one_line(out, 120)}); nada foi trocado')
     code, sha = git(root, 'rev-parse', '-q', '--verify', f'refs/tags/{tag}^{{commit}}')
     if code != 0: raise Fail(f'a tag {tag} nao esta no origin; nada foi trocado')
+    code, out = git(root, 'merge-base', '--is-ancestor', sha, f'refs/remotes/origin/{GIT_BRANCH}')
+    if code == 1: raise Fail(f'a tag {tag} nao esta na {GIT_BRANCH} do origin; nada foi trocado')
+    if code != 0: raise Fail(f'nao consegui conferir a tag {tag} na {GIT_BRANCH} do origin ({one_line(out, 120)}); nada foi trocado')
     code, out = git(root, 'merge', '-q', '--ff-only', f'refs/tags/{tag}')
     if code != 0: raise Fail(f'a copia nao avanca ate {tag} sem reescrever ({one_line(out, 120)}); nada foi trocado')
     return sha
