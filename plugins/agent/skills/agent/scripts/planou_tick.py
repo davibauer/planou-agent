@@ -190,7 +190,8 @@ def pedidos(s, its, conf):
 
     A broken source and a credential near or past its date open no ask any more (0.28.0): they go in the tools list of
     the heartbeat (ferramentas() below) and Planou opens tool_failing / tool_expiring by itself; an ask here would show the
-    same problem twice. reconcile_asks withdraws the alerts that older versions opened."""
+    same problem twice. reconcile_asks withdraws the alerts that older versions opened. A failure that only the person can
+    fix asks a decision of its own instead (pedidos_credenciais, PLN0364)."""
     out = {}
     esc = (s.get('tarefas_notion') or {}).get('dec_escolha') or {}
     for a in s.get('acoes') or []:
@@ -280,6 +281,108 @@ def ferramentas(ctx):
                                c.get('vence') or None, c.get('detalhe') if est == 'failing' else None, None,
                                f'Renovar: {c["renovar"]}' if c.get('renovar') else None))
     return out
+
+
+# PLN0364: a failure only the person can fix (a token refused or expired, an SSO session whose refresh failed) opens one
+# "Precisa de você" ask per episode, with how to fix it and what stops working. Network, timeout, 5xx and drive errors
+# never do: the source comes back by itself and the Ferramentas tab already shows it.
+PESSOAL = re.compile(r'\b401\b|recusad|unauthori[sz]ed|bad credentials|invalid_grant|expired|expirad|vencid|venceu'
+                     r'|refresh failed|reauth|n[aã]o encontrado em|not found in', re.I)
+# a TLS failure ("certificate has expired") is the server's or the network's, never the person's credential
+NAO_PESSOAL = re.compile(r'certificate|\bssl\b|\btls\b', re.I)
+JA_RENOVEI = [('S', 'Já renovei', False), ('N', 'Ainda não', False)]
+
+
+def _pessoal(erro):
+    erro = str(erro or '')
+    return bool(PESSOAL.search(erro)) and not NAO_PESSOAL.search(erro)
+
+
+def _rotulo(nome, f):
+    rot, _cred, fix = FERRAMENTA.get(f.tipo, (nome, None, None))
+    cfg = f.cfg or {}
+    return cfg.get('rotulo_planou') or rot, cfg.get('conserto') or fix or 'Veja o erro do tick e rode o tick de novo.'
+
+
+def pedidos_credenciais(ctx, conf):
+    """The asks for failures that need the person (PLN0364): {ref: decision} for reconcile_asks, which opens each ref
+    once, keeps it while the failure lasts (an answered one is not asked again) and withdraws it when the tool is back.
+    The ref carries the failure's start ('desde'), so a new episode on another day is a new ask.
+      - a source in s['quebrado'] whose error looks personal (PESSOAL), unless a credential of the credenciais hook
+        names that source and already asks;
+      - a credential of the credenciais hook in state 'vencida' (a date in the past always; a command only when its
+        error looks personal).
+    The title and the fix are what the Ferramentas tab already shows (tool label and fix, sent with any
+    confidentiality); the error itself goes only with "detail". Never a credential value."""
+    s = ctx.s
+    fontes = getattr(ctx, 'fontes', None) or {}
+    creds = (s.get('credenciais') or {}).get('itens') if isinstance(s.get('credenciais'), dict) else None
+    creds = creds if isinstance(creds, dict) else {}
+    out, cobertas = {}, set()
+
+    def pede(chave, rotulo, desde, fix, impacto, erro):
+        ref = f'cred:{(planou.tool_key(chave) or "x").lower()}#{_h(desde)}'
+        titulo = (f'Renove a credencial de {rotulo}' if conf != 'minimum' else f'Renove uma credencial do agente ({rotulo})')
+        fix, impacto = planou.clean_text(fix, 1500) or 'veja a aba Ferramentas', planou.clean_text(impacto, 500) or '-'
+        ctx_txt = (f'Como consertar: {fix}\nO que para de funcionar: {impacto}\n'
+                   'Depois de renovar, responda "Já renovei": o próximo tick confere e este pedido sai sozinho quando a '
+                   'ferramenta voltar.')
+        if conf == 'detail' and erro: ctx_txt += f'\nErro: {planou.clean_text(erro) or "omitido"}'
+        out[ref] = {'kind': 'decision', 'title': titulo[:300], 'context': ctx_txt[:4000], 'free_text': True,
+                    'options': JA_RENOVEI}
+
+    for nome, c in creds.items():
+        if not isinstance(c, dict) or c.get('estado') != 'vencida': continue
+        if c.get('comando') and not _pessoal(c.get('detalhe')): continue
+        f = fontes.get(c.get('fonte'))
+        rot = _rotulo(c['fonte'], f)[0] if f else nome
+        fix = f'rode {c["renovar"]}' if c.get('renovar') else (_rotulo(c['fonte'], f)[1] if f else 'Renove a credencial.')
+        impacto = c.get('impacto') or (f'o agente para de ler {rot} até a renovação' if f else
+                                       f'o que o agente faz com {nome} para até a renovação')
+        pede(nome, rot if not f else f'{rot} ({nome})', c.get('desde') or c.get('vence') or nome, fix,
+             impacto, c.get('detalhe'))
+        if c.get('fonte'): cobertas.add(c['fonte'])
+    for nome, q in (s.get('quebrado') or {}).items():
+        f = fontes.get(nome)
+        if not f or nome in cobertas: continue
+        q = q if isinstance(q, dict) else {'erro': str(q)}
+        if ((f.cfg or {}).get('credencial_tipo') or FERRAMENTA.get(f.tipo, (None, None))[1]) == 'none': continue
+        if not _pessoal(q.get('erro')): continue
+        rot, fix = _rotulo(nome, f)
+        pede(nome, rot, q.get('desde') or nome, fix,
+             f'o agente para de ler {rot}: o que chegar lá não vira tarefa nem aviso até a renovação', q.get('erro'))
+    return out
+
+
+def decisoes(ctx, conf):
+    """What the agent decided and did by itself during the tick, as the low alert of `pergunta --auto` (PLN0225): today
+    the GitLab token rotation (PLN0364), from the note s['gitlab']['rotacao'] the source leaves (Planou is not
+    configured while the sources tick). The note leaves the state once Planou took it. Returns AVISO lines."""
+    st = ctx.s.get('gitlab') if isinstance(ctx.s.get('gitlab'), dict) else {}
+    r = st.get('rotacao')
+    if not isinstance(r, dict) or r.get('avisado'): return []
+    f = (getattr(ctx, 'fontes', None) or {}).get(r.get('fonte'))
+    rot = _rotulo(r.get('fonte'), f)[0] if f else 'GitLab'
+    try: dia = datetime.fromisoformat(str(r.get('vence'))[:10]).strftime('%d/%m')
+    except ValueError: dia = str(r.get('vence') or '?')
+    if r.get('gravado') is False:
+        titulo, sev = f'Renovei o token {rot}, mas não consegui gravar o novo no arquivo do token', 'high'
+        ctx_txt = ('O token antigo já foi revogado pelo GitLab. ' +
+                   (f'O novo ficou em {r["arquivo"]} (0600): mova para o arquivo do token.' if r.get('arquivo')
+                    else 'Gere um token novo e grave no arquivo do token.'))
+        code = 'agent'
+    else:
+        titulo, sev, code = f'Decidi: renovei o token {rot}, vence em {dia}', 'low', 'agent_decided'
+        ctx_txt = ('O token de API ia vencer em poucos dias e ainda funcionava: o agente rodou a rotação pela API do GitLab '
+                   'e gravou o novo no mesmo arquivo (0600). O antigo foi revogado. Nada a fazer.')
+    ref = 'q-auto-token-' + _h(r.get('fonte'), r.get('vence'), r.get('quando'))
+    try:
+        planou.raise_alert(titulo[:300], code, sev, ctx_txt, None, ref)
+    except planou.PlanouError as e:
+        return [f'AVISO (planou): decisao {ref} fica para o proximo tick: {e.message}']
+    r['avisado'] = True
+    st.pop('rotacao', None)
+    return []
 
 
 NOME = {'slack': 'Slack', 'teams': 'Teams', 'google_chat': 'Google Chat', 'chat': 'Google Chat', 'email': 'E-mail',
@@ -442,7 +545,8 @@ def after(ctx, ganchos=()):
     falhou = any(l.startswith('FONTE QUEBRADA (planou)') or (l.startswith('AVISO (planou)') and ' recusada: ' not in l)
                  for l in linhas)
     if not falhou:                    # Planou down: the asks wait for the next tick (one failure line is enough)
-        linhas += planou.reconcile_asks(pedidos(s, its, conf))
+        linhas += planou.reconcile_asks({**pedidos(s, its, conf), **pedidos_credenciais(ctx, conf)})
+        linhas += decisoes(ctx, conf)
     try:
         planou.set_tools(ferramentas(ctx), agora)
     except Exception as e:                        # never costs the sign of life

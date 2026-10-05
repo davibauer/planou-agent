@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.91.0 (2026-10-05)
+- O agente renova sozinho o token de API do GitLab antes de vencer: faltando 7 dias ou menos (opção `token_rotacionar_dias` da fonte gitlab; 0 desliga), ele usa a rotação da própria API do GitLab, com a mesma validade do token atual (entre 30 e 365 dias), e grava o token novo no mesmo arquivo, com permissão só do dono e sem nunca mostrar o valor. A decisão aparece no Planou como um aviso baixo "Decidi: renovei o token GitLab, vence em DD/MM". Token já vencido ou recusado não é renovado; sem a permissão de rotação no token, fica o aviso de vencimento de sempre.
+- Ferramenta que só volta com uma ação sua (token recusado ou vencido, sessão do SSO da AWS que expirou e não renova sozinha) agora abre um pedido em Precisa de você logo no primeiro tick com falha, com o comando para consertar, o que para de funcionar e os botões "Já renovei" e "Ainda não". É um pedido por credencial em cada falha, sem repetir a cada tick, e ele sai sozinho quando a ferramenta volta. Falha de rede, de tempo esgotado ou de certificado do servidor não abre pedido, nem fonte que não usa credencial. O login do SSO da AWS continua sendo seu: o agente nunca roda `aws sso login`, que pede aprovação no navegador.
+- Novo campo opcional `impacto` nos itens do gancho credenciais: o que para de funcionar enquanto a credencial está vencida, dito no pedido.
+- O token do GitLab não aparece mais na linha de comando do curl (era visível para outros processos da máquina): agora vai pela entrada padrão. Quando duas instâncias usam o mesmo arquivo de token e uma acabou de renovar, a outra tenta de novo com o token novo em vez de dar a fonte como recusada.
+
 ## 0.90.0 (2026-10-04)
 - O provisionador agora também atualiza sozinho a cópia do instalador quando ela é um clone git (computadores instalados antes do instalador por arquivo ficavam parados na versão do dia da instalação). Com o mesmo `auto_update` e o mesmo intervalo, ele avança o clone até a tag da Release mais nova por fast-forward, só quando é a pasta do instalador, o `origin` é o davibauer/planou-agent, a branch é a `main` e não há mudança nem commit local. Qualquer outro clone fica como está, com uma linha no log dizendo o motivo.
 

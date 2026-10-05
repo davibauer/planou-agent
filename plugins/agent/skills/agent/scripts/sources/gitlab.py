@@ -5,10 +5,17 @@
   - OPEN MRs in the watched groups: new MR from someone else, Draft turned ready, new commits, conflict, MR gone
     (merged/closed). Does not use scope=all on the instance (an admin account would bring the whole GitLab).
   - new NOTES from other people on the open MRs of the groups (a comment on my MR without @mention does not create a todo).
-Also warns (once a day) when the API token expires within "token_aviso_dias".
+Also warns (once a day) when the API token expires within "token_aviso_dias", and renews it by itself within
+"token_rotacionar_dias" (PLN0364): POST /personal_access_tokens/self/rotate with an expires_at as far as the current
+token's lifetime (30 to 365 days), the new value written atomically (0600) over the same token_file, under a lock and
+never printed. Only while the token still works: an expired or refused (401) token is never rotated, it becomes a
+"Precisa de você" ask (planou_tick.pedidos_credenciais). The decision goes to Planou as a low alert "Decidi: renovei o
+token ..." (planou_tick.decisoes), from the note left in s['gitlab']['rotacao'].
 
 Transport: curl (configurable binary: a Windows curl.exe reaches hosts only the Windows network sees, e.g. behind a
-corporate proxy client; if the WSL interop binfmt is missing it is called through /init).
+corporate proxy client; if the WSL interop binfmt is missing it is called through /init). The token header goes through
+curl's stdin (-H @-, curl 7.55+), never on its command line; a 401 right after another instance rotated the shared
+token file is retried once with the file's new value.
 
 Config ("fontes": [{"tipo": "gitlab", ...}]):
   url               https://gitlab.example (required)
@@ -17,6 +24,8 @@ Config ("fontes": [{"tipo": "gitlab", ...}]):
   curl              curl binary (default "curl")
   rotulo            short name in messages (default: the host)
   token_aviso_dias  default 10
+  token_rotacionar_dias  default 7: rotate the token when it expires within this many days (0 = off). Needs the token
+                    scope "api" or "self_rotate"; without it (403/404) the day falls back to the warning
   mensagens         {"sem_token", "timeout", "rede", "recusado", "vence"}: texts of the errors/warning ({nome},
                     {token_file}, {rc}, {dias}, {data} are filled in); defaults are generic
 Extra CLI: --gitlab all | show <path!iid | path#iid | todo-id> (read-only).
@@ -25,14 +34,16 @@ import os, re, sys, json, html, subprocess, urllib.parse
 from datetime import datetime, timezone, timedelta, date
 
 import core, paths
-from watch_core import slowfs
+from watch_core import slowfs, fileio
 from adapters import Fonte as Base, sumidos
 
-GITLAB = API = TOKEN_FILE = NOME = None
+GITLAB = API = TOKEN_FILE = NOME = FONTE = None
 GRUPOS = []
 CURL = 'curl'
 BRT = timezone(timedelta(hours=-3))
 TOKEN_AVISO_DIAS = 10
+TOKEN_ROTACIONAR_DIAS = 7
+ROTACAO_MIN_DIAS, ROTACAO_MAX_DIAS, ROTACAO_PADRAO_DIAS = 30, 365, 90
 MSG_PADRAO = {'sem_token': 'token do {nome} nao encontrado em {token_file}',
               'timeout': '{nome} sem resposta (timeout)',
               'rede': '{nome} sem resposta (curl rc={rc})',
@@ -54,26 +65,43 @@ def _token():
     except FileNotFoundError:
         sys.exit(_msg('sem_token'))
 
-def _curl(args):
-    """Roda o curl do Windows; sem binfmt (Exec format error) chama pelo /init com argv0 explicito."""
+def _curl(args, entrada=None):
+    """Roda o curl do Windows; sem binfmt (Exec format error) chama pelo /init com argv0 explicito. `entrada` vai pela
+    entrada padrao nos dois caminhos (o cabecalho do token, PLN0364: nunca na linha de comando)."""
     try:
-        return subprocess.run([CURL] + args, capture_output=True, timeout=90)
+        return subprocess.run([CURL] + args, input=entrada, capture_output=True, timeout=90)
     except OSError as e:
         if getattr(e, 'errno', None) != 8: raise           # 8 = Exec format error
-        return subprocess.run(['/init', CURL, os.path.basename(CURL)] + args, capture_output=True, timeout=90)
+        return subprocess.run(['/init', CURL, os.path.basename(CURL)] + args, input=entrada, capture_output=True,
+                              timeout=90)
+
+def _com_token(args):
+    """curl with the PRIVATE-TOKEN header read from stdin (-H @-, curl 7.55+), so the token never shows in ps or
+    /proc/<pid>/cmdline. On a 401 the token file is read again: when it changed (another instance sharing the file
+    has just rotated it), one more try with the new value. Returns (CompletedProcess, http status, body); a failure
+    of curl itself comes back with status '' and the caller looks at returncode. TimeoutExpired propagates."""
+    tok = None
+    for _ in range(2):
+        antes, tok = tok, _token()
+        if antes is not None and tok == antes: break
+        r = _curl(['-H', '@-'] + args, entrada=f'PRIVATE-TOKEN: {tok}\n'.encode())
+        if r.returncode: return r, '', ''
+        corpo, _, status = r.stdout.decode(errors='replace').rpartition('\n')
+        if status != '401': break
+    tok = None
+    return r, status, corpo
 
 def raw(path, params=None):
     """GET; devolve (status, corpo em texto)."""
     url = API + path + (('&' if '?' in path else '?') + urllib.parse.urlencode(params) if params else '')
     try:
-        r = _curl(['-s', '-m', '60', '-w', '\n%{http_code}', '-H', f'PRIVATE-TOKEN: {_token()}', url])
+        r, status, corpo = _com_token(['-s', '-m', '60', '-w', '\n%{http_code}', url])
     except subprocess.TimeoutExpired:
         sys.exit(_msg('timeout'))
     if r.returncode in (6, 7, 28, 35):
         sys.exit(_msg('rede', rc=r.returncode))
     if r.returncode:
         sys.exit(f'{os.path.basename(CURL)} falhou (rc={r.returncode}): {r.stderr.decode(errors="replace")[:200]}')
-    corpo, _, status = r.stdout.decode(errors='replace').rpartition('\n')
     if status == '401': sys.exit(_msg('recusado'))
     if status == '403': sys.exit(f'{NOME} negou acesso (403) em {path}')
     return int(status or 0), corpo
@@ -105,21 +133,108 @@ def hora(iso):
 def eu():
     return get('/user')['username']
 
-def token_info():
+def token_self():
+    """GET /personal_access_tokens/self (name, created_at, expires_at...) or None when it cannot be read."""
+    try: return get('/personal_access_tokens/self')
+    except Exception: return None
+
+def token_info(t=None):
     """(dias ate o token vencer, data AAAA-MM-DD) ou (None, None) se nao der para ler."""
+    t = t if t is not None else token_self()
     try:
-        t = get('/personal_access_tokens/self')
-        if not t.get('expires_at'): return None, None
+        if not t or not t.get('expires_at'): return None, None
         return (date.fromisoformat(t['expires_at']) - date.today()).days, t['expires_at']
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return None, None
 
+def _post(path, data):
+    """POST without the failure paths of raw()/get(): (status, body). The body of a rotation holds the new token: the
+    caller never puts it in a message, an exception or a log."""
+    try:
+        r, status, corpo = _com_token(['-s', '-m', '60', '-w', '\n%{http_code}', '-X', 'POST',
+                                       '-H', 'Content-Type: application/json', '--data-binary', json.dumps(data),
+                                       API + path])
+    except subprocess.TimeoutExpired:
+        return 0, ''
+    if r.returncode: return 0, ''
+    try: return int(status or 0), corpo
+    except ValueError: return 0, ''
+
+def _nova_validade(t):
+    """The expires_at of the rotated token: today + the current token's lifetime (expires_at - created_at), within
+    30..365 days (GitLab refuses more than a year; without expires_at it would give a week and rotate every day)."""
+    dias = ROTACAO_PADRAO_DIAS
+    try:
+        ini = date.fromisoformat(str(t.get('created_at'))[:10]); fim = date.fromisoformat(str(t.get('expires_at'))[:10])
+        if fim > ini: dias = (fim - ini).days
+    except (ValueError, TypeError):
+        pass
+    return (date.today() + timedelta(days=max(ROTACAO_MIN_DIAS, min(ROTACAO_MAX_DIAS, dias)))).isoformat()
+
+def _grava_token(valor):
+    """Writes the new token over the token file (the symlink's target), 0600, atomically. If that fails, into a sibling
+    '<file>.novo' (0600): the old token is already revoked, the new one must not be lost. Returns (path, ok_in_place)."""
+    alvo = os.path.realpath(TOKEN_FILE)
+    try:
+        fileio.write(alvo, valor + '\n', mode=0o600)
+        return alvo, True
+    except OSError:
+        reserva = alvo + '.novo'
+        fileio.write(reserva, valor + '\n', mode=0o600)       # may raise: the caller reports the path, never the value
+        return reserva, False
+
+def rotaciona(st, dias):
+    """Renews the token when 0 < dias <= TOKEN_ROTACIONAR_DIAS. Under a lock on the token file, the token is read again
+    (another instance sharing the file may have just rotated it: GitLab revokes the whole chain when a rotated-out token
+    is used). Returns a line for the tick output, or None when nothing was tried. Never a token value."""
+    if not TOKEN_ROTACIONAR_DIAS or dias is None or not 0 < dias <= TOKEN_ROTACIONAR_DIAS: return None
+    hoje = date.today().isoformat()
+    if st.get('rotacao_falhou') == hoje: return None
+    with fileio.locked(os.path.realpath(TOKEN_FILE)):
+        t = token_self()                                     # read again under the lock, with the file's current token
+        dias, vence = token_info(t)
+        if dias is None or not 0 < dias <= TOKEN_ROTACIONAR_DIAS: return None    # someone else already rotated it
+        nova = _nova_validade(t)
+        status, corpo = _post('/personal_access_tokens/self/rotate', {'expires_at': nova})
+        try: res = json.loads(corpo) if status in (200, 201) else None
+        except ValueError: res = None
+        valor = (res or {}).get('token') if isinstance(res, dict) else None
+        if not valor:
+            st['rotacao_falhou'] = hoje
+            motivo = {401: 'token recusado', 403: 'sem o escopo api ou self_rotate', 404: 'GitLab sem a rota de rotação',
+                      400: 'validade recusada pela política do GitLab', 0: 'sem resposta'}.get(status, f'HTTP {status}')
+            return f'nao consegui renovar sozinho o token do {NOME} ({motivo}); {_msg("vence", dias=dias, data=vence)}'
+        vence_novo = str(res.get('expires_at') or nova)[:10]
+        try: date.fromisoformat(vence_novo)
+        except ValueError: vence_novo = nova                 # an odd expires_at in the answer: the one asked for
+        try:
+            onde, no_lugar = _grava_token(valor)
+        except OSError as e:
+            st['rotacao_falhou'] = hoje
+            st['rotacao'] = {'fonte': FONTE, 'vence': vence_novo, 'quando': datetime.now(timezone.utc).isoformat(),
+                             'gravado': False, 'arquivo': '', 'erro': type(e).__name__}
+            return (f'renovei o token do {NOME}, mas nao consegui gravar o novo ({type(e).__name__}): o antigo ja foi '
+                    f'revogado, gere outro e regrave {TOKEN_FILE}')
+        finally:
+            valor = None
+        st['token_dias'] = (date.fromisoformat(vence_novo) - date.today()).days
+        st['token_vence'] = vence_novo
+        st['rotacao'] = {'fonte': FONTE, 'vence': vence_novo, 'quando': datetime.now(timezone.utc).isoformat(),
+                         'gravado': no_lugar, 'arquivo': '' if no_lugar else onde}
+        if not no_lugar:
+            return (f'renovei o token do {NOME} (vence em {vence_novo}), mas gravei o novo em {onde}: mova para '
+                    f'{TOKEN_FILE} (0600)')
+        return f'renovei sozinho o token do {NOME}: vence em {vence_novo} (o antigo foi revogado; gravado em {TOKEN_FILE})'
+
 def aviso_token(st, dry):
-    """Uma consulta ao token por dia; o aviso de vencimento sai so no primeiro tick do dia."""
+    """Uma consulta ao token por dia; o aviso de vencimento sai so no primeiro tick do dia. Perto de vencer, renova."""
     hoje = date.today().isoformat()
     if st.get('token_dia') == hoje: return []
     dias, vence = token_info()
     if not dry: st['token_dia'] = hoje; st['token_dias'] = dias; st['token_vence'] = vence   # vence: Planou (Ferramentas)
+    if not dry:
+        linha = rotaciona(st, dias)
+        if linha: return [linha]
     if dias is not None and dias <= TOKEN_AVISO_DIAS:
         return [_msg('vence', dias=dias, data=(date.today() + timedelta(days=dias)).isoformat())]
     return []
@@ -390,7 +505,7 @@ class Fonte(Base):
     conserto = 'GitLab down or token refused — see the tick error'
 
     def configura(self):
-        global GITLAB, API, TOKEN_FILE, NOME, GRUPOS, CURL, TOKEN_AVISO_DIAS, MSG, BRT
+        global GITLAB, API, TOKEN_FILE, NOME, GRUPOS, CURL, TOKEN_AVISO_DIAS, TOKEN_ROTACIONAR_DIAS, MSG, BRT, FONTE
         GITLAB = (self.cfg.get('url') or sys.exit('gitlab: "url" faltando no config.json')).rstrip('/')
         API = GITLAB + '/api/v4'
         TOKEN_FILE = paths.expande(self.cfg.get('token_file') or sys.exit('gitlab: "token_file" faltando no config.json'))
@@ -398,6 +513,8 @@ class Fonte(Base):
         GRUPOS = list(self.cfg.get('grupos') or [])
         CURL = self.cfg.get('curl') or 'curl'
         TOKEN_AVISO_DIAS = int(self.cfg.get('token_aviso_dias', 10))
+        TOKEN_ROTACIONAR_DIAS = max(0, int(self.cfg.get('token_rotacionar_dias', 7)))
+        FONTE = self.nome
         MSG = {**MSG_PADRAO, **(self.cfg.get('mensagens') or {})}
         BRT = core.BRT
 

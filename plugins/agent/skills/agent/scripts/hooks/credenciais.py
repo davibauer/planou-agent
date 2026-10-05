@@ -22,11 +22,16 @@ where to renew) and ONE way to know its state:
                                                  that source's line in Planou instead of a line of its own
   "tipo": "token"                                optional: token, session_cookie, oauth, api_key, none, other (default
                                                  token with a date, other with a command)
+  "impacto": "as checagens de prd"               optional: what stops working while it is expired (the "Precisa de
+                                                 você" ask says it; default from "fonte" or a generic line)
 
 Planou (0.28.0, "Ferramentas do agente"): each live tick keeps s['credenciais']['itens'][nome] = {'estado', 'detalhe',
 'renovar', 'fonte', 'tipo', 'vence'} and the Planou step of the tick (planou_tick.ferramentas) turns each one into the
 expiry of its source or a line of its own. Planou opens the alert (tool_expiring, tool_failing) by itself; the agent no
-longer opens one per credential.
+longer opens one per credential. Since PLN0364 an expired credential (a date in the past, or a command that failed with
+an auth error such as "Token has expired and refresh failed") also opens ONE "Precisa de você" ask per episode
+(planou_tick.pedidos_credenciais), from 'desde' (when it stopped being ok) and 'impacto'. Nothing here renews a login:
+`aws sso login` and the like are interactive, the person runs the "renovar" command.
 """
 import os, json, shlex, subprocess
 from datetime import datetime, timedelta
@@ -115,14 +120,18 @@ class Gancho(Base):
         antes = st.get('estado') or {}
         hoje = agora.astimezone(core.BRT).date().isoformat()
         linhas, novo, itens, mudou = [], {}, {}, False
+        desde = dict(st.get('desde')) if isinstance(st.get('desde'), dict) else {}
         for i in self.itens:
             est, det = self.estado(i, agora, cache)
             novo[i['nome']] = est
+            if est == 'vencida': desde.setdefault(i['nome'], agora.isoformat())
+            else: desde.pop(i['nome'], None)
             fim = None if i.get('comando') else self.fim(i)
             itens[i['nome']] = {'estado': est, 'detalhe': det, 'renovar': i.get('renovar') or '',
                                 'necessidade': i.get('necessidade') or '', 'fonte': i.get('fonte') or '',
                                 'tipo': i.get('tipo') or ('other' if i.get('comando') else 'token'),
-                                'vence': fim.isoformat() if fim else ''}
+                                'vence': fim.isoformat() if fim else '', 'desde': desde.get(i['nome']) or '',
+                                'comando': bool(i.get('comando')), 'impacto': i.get('impacto') or ''}
             if est != antes.get(i['nome']): mudou = True
             marca = {'ok': '✓', 'perto': '⚠', 'vencida': '✗', '?': '?'}[est]
             ren = f' · renovar: {i["renovar"]}' if i.get('renovar') and est != 'ok' else ''
@@ -131,6 +140,7 @@ class Gancho(Base):
         if ctx.dry:
             return None if not (diario or mudou) else [l for _, l in linhas]
         st['estado'] = novo
+        st['desde'] = {k: v for k, v in desde.items() if k in novo}
         st['itens'] = itens               # rebuilt every live tick: a credential taken out of the config leaves Planou
         if diario:
             st['dia'] = hoje

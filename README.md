@@ -32,4 +32,4 @@ SHA-256 dele (`.sha256`). O que mudou em cada uma está em
 Este repositório só recebe o que é publicado: o agente é desenvolvido em outro lugar e cada versão chega aqui pronta.
 Por isso não aceitamos pull request. Problemas e sugestões: relate pelo Planou (https://app.planou.com).
 
-Versão publicada: 0.90.0.
+Versão publicada: 0.91.0.
