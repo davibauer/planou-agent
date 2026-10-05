@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.90.0 (2026-10-04)
+- O provisionador agora também atualiza sozinho a cópia do instalador quando ela é um clone git (computadores instalados antes do instalador por arquivo ficavam parados na versão do dia da instalação). Com o mesmo `auto_update` e o mesmo intervalo, ele avança o clone até a tag da Release mais nova por fast-forward, só quando é a pasta do instalador, o `origin` é o davibauer/planou-agent, a branch é a `main` e não há mudança nem commit local. Qualquer outro clone fica como está, com uma linha no log dizendo o motivo.
+
 ## 0.89.0 (2026-10-04)
 - Agente criado na tela Time só com o papel não nasce mais com valores de exemplo no config: sem pasta de trabalho, `repos` fica vazio (sem pasta `~`, nome `projeto`, testes do modelo nem conta do GitHub) e o agente pode nascer ligado.
 - O agente descobre sozinho o repositório e o ambiente de teste: na primeira tarefa, tira o repositório do link da PR, clona em `~/src/<nome>` com o gh já logado (ou reaproveita o clone que já está lá) e lê o repositório para achar como subir o ambiente (script de ambiente, docker compose da raiz, Makefile ou package.json). O que achou fica no estado da instância, com a origem de cada valor, e vale nas tarefas seguintes, relida quando a branch principal muda; o config da pessoa sempre vence.

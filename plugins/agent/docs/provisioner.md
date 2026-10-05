@@ -247,8 +247,26 @@ funcionário, ele lê a versão de `releases/latest` do davibauer/planou-agent (
 for maior que a em disco, baixa o `planou-agent-vX.Y.Z.tar.gz` e o `.sha256` da mesma Release, confere, extrai ao lado
 (só arquivos e pastas comuns, nada fora da pasta) e troca a pasta inteira, como o `install.sh`. Depois, o serviço
 reinicia na versão nova (75) e as janelas abrem a sessão seguinte nela quando a atual estiver parada. Falha (rede,
-conferência) fica no log e tenta de novo na volta seguinte; a cópia não muda. Uma cópia git (desenvolvimento) nunca é
-tocada aqui: segue com `git pull` ou com o gancho `tag_pull`. O `.sha256` vem da mesma Release: confere que o arquivo
+conferência) fica no log e tenta de novo na volta seguinte; a cópia não muda.
+
+**Clone git na pasta do instalador (PLN0352).** Computadores instalados antes do instalador por arquivo têm em
+`~/.local/share/planou/claude-plugins` um clone git do davibauer/planou-agent, e ficavam parados na versão do dia da
+instalação. Com o mesmo `auto_update`, o mesmo `update_every_s` e a mesma leitura de `releases/latest`, o
+provisionador também avança esse clone: `git fetch --tags origin` e `git merge --ff-only <tag da Release>`. Só vai até
+a tag publicada (nunca a ponta da `main`) e nunca reescreve nada. Ele só mexe no clone quando tudo vale:
+
+- é a pasta do instalador (`PLANOU_INSTALL_DIR`, padrão `~/.local/share/planou/claude-plugins`) e é um repositório
+  próprio (o git não sobe para uma pasta acima);
+- o remote `origin` é o davibauer/planou-agent (https ou ssh);
+- a branch atual é a `main`;
+- não há mudança em arquivo rastreado nem commit que o `origin` não tenha (arquivo não rastreado, como `__pycache__`,
+  não conta).
+
+Qualquer outro clone (um de desenvolvimento, como `~/src/claude-plugins`, outra branch, outro remote, trabalho local)
+fica como está, com uma linha no log dizendo o motivo, uma vez por motivo (o motivo fica em `data/update.json`). Os
+testes e o `git status` são locais: o clone não elegível nem lê a Release. Depois do avanço, é igual ao arquivo: o
+serviço reinicia na versão nova (75), o canário testa e libera, os outros seguem a liberada. Outra cópia git segue com
+`git pull` ou com o gancho `tag_pull`. O `.sha256` vem da mesma Release: confere que o arquivo
 chegou inteiro e certo, não quem o publicou.
 
 ## Configuração
@@ -263,7 +281,7 @@ chegou inteiro e certo, não quem o publicou.
 | `session_timeout_s` | 120 | espera pelo runner depois do `terminal_open`; passou dela, o motivo vai para o cartão |
 | `session_fallback` | `off` | `tmux`: sem janela nem VS Code, sobe a sessão num tmux destacado (o caminho da PLN0296) |
 | `session_fallback_s` | 60 | espera por um terminal antes de subir a sessão pelo tmux |
-| `auto_update` | `true` | atualização sem git da cópia do instalador (acima); `false` desliga |
+| `auto_update` | `true` | atualização sozinha da cópia do instalador (acima: o arquivo da Release, ou o clone git limpo na `main` por fast-forward até a tag); `false` desliga |
 | `update_every_s` | 1800 | intervalo entre duas leituras da versão publicada |
 | `releases_url` | `https://github.com/davibauer/planou-agent/releases` | de onde vem a versão publicada |
 | `template` | `config-example/dev` do plugin | pasta com `config.json` e `instructions.md` do modelo |

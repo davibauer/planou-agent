@@ -30,7 +30,14 @@ installer's archive copy (`.planou-install` at its root, no .git), every `update
 the latest release of davibauer/planou-agent (the tag from the redirect of releases/latest, no GitHub API), and for a
 newer version downloads planou-agent-vX.Y.Z.tar.gz, checks it against the .sha256 of the same release, unpacks it next
 to the copy and swaps the folder, like install.sh. The service then restarts on it (75) and the windows open new
-sessions on it when idle. A git copy (development) is never touched.
+sessions on it when idle.
+PLN0352: the installer's copy may also be a git clone of davibauer/planou-agent (made before the archive installer).
+With the same switch, interval and release read, that clone moves to the release tag by `git fetch --tags origin` and
+`git merge --ff-only <tag>` (never the tip of main, never a rewrite), only when it is the installer's folder
+(PLANOU_INSTALL_DIR, default ~/.local/share/planou/claude-plugins), its origin is davibauer/planou-agent, it is on main
+and it has no change in a tracked file and no commit origin does not have (untracked files do not count). Any other
+git copy (a clone of development such as ~/src/claude-plugins) is never touched: one log line per reason, kept in
+data/update.json until the reason changes. After the swap, the same as the archive: restart on it (75), the canary.
 
 Adopted agents (PLN0188): every pass also sends Planou the inventory of the machine (the agents of
 ~/.config/team/agents.json and the agent plugin's instances missing from it, through team_agents) with the state of
@@ -66,7 +73,7 @@ is https, or http on loopback only; HTTP proxies are ignored (Planou refuses the
     config.json        optional: base_url, interval_s, template, agents_file, snapshot_cmd, runner, retry_s,
                        session_timeout_s, session_fallback ("off" or "tmux"), session_fallback_s, auto_update,
                        update_every_s, releases_url
-    data/update.json   when the release was last read and the last update (auto_update)
+    data/update.json   when the release was last read, the last update and why the git clone was skipped (auto_update)
     secrets/planou.env PLANOU_PROVISIONER_KEY=pl_pv_...   (0600)
     data/state.json    retry and terminal_open bookkeeping per agent id (never a key)
     removed/           instances taken out by a removal, without their secrets
@@ -1078,12 +1085,87 @@ UPDATE_STATE = 'update.json'
 
 def install_root():
     """The installer's archive copy holding the plugin in use (<root>/plugins/agent with <root>/.planou-install and no
-    .git), or None: a git clone or a copy of development is never updated here."""
+    .git), or None. A git clone is handled by git_clone_root (PLN0352)."""
     live = live_dir()
     if not live: return None
     root = os.path.dirname(os.path.dirname(os.path.realpath(live)))
     if os.path.isfile(os.path.join(root, INSTALL_MARK)) and not os.path.exists(os.path.join(root, '.git')): return root
     return None
+
+
+# ---------------------------------------------------------------- the installer's git clone (PLN0352)
+
+GIT_REPO = 'https://github.com/davibauer/planou-agent.git'   # the only origin a clone may follow (tests patch it)
+GIT_BRANCH = 'main'
+GIT_TIMEOUT_S = 120
+
+
+def repo_key(url):
+    """A comparable form of a git remote: host/owner/repo (lower case, no scheme, user, .git or trailing /) for an URL
+    or scp-like address, the real path for a local folder."""
+    u = str(url or '').strip().rstrip('/')
+    if u.endswith('.git'): u = u[:-4]
+    m = re.fullmatch(r'(?:[a-z+]+://)?(?:[^@/]+@)?([^/:]+)[:/]+(.+)', u, re.I)
+    if m and not u.startswith(('/', '.', '~', 'file:')): return (m.group(1) + '/' + m.group(2).strip('/')).lower()
+    if u.startswith('file://'): u = u[7:]
+    return os.path.realpath(os.path.expanduser(u)) if u else ''
+
+
+def git_clone_root():
+    """The git checkout that holds the plugin in use (the folder two levels above it, with a .git), or None."""
+    live = live_dir()
+    if not live: return None
+    root = os.path.dirname(os.path.dirname(os.path.realpath(live)))
+    return root if os.path.exists(os.path.join(root, '.git')) else None
+
+
+def git(root, *args, timeout=GIT_TIMEOUT_S):
+    """`git -C root args` with no prompt, never walking above root to another repository. Returns (code, output);
+    a missing git or a timeout becomes Fail, so the service loop goes on."""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_CEILING_DIRECTORIES=os.path.dirname(root), LC_ALL='C')
+    env.setdefault('GIT_SSH_COMMAND', 'ssh -oBatchMode=yes')
+    try:
+        r = subprocess.run(['git', '-C', root, *args], capture_output=True, text=True, timeout=timeout, env=env,
+                           stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        raise Fail('git nao encontrado')
+    except subprocess.TimeoutExpired:
+        raise Fail(f'git {args[0]} passou de {timeout} s')
+    return r.returncode, (r.stdout or '').strip() or (r.stderr or '').strip()
+
+
+def git_skip_reason(root):
+    """Why the git clone `root` is not updated here, or None when it may be: it must be the installer's folder, a real
+    repository of its own, with origin at davibauer/planou-agent, on main, no tracked change and no commit that origin
+    does not have. Untracked files (a __pycache__) do not count. Local reads only, no network."""
+    from watch_core import rollout as ro
+    inst = ro.installed_dir('agent')
+    if not inst or os.path.realpath(os.path.dirname(os.path.dirname(inst))) != os.path.realpath(root):
+        return 'nao e a pasta do instalador'
+    if shutil.which('git') is None: return 'git nao encontrado'
+    code, top = git(root, 'rev-parse', '--show-toplevel')
+    if code != 0 or os.path.realpath(top) != os.path.realpath(root): return 'a pasta nao e um repositorio git proprio'
+    code, url = git(root, 'remote', 'get-url', 'origin')
+    if code != 0 or repo_key(url) != repo_key(GIT_REPO): return 'o remote origin nao e davibauer/planou-agent'
+    code, branch = git(root, 'symbolic-ref', '-q', '--short', 'HEAD')
+    if code != 0 or branch != GIT_BRANCH: return f'fora da branch {GIT_BRANCH}'
+    code, out = git(root, 'status', '--porcelain', '--untracked-files=no')
+    if code != 0 or out: return 'tem mudanca local em arquivo rastreado'
+    code, out = git(root, 'rev-list', '--max-count=1', 'HEAD', '--not', '--remotes=origin')
+    if code != 0 or out: return 'tem commit local que o origin nao tem'
+    return None
+
+
+def git_update(root, tag):
+    """Fast-forward of the clone to the release tag (never the tip of main, never a rewrite): fetch the tags of
+    origin, then merge --ff-only the tag. A failure leaves the clone as it was (git refuses before touching it)."""
+    code, out = git(root, 'fetch', '-q', '--tags', 'origin')
+    if code != 0: raise Fail(f'git fetch --tags origin falhou ({one_line(out, 120)}); nada foi trocado')
+    code, sha = git(root, 'rev-parse', '-q', '--verify', f'refs/tags/{tag}^{{commit}}')
+    if code != 0: raise Fail(f'a tag {tag} nao esta no origin; nada foi trocado')
+    code, out = git(root, 'merge', '-q', '--ff-only', f'refs/tags/{tag}')
+    if code != 0: raise Fail(f'a copia nao avanca ate {tag} sem reescrever ({one_line(out, 120)}); nada foi trocado')
+    return sha
 
 
 def latest_release(base, timeout=30):
@@ -1127,12 +1209,14 @@ def unpack(archive, dest):
 
 
 def auto_update(cfg, now=None, force=False):
-    """Brings the installer's copy to the latest release when it is newer (see the docstring at the top). Returns the
-    new version, or None. Reads the release at most every update_every_s; a failure is logged and tried on the next
-    round. Never touches a git copy."""
+    """Brings the installer's copy to the latest release when it is newer (see the docstring at the top): the archive
+    copy by the release's .tar.gz, the installer's git clone by a fast-forward to the release tag (PLN0352). Returns
+    the new version, or None. Reads the release at most every update_every_s; a failure is logged and tried on the
+    next round. Another git copy (development) is never touched: one log line per reason."""
     if cfg.get('auto_update') is False: return None
     root = install_root()
-    if not root: return None
+    clone = None if root else git_clone_root()
+    if not root and not clone: return None
     from watch_core import rollout as ro
     now = time.time() if now is None else now
     path = prov_dir('data', UPDATE_STATE)
@@ -1140,11 +1224,29 @@ def auto_update(cfg, now=None, force=False):
     if not isinstance(st, dict): st = {}
     if not force and now - float(st.get('checked_at') or 0) < int(cfg['update_every_s']): return None
     st['checked_at'] = int(now)
+    if clone:
+        why = git_skip_reason(clone)
+        said = st.get('git_skip')
+        if why:
+            st['git_skip'] = why
+            write_atomic(path, json.dumps(st))
+            if said != why: log(f'atualizacao sozinha: copia git em {clone} fica como esta ({why})')
+            return None
+        st.pop('git_skip', None)
     write_atomic(path, json.dumps(st))
     _plugin, disk = ro.plugin_info(live_dir())
     base = str(cfg['releases_url']).rstrip('/')
     tag = latest_release(base)
     if not tag or not disk or ro.vkey(tag[1:]) <= ro.vkey(disk): return None
+    if clone:
+        sha = git_update(clone, tag)
+        _plugin, now_disk = ro.plugin_info(live_dir())
+        if now_disk != tag[1:]:
+            raise Fail(f'a copia git foi para {tag} mas o plugin.json diz {now_disk}')
+        st['updated'] = {'from': disk, 'to': tag[1:], 'at': int(now), 'how': 'git'}
+        write_atomic(path, json.dumps(st))
+        log(f'plugin agent atualizado sozinho: {disk} -> {tag[1:]} (copia git, fast-forward ate a tag {tag}, {sha[:12]})')
+        return tag[1:]
     url = f'{base}/download/{tag}/planou-agent-{tag}.tar.gz'
     work = tempfile.mkdtemp(prefix='.planou-update.', dir=os.path.dirname(root))
     try:

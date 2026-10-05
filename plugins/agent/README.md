@@ -136,8 +136,10 @@ irm https://raw.githubusercontent.com/davibauer/planou-agent/main/install.ps1 | 
 
 - Rodar de novo atualiza tudo: a cópia (a Release nova, ou `git pull --ff-only` numa cópia git), a extensão e o
   serviço. Computador já conectado mantém a credencial e não pede código; o serviço reinicia na versão nova. Sem rodar
-  de novo, o provisionador atualiza sozinho a cópia sem git (`auto_update`, ligado no `config.json` que o instalador
-  grava; [docs/provisioner.md](docs/provisioner.md#atualização-sem-git-pln0297)).
+  de novo, o provisionador atualiza sozinho a cópia do instalador (`auto_update`, ligado no `config.json` que o
+  instalador grava): a cópia sem git pelo arquivo da Release e, desde a PLN0352, também a cópia que é um clone git
+  limpo do davibauer/planou-agent na `main`, por fast-forward até a tag da Release
+  ([docs/provisioner.md](docs/provisioner.md#atualização-sem-git-pln0297)).
 - `planou-agent <nome>` abre o funcionário naquele terminal e religa a sessão na mesma janela quando ela acaba (rotação
   diária, versão nova, `/exit`, queda); uma janela por funcionário. É onde o comando de adicionar funcionário do Planou
   termina.
