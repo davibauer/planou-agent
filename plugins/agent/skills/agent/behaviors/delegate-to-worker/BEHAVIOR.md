@@ -17,7 +17,14 @@ Montar com tudo que ele precisa, sem ele ter de perguntar. O que é do projeto s
 `$A --brief [repo]` (`A="python3 $S/scripts/agent.py <instância>"`, `repo` pelo `name` ou pela pasta; sem ele, o
 primeiro de `repos`) imprime o bloco pronto, para colar no pedido: repositório, worktree e branch base, conta do
 GitHub, arquivos de regras, mapa, arquivos prováveis, modelo, economia, testes filtrados, modo de release, critério de
-pronto, autonomia e o formato da volta. A autonomia do bloco é só a do papel: do `can`, fica em PODE o que as ações
+pronto, autonomia e o formato da volta. **Sem `repos` no config** (agente criado na tela Time só com o papel), o
+repositório vem da tarefa: `$A --brief <pr_url ou link do repositório>` clona em `~/src/<nome>` com o gh já logado (ou
+reaproveita o clone que já está lá, se for o mesmo repositório; só GitHub, com o dono na conta do gh da instância, nas
+organizações dela ou em `repo_discovery.allowed_owners` do config, senão a saída é a linha `PERGUNTAR`), lê as regras e grava o que achou no estado da
+instância (`data/discovered.json`, por `scripts/repo_discovery.py`), e o bloco sai com a linha `DESCOBERTO`; as
+tarefas seguintes usam o mesmo clone pelo `--brief` de sempre. Sem link nenhum na tarefa nem no projeto:
+`printf '%s' "Qual é o repositório de <PID>? (link)" | $PL fila blocked <PID> --note -`. O `repos` do config, quando
+existe, sempre vence. A autonomia do bloco é só a do papel: do `can`, fica em PODE o que as ações
 deste comportamento cobrem (abaixo); o resto vai para a linha "NAO E DESTE PAPEL" (ex.: deploy, que é do integrador).
 
 - **Pedido literal** do usuário (ou da tarefa da fila: título e descrição de `fila ver`) e o que a sessão já sabe:

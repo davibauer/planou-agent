@@ -6,6 +6,33 @@ os alvos de toque, e aprova (handoff) ou devolve com o pedido de ajuste. Nunca e
 
 Este guia monta a instância em **modo teste** (sem `"live": true`). Ligar é decisão do usuário.
 
+**Sem config nenhum (agente criado na tela Time só com o papel).** Desde a PLN0345 o agente descobre sozinho o
+repositório e o ambiente: na primeira tarefa, `qa_env.py <instância> up <PID> --branch <b> --pr-url <pr_url>` clona o
+repositório da PR em `~/src/<nome>` com o gh já logado (ou reaproveita o clone que já está lá, quando a origem é a
+mesma; só GitHub e só de dono confiável: a conta do gh da instância, as organizações dela ou
+`"repo_discovery": {"allowed_owners": [...]}` no config), lê o repositório e grava o que achou em `data/discovered.json` da instância, com a origem de cada valor. Ordem:
+script de ambiente (`scripts/*env*.sh` com `up)` e `down)`), docker compose da raiz com porta publicada, alvo de
+Makefile e script `dev`/`start` do package.json (estes dois em segundo plano, a URL tirada do log). É uma lista de
+permitidos: alvo e script só rodam sozinhos quando são um comando simples (sem `$`, `|`, `;`, `&`, redirecionamento,
+parênteses nem `\`) que começa por um servidor de desenvolvimento conhecido (vite, next dev, dotnet run,
+`python -m http.server`, flask run, uvicorn e poucos outros), escutando só em loopback; o Makefile é lido inteiro e qualquer
+construção além de regras e `NOME = literal` (include, define, SHELL, `$(shell)`, condicionais...) recusa o arquivo;
+regra que refaz o próprio Makefile também. O script de ambiente e o docker compose da raiz nunca
+rodam sozinhos: viram a pergunta "achei scripts/x.sh (ou compose.yaml), posso usar?", que no compose avisa o que dá
+acesso ao host (privileged, docker.sock, caminho do host...), e com o OK da pessoa a sessão roda
+`repo_discovery.py <instância> <dono/repo> --approve <arquivo>@<sha12>` (vale para aquele sha256, que no compose cobre
+também o override e o `.env`; mudou, pergunta de novo). O compose com `include:`/`extends:`, `build` fora do
+repositório ou `env_file` que não seja amostra nem vira candidato. Como o ambiente roda na branch da PR, o `qa_env.py` relê a worktree antes de rodar e, se a branch
+muda um comando descoberto (script aprovado com outro sha256, alvo ou script virando outra coisa), sai 4 com a
+pergunta sem rodar nada. O Makefile roda com `make -r` e não vale com `GNUmakefile`/`makefile` ao lado; o package.json
+não vale com `.yarnrc`, `.pnpmfile.cjs`, `.npmrc` que mude o shell ou o node, `pnpm-workspace.yaml` ou qualquer `.pnpmfile.*` (em qualquer pasta da raiz até a do pacote), caminho de pacote com link simbólico, arquivo de configuração que é link (mesmo quebrado), `workspaces` ou
+dependência `file:`/`link:`/`portal:`. A conferência da branch só olha os comandos descobertos: o `env_up` do config
+da pessoa sempre roda. O que cita deploy, produção, release ou ferramentas de nuvem e acesso remoto nunca vira ambiente,
+e o que fica fora da lista vira a pergunta citando o candidato. `setup` sai da instalação pelo lock, com `--ignore-scripts`, e `node_dir` do
+pacote com `@playwright/test`. `repo_discovery.py <instância> show` mostra o que ficou.
+Nada que sirva: `qa_env.py` sai 4 com a linha `PERGUNTAR:`, que vira `fila blocked` para a pessoa definir os comandos
+no `config.json` (no computador). O que está no config (abaixo) sempre vence o que foi descoberto.
+
 ## 1. A coluna no Planou
 
 No projeto, em Estados:
@@ -103,6 +130,7 @@ Um ensaio sem o Planou, numa branch qualquer já enviada ao GitHub:
 
 ```bash
 python3 $S/scripts/qa_env.py qa up ENSAIO --branch <branch>    # QA AMBIENTE ENSAIO: <url> ... e a linha RODAR:
+# sem "repos" no config: --pr-url <link da PR> (clona e descobre); o que achou: repo_discovery.py qa show
 # um run.cjs curto no scratchpad (BEHAVIOR.md, passo 5), rodado com a linha RODAR:
 python3 $S/scripts/qa_env.py qa down ENSAIO
 ```

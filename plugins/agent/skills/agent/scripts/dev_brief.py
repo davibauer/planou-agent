@@ -25,6 +25,10 @@ placeholder the session replaces) and ECONOMIA tells the worker to batch command
 PLN0281: `--role code-review` or `--role qa` is the brief of an independent review or QA worker (one instance that does
 the whole cycle): a read-only worktree, no RELEASE line, the verdict as the done criterion and an INDEPENDENCIA line
 (a new worker, not the one that delivered; the session sends `fila done` or `fila ajuste`, never the worker).
+PLN0345: without `repos` in the config, the discovered repositories count (repo_discovery.py, data/discovered.json of
+the instance; the person's `repos` always win), and `repo` may be a pr_url or a repository URL: when no repository
+has it yet, it is cloned in ~/src/<name> and read first. A discovered repository gets a DESCOBERTO line, and the QA
+role an AMBIENTE DE QA line with each environment command and where it came from.
 PLN0054: `--role prototype` is the brief of a worker whose output never enters the repository (SCRATCH_ROLES): no
 worktree (the scratchpad), no release, the PNGs as the done criterion.
 """
@@ -84,7 +88,7 @@ def pick(cfg, key=None):
     repos = [e for e in cfg.get('repos') or [] if isinstance(e, dict) and isinstance(e.get('path'), str)]
     if not key: return repos[0] if repos else None
     for e in repos:
-        if key in (schema.repo_name(e), e['path'], os.path.basename(os.path.normpath(e['path']))): return e
+        if key in (schema.repo_name(e), e['path'], os.path.basename(os.path.normpath(e['path'])), e.get('slug')): return e
     return None
 
 
@@ -149,6 +153,9 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
     if repo.get('rules'): rules.append(repo['rules'] if os.path.isabs(repo['rules']) or repo['rules'].startswith('~')
                                        else os.path.join(path, repo['rules']))
     rules += repo.get('shared_rules') or []
+    if repo.get('discovered'):
+        out.append(f'DESCOBERTO: {repo.get("slug")} clonado em {path} ({repo.get("discovered_at")}), sem "repos" no '
+                   'config; regras e ambiente lidos do repositorio (data/discovered.json da instancia)')
     out.append('REGRAS: ' + ('; '.join(rules) if rules else '(nenhum arquivo no config: README e CONTRIBUTING do repositorio)'))
     mp = map_of(repo)
     if mp: out.append(f'MAPA: {mp} (o que fica em cada pasta; leia antes de buscar)')
@@ -159,6 +166,12 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
         out.append('PUBLICO: sim; nenhum nome de cliente ou de pessoa, id real ou captura com dado real (o code-review reprova)')
     tests = repo.get('tests') or {}
     out.append('TESTES FILTRADOS (so o que a mudanca afeta): ' + (tests.get('filtered') or 'os do arquivo de regras'))
+    if (perms or {}).get('role') == schema.QA:
+        import repo_discovery
+        o, src = repo_discovery.qa_options(cfg, repo)
+        env = [f'{k}={o[k]} ({src.get(k)})' for k in repo_discovery.ENV_KEYS + ('node_dir',) if o.get(k)]
+        out.append('AMBIENTE DE QA: ' + ('; '.join(env) if env else 'nada no config nem descoberto (qa_env.py sai 4 com a '
+                                                                   'pergunta para a pessoa)'))
     if review: out.append('INDEPENDENCIA: ' + INDEPENDENT.format(what=review['what']))
     elif scratch: out.append('RELEASE: ' + scratch['release'])
     elif mode in RELEASE_TEXT: out.append(f'RELEASE: {mode}, {RELEASE_TEXT[mode]}')
@@ -227,10 +240,25 @@ def cli(cfg, rest, behavior_file=None):
     rest, files = take(rest, '--files')
     if model is not None and model not in MODELS: raise SystemExit(f'--model: {model!r} ({", ".join(MODELS)})')
     key = rest[0] if rest else None
+    import repo_discovery
+    cfg = repo_discovery.with_discovered(cfg)
+    if key and pick(cfg, key) is None:
+        try: repo_discovery.parse(key)
+        except repo_discovery.Failed: pass
+        else:                                # a pr_url / repository URL: the repository it names, cloned when needed
+            r = repo_discovery.find(cfg, key)
+            if r is None or r.get('discovered'):   # owner checked, fetched, read again when the default branch moved
+                try: r = repo_discovery.as_repo(repo_discovery.resolve(cfg, key))
+                except repo_discovery.Failed as e: raise SystemExit(f'descoberta: {e}')
+            if r.get('discovered') and repo_discovery.own_repos(cfg):
+                cfg = {**cfg, 'repos': repo_discovery.own_repos(cfg) + [r]}
+            key = r['path']
     lines = brief(cfg, key, perms, model, files)
     if lines is None:
         names = ', '.join(schema.repo_name(e) for e in cfg.get('repos') or [] if isinstance(e, dict)) or '(nenhum)'
-        raise SystemExit(f'sem repositorio {key!r} em "repos" (tem: {names})' if key else 'sem "repos" no config')
+        raise SystemExit(f'sem repositorio {key!r} em "repos" (tem: {names})' if key else
+                         'sem "repos" no config nem descoberto: passe o link da PR (--brief <pr_url>); o repositorio e '
+                         'clonado em ~/src/<nome> e lido (repo_discovery.py)')
     print('\n'.join(lines))
 
 

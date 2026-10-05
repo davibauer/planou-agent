@@ -21,6 +21,12 @@ Os comportamentos são sempre os mesmos: `task-queue` (a fila), `delegate-to-wor
 lote, `batch-release` (integrador e aviso de deploy). `agent.py <instância> --brief [repo]` junta o que o config diz
 de um repositório no bloco que vai no pedido ao worker; `--validate` confere tudo.
 
+Sem `repos` (`[]`, o que o provisionador grava para um agente criado na tela Time sem pasta de trabalho), o
+repositório é descoberto pela tarefa (PLN0345): `agent.py <instância> --brief <pr_url>` clona em `~/src/<nome>` com o gh
+já logado (ou reaproveita o clone de lá, quando a origem é a mesma), lê `rules` (CLAUDE.md, AGENTS.md, CONTRIBUTING.md
+ou README.md) e a branch base e grava no estado da instância (`data/discovered.json`), nunca no `config.json`; o bloco
+sai com a linha `DESCOBERTO`. O `repos` do config, quando tem entrada, sempre vence.
+
 ## Ligar um projeto novo
 
 1. Crie a pasta e copie o modelo (`S` é a pasta da skill agent):

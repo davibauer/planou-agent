@@ -420,7 +420,10 @@ def render(a, template):
         with open(os.path.join(template, 'instructions.md')) as f: instr = f.read()
     except OSError:
         raise Fail(f'modelo sem instructions.md em {template}')
-    name, work_dir = a['name'], a.get('work_dir') or '~'
+    # without a working folder (only the role on the Time screen, PLN0345) nothing of the template's example project is
+    # written as if it were real: `repos` stays empty (= discover from the first task's pr_url, repo_discovery.py)
+    name, own_dir = a['name'], (a.get('work_dir') or '').strip()
+    work_dir = own_dir or '~'
     projects = [p for p in a.get('projects') or [] if isinstance(p, dict)]
     prefix = str(projects[0].get('prefix') or '') if projects else ''
     from watch_core import behavior_names
@@ -431,7 +434,7 @@ def render(a, template):
             raise Fail(f'papel desconhecido nesta maquina: {r} (atualize o plugin agent)')
     behaviors = list(dict.fromkeys([BASE_BEHAVIOR] + roles))
     batch = 'batch-release' in behaviors
-    repo = slug(os.path.basename(work_dir.rstrip('/')) or name)
+    repo = slug(os.path.basename(own_dir.rstrip('/')) if own_dir else name)
 
     # the template's placeholder project (meu-projeto, MPJ) becomes this agent's
     text = json.dumps(cfg, ensure_ascii=False).replace('meu-projeto', repo)
@@ -442,8 +445,11 @@ def render(a, template):
     if not batch:
         (cfg.get('behavior_config') or {}).pop('batch-release', None)
         cfg['hooks'] = [h for h in cfg.get('hooks') or [] if h.get('type') not in ('release_due', 'deploy_log')]
+    elif own_dir:
+        cfg.setdefault('behavior_config', {}).setdefault('batch-release', {})['repo'] = own_dir
     else:
-        cfg.setdefault('behavior_config', {}).setdefault('batch-release', {})['repo'] = work_dir
+        br = cfg.setdefault('behavior_config', {}).setdefault('batch-release', {})
+        for k in ('repo', 'check_url'): br.pop(k, None)      # the example project's, not this agent's
     models = [m for m in (role_defaults(cfg, r) for r in roles) if m]
     own = models if models and not batch and DEV_BEHAVIOR not in behaviors else []   # not a dev agent at all
     if own and own[0]['instructions']: instr = own[0]['instructions']
@@ -463,20 +469,32 @@ def render(a, template):
             never += [x for x in au.get('never') or [] if x not in never]
     cfg['autonomy'] = {'can': can, 'ask_first': ask, 'never': never}
     base_repo = dict((cfg.get('repos') or [{}])[0])
-    base_repo.pop('gh_account', None)
-    base_repo.update({'path': work_dir, 'name': repo, 'release': 'batch' if batch else 'pr'})
-    cfg['repos'] = [base_repo]
+    if own_dir:
+        base_repo.pop('gh_account', None)
+        base_repo.update({'path': own_dir, 'name': repo, 'release': 'batch' if batch else 'pr'})
+        cfg['repos'] = [base_repo]
+    else:
+        cfg['repos'] = []
     planou = dict(cfg.get('planou') or {})
     planou['project'] = prefix
     if not cfg['live']: planou.pop('task_queue', None)       # the queue only runs live (schema warns otherwise)
     cfg['planou'] = planou
 
+    if not own_dir:
+        instr = instr.replace('`<path do repositório>/<rules>`',
+                              'o arquivo de regras do repositório descoberto (linha `REGRAS` do `--brief`)')
     for k, v in (('<instância>', name), ('<nome>', a.get('display_name') or name), ('<SIGLA>', prefix or '?'),
-                 ('<path do repositório>', work_dir), ('<rules>', base_repo.get('rules') or 'CLAUDE.md')):
+                 ('<path do repositório>', own_dir or '~/src/<repositório> (descoberto na primeira tarefa)'),
+                 ('<rules>', (base_repo.get('rules') or 'CLAUDE.md') if own_dir else 'o arquivo de regras do repositório')):
         instr = instr.replace(k, str(v))
     lines = ['', '## Criado pelo provisionador', '',
-             f'Pedido na tela Time do Planou. Revise o `config.json` (repositório, testes, conta do GitHub) antes de '
-             f'ligar{" (a instância nasceu em modo teste)" if not cfg["live"] else ""}.', '',
+             (f'Pedido na tela Time do Planou. Revise o `config.json` (repositório, testes, conta do GitHub) antes de '
+              f'ligar{" (a instância nasceu em modo teste)" if not cfg["live"] else ""}.' if own_dir else
+              'Pedido na tela Time do Planou, sem pasta de trabalho: o repositório vem do `pr_url` da primeira tarefa '
+              '(ou de um link de repositório na tarefa), é clonado em `~/src/<repositório>` com o gh já logado e lido '
+              '(`scripts/repo_discovery.py`): regras, comandos de ambiente e `node_dir` ficam no estado da instância '
+              '(`data/discovered.json`), nunca no `config.json`. O que a pessoa puser em `repos` ou em '
+              '`behavior_config` sempre vence.'), '',
              f'- Papéis: {", ".join(behaviors)}',
              f'- Autonomia no Planou: {a.get("autonomy") or "semi_autonomous"}',
              '- Projetos: ' + (', '.join(f'{p.get("prefix")} ({p.get("name")})' for p in projects) or 'nenhum'), '']

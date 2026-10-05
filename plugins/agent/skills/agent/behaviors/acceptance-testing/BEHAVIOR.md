@@ -18,8 +18,9 @@ pedido de ajuste. Vale com `task-queue` ligado. `PL` é o do `task-queue`; `S` �
 faz commit ou push, nunca faz merge, nunca roda deploy, nunca roda a suíte completa nem o e2e completo do repositório.
 Achou o defeito: descreve o passo, o esperado e o que aconteceu; quem conserta é o dev.
 
-Opções em `behavior_config.acceptance-testing` (conferidas pelo `--validate`):
-- `env_up`: comando que sobe o ambiente de teste, rodado na worktree da branch (obrigatório).
+Opções em `behavior_config.acceptance-testing` (conferidas pelo `--validate`). Nenhuma é obrigatória: sem `repos` e
+sem `env_up`, o agente descobre sozinho (abaixo, "Repositório e ambiente descobertos").
+- `env_up`: comando que sobe o ambiente de teste, rodado na worktree da branch.
 - `env_url`: comando rodado depois do `env_up`, na mesma worktree, que imprime a URL do app numa linha (ex.:
   `scripts/e2e-env.sh url`). Saída diferente de 0 ou vazia: o ambiente não subiu (exit 1, ambiente derrubado). Sem
   ele, a URL sai da primeira `http(s)://` da saída do `env_up`, ou de `url`.
@@ -42,6 +43,71 @@ Opções em `behavior_config.acceptance-testing` (conferidas pelo `--validate`):
   numa esteira dev, revisão, QA (Planou 0.49.0). `pessoa` = `fila blocked` com o pedido, para a pessoa decidir a quem
   devolver: só quando a instância quer essa conferência humana.
 
+## Repositório e ambiente descobertos
+
+Agente criado na tela Time só com o papel: o config nasce com `repos` vazio e sem `env_up`. Na primeira tarefa, o
+`qa_env.py ... --pr-url <pr_url>` tira o repositório da PR, clona em `~/src/<nome>` com o gh já logado na máquina (ou
+reaproveita o clone que já está lá, quando a origem é a mesma; outra pasta com o mesmo nome é recusada) e lê o
+repositório (`scripts/repo_discovery.py`). Só GitHub, e só de um dono confiável: a conta do gh da instância, as
+organizações dela ou `repo_discovery.allowed_owners` do config; outro dono, outro servidor git ou caminho local nunca é
+clonado (exit 4 com a pergunta). A leitura é da ponta da branch principal da origem, e é refeita quando ela muda.
+Só roda sozinho o que está numa lista de permitidos: um comando simples (sem `$`, crase, `|`, `<`, `>`, `;`, `&`,
+parênteses, `\` nem quebra de linha) que começa por um servidor de desenvolvimento da lista curta (vite, next dev,
+nuxt dev, astro dev, webpack serve, ng serve, react-scripts start, parcel, dotnet run/watch, `python -m http.server`,
+flask run, uvicorn, rails s, php -S, hugo server e poucos outros; `docker compose` não está nela), sempre escutando só
+em loopback: `--host`/`-H`/`--bind` com outro endereço (também colado, como `-h0.0.0.0`, repetido, ou `vite --host` sem valor) recusa, e o script do package.json
+sem o parâmetro ganha `-- --host 127.0.0.1` (ou o do servidor). Ordem das fontes:
+script de ambiente, docker compose da raiz, alvo de Makefile (`up`, `dev`, `start`, `serve`...), script `dev` ou
+`start` do package.json.
+- Script de ambiente (`scripts/*env*.sh` ou `bin/*env*.sh` com `up)` e `down)`, e `url)` quando tem; o citado no
+  README, CLAUDE.md ou AGENTS.md quando há mais de um): shell livre, então **nunca roda sozinho**. O `qa_env.py` sai 4
+  com `PERGUNTAR: Achei scripts/x.sh em <dono/repo> (sha256 <12>), com up e down: posso usar...`. Como a sessão
+  registra o OK: só com o OK explícito da pessoa a essa pergunta (nunca pela recomendada, por `--auto` nem por uma
+  regra de autonomia), rodar o comando que a própria pergunta traz,
+  `python3 $S/scripts/repo_discovery.py <instância> <dono/repo> --approve scripts/x.sh@<sha12>`, e mover a tarefa de
+  volta para a fila do QA. O OK fica no estado da instância por repositório e por sha256 do script; se o script muda
+  na branch principal, a pergunta volta (o `--approve` com outro sha sai 2).
+- Docker compose: o compose chega ao host (privileged, docker.sock, caminho do host, `network_mode: host`), então
+  **também só com o OK da pessoa**, pelo mesmo `--approve compose.yaml@<sha12>`. O sha256 cobre o arquivo padrão da
+  raiz, o override (`compose.override.yaml`...) e o `.env` da raiz; mudou qualquer um, pergunta de novo. A pergunta
+  cita o arquivo e avisa o que dá acesso ao host (privileged, docker.sock, volume de caminho do host, `network_mode`,
+  `pid`/`ipc`/`userns_mode: host`, `cap_add`, `devices`, `security_opt`, variável do `.env`). Nem vira candidato:
+  `include:` ou `extends:`, `build`/`context` fora do repositório, `env_file` que não seja amostra (`.env.example`,
+  `.env.test`, `.env.sample`) ou arquivo ausente, compose sem porta publicada. Aprovado, roda com `-f <arquivo>` e
+  projeto `qa-<pid>` próprio.
+- Makefile: lido inteiro, e qualquer linha de topo que não seja regra ou `NOME = literal` sem `$` recusa o arquivo
+  (include, define, export, override, SHELL, `.RECIPEPREFIX`, `.ONESHELL`, condicionais, `$(shell ...)`, variável de
+  alvo, receita na mesma linha, `\` numa receita). A receita do alvo, linha a linha, segue o comando simples da lista;
+  pré-requisito é arquivo do repositório ou alvo que passa na mesma regra. Regra cujo alvo é o próprio Makefile
+  (`Makefile: FORCE`, `makefile`, `GNUmakefile`) ou com `%` recusa o arquivo, porque o make a roda antes do alvo. Sem
+  `env_down` do Makefile (o `down` encerra o grupo de processos). Roda como `make -r <alvo>`, e `GNUmakefile` ou
+  `makefile` ao lado (que o make leria antes) recusa a fonte. Servidor que escuta em todas as interfaces por padrão
+  (next dev, `python -m http.server`, parcel) precisa do parâmetro de loopback na receita.
+- package.json: o script segue o comando simples da lista, sem `pre`/`post` nem pacote com
+  `preinstall`/`install`/`postinstall`/`prepare`, e sem configuração do gerenciador que mude o que roda (`.yarnrc`,
+  `.yarnrc.yml`, qualquer `.pnpmfile.*`, `bunfig.toml`, ou `.npmrc` com chave fora das simples, como `script-shell` e
+  `node-options`), em qualquer pasta da raiz até a do pacote (os gerenciadores procuram subindo de pasta em pasta); caminho do pacote que passa por link simbólico também vira pergunta, porque eles sobem pelo caminho real. Nome de configuração que é link, mesmo quebrado (pode apontar para `node_modules` depois do setup), conta como presente e vira pergunta; Makefile, compose, script de ambiente e package.json que são link nunca são lidos, e um package.json que é link em qualquer pasta da raiz até o pacote vira pergunta (lido como ausente, esconderia `workspaces` e scripts de instalação). Branch principal com link absoluto ou para fora do repositório: PERGUNTAR com o motivo, sem rodar nada. `pnpm-workspace.yaml` (o `scriptShell` dele troca o shell),
+  `workspaces` no package.json (o do pacote, o da raiz ou o de uma pasta no meio) e dependência `file:`, `link:`, `portal:` ou `workspace:`
+  viram pergunta, que cita o motivo.
+- A leitura é da branch principal, mas o ambiente roda na branch da PR: antes do `setup`, o `qa_env.py` relê a
+  worktree da branch e, se ela muda um comando descoberto (o script aprovado com outro sha256, o alvo ou o script do
+  package.json virando outra coisa), sai 4 com `PERGUNTAR: A branch da PR muda o que sobe o ambiente...` sem rodar
+  nada. Só entram nessa conferência os comandos descobertos: o que vem do config da pessoa nunca é comparado e
+  sempre roda. Falha fechada: o `--approve` não aceita o sha da branch; para testar a PR, a pessoa revisa a mudança e define
+  `env_up`/`env_down` no config.json da instância, ou espera o merge (a descoberta relê e pergunta de novo).
+Alvo e script do package.json são servidores que não terminam: rodam em segundo plano (com `PORT` livre), a URL é a
+primeira `http(s)://` do log e o `down` encerra o grupo de processos. O que cita deploy, prod, release, kubectl, helm,
+terraform, aws, gcloud, az, ssh, scp ou rsync nunca vira ambiente (camada extra), e nome de arquivo ou pasta fora de
+`[A-Za-z0-9._/-]` (ou começado por `-`) nunca entra num comando. Fora da lista, a pergunta cita o candidato (`Achei
+Makefile (alvo dev): "node server.js", fora da lista...`). `setup` só sai da instalação pelo lock, sempre com
+`--ignore-scripts` (`npm ci --ignore-scripts`, `pnpm install --frozen-lockfile --ignore-scripts`...), do pacote que não
+tem script de instalação (o que precisa de um vira pergunta) (o com `@playwright/test`, que também dá o `node_dir`, ou o do servidor). O `down` de um
+repositório descoberto roda o `env_down` descoberto, nunca o do config de outro repositório. O que achou fica no estado da instância
+(`data/discovered.json`, com a origem de cada valor), nunca no `config.json`, e vale nas tarefas seguintes;
+`python3 $S/scripts/repo_discovery.py <instância> show` mostra. O config da pessoa sempre vence: `repos` quando tem
+entrada, e os comandos de ambiente (`setup`, `env_up`, `env_url`, `env_down`, `url`) como bloco quando tem `env_up`;
+`node_dir` chave por chave. Nada que sirva: exit 4 com a linha `PERGUNTAR:` (abaixo).
+
 ## Tarefa liberada na coluna do QA
 
 1. `$PL fila ver`: título, descrição (o pedido e o critério de pronto), autonomia da tarefa, `pr_url`. `$PL fila started
@@ -56,14 +122,23 @@ Opções em `behavior_config.acceptance-testing` (conferidas pelo `--validate`):
    (sem scratchpad: `cache/qa/<PID>/` da instância). Nada disso vai para o repositório.
    **Nada para testar como usuário** (só documentação, teste, ou servidor sem efeito na tela, pelos arquivos da PR):
    aprovar com a nota "sem efeito na tela: QA não se aplica" e não subir ambiente.
-4. **Ambiente**: `python3 $S/scripts/qa_env.py <instância> up <PID> --branch <headRefName>`. Ele cria uma worktree
-   destacada da branch em `<worktrees>/qa-<pid>` (de `repos` no config), roda `setup` e `env_up` nela e imprime
+4. **Ambiente**: `python3 $S/scripts/qa_env.py <instância> up <PID> --branch <headRefName> --pr-url <pr_url>`. Ele
+   acha o repositório (o de `repos` no config; sem ele, o descoberto pela PR, clonado na primeira vez), cria uma worktree
+   destacada da branch em `<worktrees>/qa-<pid>`, roda `setup` e `env_up` nela e imprime
    `QA AMBIENTE <PID>: <url> ...` e a linha `RODAR: QA_URL=... NODE_PATH=... node <script>`. Saídas:
    - exit 1 com o `env_up` falhando por causa da branch (build quebrado, migration que não aplica): é defeito da
      entrega, vai para o parecer como ajuste;
    - exit 1 por infraestrutura (docker parado, porta, disco) ou exit 2: `fila blocked <PID>` com a causa, sem devolver
      ao dev;
-   - exit 3: a URL é a do app servido ou não é http(s): parar e avisar o usuário (config errado).
+   - exit 3: a URL é a do app servido ou não é http(s): parar e avisar o usuário (config errado);
+   - exit 4: sem `env_up` no config e nada no repositório que suba o ambiente, script de ambiente esperando o OK da
+     pessoa (a pergunta traz o `--approve`), branch da PR que muda um comando descoberto, ou dono do repositório que a
+     instância não reconhece: `printf '%s' "<a linha PERGUNTAR>" |
+     $PL fila blocked <PID> --note -` (a pessoa define os comandos no `config.json`, no computador; comando nunca
+     vem pelo Planou), sem devolver ao dev;
+   - exit 1 com um comando descoberto (a mensagem diz `comando descoberto em <origem>`) que falha por um motivo que
+     não é da branch (comando ou alvo que não sobe nada, serviço que falta): a descoberta errou, não a entrega;
+     `fila blocked` com a mensagem, como no exit 4.
 5. **Script efêmero** `<pasta>/run.cjs`, escrito para esta tarefa e nunca commitado:
    `const kit = require(process.env.QA_KIT); const qa = kit.config(); const r = kit.report(__dirname)`.
    - Conta de teste só no ambiente descartável, com dados falsos (e-mail `qa-<pid>-<hora>@exemplo.com`, senha aleatória),

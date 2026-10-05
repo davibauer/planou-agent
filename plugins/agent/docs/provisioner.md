@@ -15,6 +15,11 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
    - `config/config.json` com os papéis como `behaviors` (sempre com `task-queue`; sem papel, `delegate-to-worker`), a pasta
      de trabalho em `session.cwd` e `repos`, o primeiro projeto em `planou.project`, a autonomia e `"live": false`,
      a não ser que a pessoa tenha marcado **ligar**;
+   - sem pasta de trabalho (a tela Time pede só o papel), nada do projeto de exemplo do modelo entra como se fosse real
+     (PLN0344): `repos` fica vazio (`[]`, que quer dizer "descobrir"), sem `path` `~`, nome inventado, testes do
+     modelo, conta do GitHub nem `batch-release.repo`; `session.cwd` é `~`. O `--validate` só avisa, e o agente pode
+     nascer ligado: na primeira tarefa ele tira o repositório do `pr_url`, clona em `~/src/<nome>` e descobre regras e
+     ambiente (`scripts/repo_discovery.py`, estado em `data/discovered.json`; [qa.md](qa.md) e o `delegate-to-worker`);
    - `config/instructions.md` com os marcadores trocados e uma seção com papéis, autonomia e projetos;
    - `data/provisioned.json`, a marca de que a pasta é dele (só remove pasta com essa marca).
    - papel que não é de desenvolvimento e tem modelo próprio (`behaviors/<papel>/instance.json`, com

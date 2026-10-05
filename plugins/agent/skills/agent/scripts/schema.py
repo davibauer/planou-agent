@@ -46,6 +46,10 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    changelog text, e.g. plugins/<plugin>/changelog.d/<branch>.md), done (the done criterion of a dev worker), public (bool: a
                    public repository; code-review holds it to the no-client-data rule, --brief tells the worker; the old
                    behavior_config.code-review.public_repos still counts, see public_repos())
+                   An empty list (the provisioner's, for an agent created without a working folder) means "discover":
+                   the repository comes from the task's pr_url (repo_discovery.py, data/discovered.json; PLN0345)
+  repo_discovery   {allowed_owners: [str]}: GitHub owners the agent may clone and run without asking, besides the
+                   account of the instance's gh and its organizations (repo_discovery.py)
   planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles, epics,
                    epic_aliases, agent}; agent (str) is the agent's name in Planou when it differs from the instance
                    name (PLN0282: the instance renamed, the Planou side not yet): sync, source keys, idempotency keys
@@ -74,7 +78,7 @@ ENTRY_ALIASES = {'tipo': 'type', 'nome': 'name'}
 KNOWN = {'schema', 'live', 'language', 'tz_hours', 'business_hours', 'interval_s', 'session', 'workspace', 'code',
          'sources', 'hooks', 'behaviors', 'behavior_config', 'tools', 'autonomy', 'repos', 'planou', 'runtime',
          'max_reminders', 'agent', 'retry_s', 'videos_dir', 'archive_dir', 'idioma_pagina', 'meetings_keywords',
-         'meetings_include', 'wake', 'suggestions_target'}
+         'meetings_include', 'wake', 'suggestions_target', 'repo_discovery'}
 PAGE_LANGUAGES = ('pt', 'en')
 TOOL_KINDS = ('subagent', 'cli', 'skill', 'mcp', 'other')
 AUTONOMY_KEYS = ('can', 'ask_first', 'never')
@@ -495,7 +499,11 @@ def validate(c, behavior_file=None, adapter_exists=None):
                     '(nunca o worker que entregou nem continuacao dele), e o ajuste volta como retrabalho; as vagas de '
                     'revisao/QA contam no mesmo "Ao mesmo tempo" da aba Fila. Com instancias separadas por papel, tire-os daqui')
     if isinstance(b, list) and QA in b and not ((bc if isinstance(bc, dict) else {}).get(QA) or {}).get('env_up'):
-        warn.append(f'"behavior_config.{QA}.env_up" vazio: o {QA} nao sobe ambiente de teste (scripts/qa_env.py recusa)')
+        warn.append(f'"behavior_config.{QA}.env_up" vazio: o {QA} descobre o ambiente no repositorio na primeira tarefa '
+                    '(scripts/repo_discovery.py, estado em data/discovered.json); sem nada que sirva, pergunta a pessoa')
+    if isinstance(b, list) and (QA in b or 'delegate-to-worker' in b) and c.get('repos') == []:
+        warn.append('"repos" vazio: o repositorio e descoberto pelo pr_url na primeira tarefa e clonado em ~/src/<nome> '
+                    '(scripts/repo_discovery.py); o "repos" do config, quando existe, sempre vence')
     for old, new in sorted((c.get('_renamed_behaviors') or {}).items()):
         what = 'agora faz parte de' if old == 'deploy-notice' else 'agora se chama'
         warn.append(f'comportamento "{old}" {what} "{new}" (o nome antigo continua valendo): '
@@ -573,6 +581,16 @@ def validate(c, behavior_file=None, adapter_exists=None):
     if rt is not None:
         if not isinstance(rt, dict) or rt.get('python', 'system') not in ('system', 'venv'):
             err.append('"runtime" precisa ser {"python": "system"|"venv", "requirements": ...}')
+    rd = c.get('repo_discovery')
+    if rd is not None:
+        if not isinstance(rd, dict) or set(rd) - {'allowed_owners'} or not _strs(rd.get('allowed_owners', [])):
+            err.append('"repo_discovery" precisa ser {"allowed_owners": ["<dono do GitHub>", ...]} (os donos que o agente '
+                       'pode clonar e rodar sem perguntar, alem da conta do gh da instancia e das organizacoes dela)')
+    qa_opts = ((bc if isinstance(bc, dict) else {}).get(QA) or {}) if isinstance(b, list) and QA in b else {}
+    if isinstance(qa_opts, dict) and not qa_opts.get('env_up') and [k for k in ('setup', 'url', 'env_url', 'env_down') if qa_opts.get(k)]:
+        warn.append(f'"behavior_config.{QA}": {", ".join(k for k in ("setup", "url", "env_url", "env_down") if qa_opts.get(k))} '
+                    'sem "env_up" ficam sem efeito quando o ambiente e descoberto (os comandos de ambiente valem em bloco, '
+                    'com o "env_up")')
     warn += permissions.warnings(c, behavior_file)
     travel = isinstance(c.get('behaviors'), list) and 'flight-price-watch' in c['behaviors']
     unknown = sorted(k for k in c if k not in KNOWN and k not in ALIASES and not k.startswith('_')
