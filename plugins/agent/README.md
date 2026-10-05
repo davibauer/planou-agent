@@ -67,6 +67,20 @@ vídeo e de arquivo são lidas só por metadados; um vídeo só é aberto (`ffpr
 quando tamanho e data não mudaram desde o tick anterior e a data tem mais de 60 s (`ATA_ESTAVEL_S`), sem `.part` ou
 `.tmp` ao lado. A cópia para a pasta de arquivo roda num processo à parte (`watch_core/archive_job.py`), fora do tick.
 
+Fonte lenta (PLN0385): o estado é gravado ao fim de cada fonte, e não só no fim do tick, para que o tick morto pelo
+teto do runner não congele o cursor das fontes que já terminaram. Cada fonte tem um orçamento de tempo: metade do teto
+do tick (`min(600, interval_s - 20)`), ou `source_budget_s` no config (segundos, número 0 ou mais; 0 desliga só o
+orçamento por fonte); e o laço das fontes, com ou sem ele, não começa fonte nova depois de três quartos do teto (com orçamento, a fonte em
+andamento também é cortada nessa marca), deixando o resto para ganchos, Planou e saída. Fonte que passa do orçamento é interrompida (SIGALRM),
+volta ao estado de antes do tick e sai como `FONTE QUEBRADA (<fonte>): FONTE LENTA: passou de Ns...`, com o mesmo
+silêncio de repetição de uma fonte quebrada (`broken_repeat_min`); o próximo tick retoma do cursor do último que
+terminou. Fonte que sempre passa do orçamento precisa trabalhar em partes: limite de itens por tick, ou cache num
+arquivo próprio (o que ela gravou no `state.json` volta junto com o estado). Fonte que sonda em paralelo usa
+`watch_core/pool.py` (`mapa`), que no corte cancela as chamadas da fila sem esperar as que estão em andamento (o Teams
+usa). Ganchos e Planou rodam com o tempo que sobra do teto (até nove décimos dele): ao estourar, o resto é pulado, sai
+`AVISO (tick): sem tempo para ...` e a saída do tick é impressa assim mesmo, com os itens das fontes, que já estão
+gravados.
+
 Tick preso (PLN0241): se mesmo assim o tick pesado ficar preso (estado D, ou sem terminar), o runner não espera por ele
 para sempre. Ele confere o processo por `/proc`, sem `wait` bloqueante, e depois de `RUNNER_TICK_STUCK_S` (padrão: o
 teto do tick mais 30 s, e nunca depois do fim do ciclo) deixa o tick para trás: anota em `cache/runner/tick.preso` (pid,

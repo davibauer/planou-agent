@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.94.1 (2026-10-05)
+- Uma fonte lenta não congela mais as outras: o estado é gravado ao fim de cada fonte, e não só no fim do tick, então o tick que morre pelo teto do runner não faz as outras fontes relerem uma janela cada vez maior.
+- Cada fonte tem um orçamento de tempo (metade do teto do tick, ou `source_budget_s` no config, em segundos; 0 desliga só esse orçamento). A fonte que passa dele é interrompida, inclusive o Teams no meio das sondas, volta ao cursor do último tick que terminou e aparece como `FONTE QUEBRADA (<fonte>): FONTE LENTA`, com o mesmo silêncio de repetição de uma fonte quebrada. Nenhuma fonte começa depois de três quartos do teto.
+- Ganchos e Planou lentos não somem mais com os itens novos: ao passar do teto, o resto fica para o próximo tick, sai `AVISO (tick): sem tempo para ...` e os itens das fontes aparecem assim mesmo.
+- `agent.py --validate` aponta `source_budget_s` que não é número 0 ou mais (antes um texto quebrava todo tick).
+
 ## 0.94.0 (2026-10-05)
 - Foco do dia (Planou 0.93.0): o agente dono do projeto, ou o `planou` num projeto sem dono, recalcula a cada tick com novidade as até 3 tarefas que fecham o dia e grava só quando a ordem muda, com o motivo em uma linha. Respeita as vagas fixadas ou concluídas, o que a pessoa tirou e as promessas de hoje (também a marcada antes para este dia), nunca mexe em data, prioridade ou promessa e não acorda a sessão. Como vê só parte do projeto, nunca tira do foco uma tarefa que o Planou pôs por bloquear outra ou pelo Prazo sem saber disso, e mantém o motivo que o Planou deu. Desliga com `"planou": {"focus": false}`.
 

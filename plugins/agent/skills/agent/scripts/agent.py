@@ -63,6 +63,8 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths, schema, core, adapters                           # noqa: E402
 
+_INICIO = time.monotonic()      # the runner's `timeout` counts from the launch, so the tick's deadlines do too (PLN0385)
+
 
 class Contexto:
     def __init__(self, cfg):
@@ -119,6 +121,64 @@ CREDENCIAL = re.compile(r'(?i)\b(401|403)\b|token|credencial|unauthori[sz]ed|for
 
 def _passageira(err):
     return bool(PASSAGEIRA.search(err or '')) and not CREDENCIAL.search(err or '')
+
+
+class FonteLenta(BaseException):
+    """Raised inside a source that ran past its time budget (PLN0385). A BaseException, so a source's own `except
+    Exception` does not swallow it."""
+
+
+def teto_tick(cfg):
+    """The ceiling the runner gives the heavy tick (runner.sh: TEMPO = min(600, interval - 20)), in seconds.
+    AGENT_TICK_CEILING_S overrides it, for a caller that gives the tick another `timeout` (the tests)."""
+    env = os.environ.get('AGENT_TICK_CEILING_S', '')
+    if env.isdigit() and int(env) > 0: return int(env)
+    iv = cfg.get('interval_s')
+    iv = iv if isinstance(iv, (int, float)) and not isinstance(iv, bool) else 300
+    return max(min(600, int(iv) - 20), 10)
+
+
+def orcamentos(cfg):
+    """(per source, whole source loop) in seconds, from the tick ceiling. One source never takes more than half of it,
+    and the loop stops starting sources at three quarters of it, leaving the rest for the hooks, Planou and the output.
+    "source_budget_s" in the config sets the per-source one (0 turns off only that one; the loop still stops at three
+    quarters). A value that is not a number >= 0 (--validate flags it) falls back to the default, never breaks the tick."""
+    teto = teto_tick(cfg)
+    por = cfg.get('source_budget_s')
+    if not isinstance(por, (int, float)) or isinstance(por, bool) or por < 0: por = teto / 2
+    return float(por), teto * 0.75
+
+
+def _aviso_corte(cortes, fim_tick):
+    return (f'AVISO (tick): sem tempo para {cortes[0]} (o tick passou de {int(fim_tick - _INICIO)}s); '
+            'o resto fica para o proximo tick, os itens das fontes acima ja estao salvos')
+
+
+def _sai(codigo, cortou):
+    """Flushes what was printed (the runner's SIGTERM would drop the buffer) and leaves. After a cut (PLN0385) a worker
+    thread of the cut source may still be in a request: the normal exit would join it, so the process leaves at once
+    (every save was already synchronous)."""
+    sys.stdout.flush(); sys.stderr.flush()
+    if cortou:
+        import threading
+        if any(t.is_alive() and not t.daemon for t in threading.enumerate() if t is not threading.main_thread()):
+            os._exit(codigo)
+    sys.exit(codigo)
+
+
+@contextlib.contextmanager
+def prazo(segundos):
+    """Interrupts the block with FonteLenta after `segundos` (SIGALRM; no-op when <= 0 or off the main thread)."""
+    import signal, threading
+    if segundos <= 0 or threading.current_thread() is not threading.main_thread():
+        yield; return
+    def _estoura(*_): raise FonteLenta()
+    antes = signal.signal(signal.SIGALRM, _estoura)
+    signal.setitimer(signal.ITIMER_REAL, segundos)
+    try: yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, antes)
 
 
 def monta(cfg):
@@ -492,6 +552,8 @@ def status(cfg, err):
 
 
 def main(argv=None):
+    global _INICIO
+    _INICIO = time.monotonic()                   # also when a caller imports agent and runs main() later
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0].startswith('-'):
         insts = paths.instances()
@@ -594,17 +656,40 @@ def main(argv=None):
     res, quebrados = {}, []
     ctx.res, ctx.quebrados, ctx.dry = res, quebrados, dry
     espera = float(cfg.get('retry_s', 5))
-    import drive_probe
+    import copy, drive_probe
     from watch_core.slowfs import Stuck
+    # PLN0385: a source slower than the tick ceiling got the whole tick killed before the one save at the end, freezing
+    # every source's cursor. Now each source has a time budget (past it: rolled back to its state before this tick, and
+    # FONTE QUEBRADA (x): FONTE LENTA, throttled by the runner like any broken source) and the state is saved after each
+    # source, so a later one that still gets killed never freezes the ones before it.
+    por_fonte, laco = orcamentos(cfg)
+    fim_laco = _INICIO + laco
+    cortou = False
     for f in sel:
         try: preso = drive_probe.stuck_any(f.caminhos())     # PLN0236: a dead Windows drive must not hang the tick
         except Exception: preso = None
         if preso:
             quebrados.append((f.nome, drive_probe.message(preso))); continue
+        limite = fim_laco - time.monotonic()
+        if limite < 1:                                            # also with source_budget_s 0: only the per-source one is off
+            quebrados.append((f.nome, f'FONTE LENTA: sem tempo no tick (as fontes antes dela levaram {int(laco)}s); fica para o proximo'))
+            continue
+        seg = min(por_fonte, limite) if por_fonte > 0 else 0      # 0: this source runs without an alarm
+        prazo_fonte = time.monotonic() + seg
+        antes = copy.deepcopy(s) if seg > 0 else None
+        base_antes = core._BASE.get(id(s))                       # a save inside the source moves it; rolled back too
         for tentativa in (1, 2):
             try:
-                r = f.tick(s, desde, dry)
+                with prazo(max(prazo_fonte - time.monotonic(), 0.01) if seg > 0 else 0):
+                    r = f.tick(s, desde, dry)
                 if r is not None: res[f.nome] = r
+                break
+            except FonteLenta:                                   # never retried; its half-done changes are undone
+                s.clear(); s.update(antes)                       # same object: core._BASE is keyed by id(s)
+                if base_antes: core._BASE[id(s)] = base_antes    # else an action merged in by that save reads as dropped
+                quebrados.append((f.nome, f'FONTE LENTA: passou de {int(seg)}s e foi pulada neste tick; '
+                                          'retoma do cursor do ultimo tick que terminou'))
+                cortou = True
                 break
             except SystemExit as e:
                 erro = str(e.code)
@@ -612,52 +697,74 @@ def main(argv=None):
                 quebrados.append((f.nome, str(e))); break
             except Exception as e:
                 erro = f'{type(e).__name__}: {e}'
-            if tentativa == 1 and espera >= 0 and _passageira(erro):
+            if tentativa == 1 and espera >= 0 and _passageira(erro) and (seg <= 0 or prazo_fonte - time.monotonic() > espera + 1):
                 time.sleep(espera); continue
             quebrados.append((f.nome, erro + (' (2 tentativas)' if tentativa == 2 else '')))
             break
+        if not dry: core.save_state(s)                           # this source's cursor survives a later kill
     if not dry:
         qb = s.setdefault('quebrado', {}); dq = dict(quebrados)
         for f in sel:
             if f.nome in dq: qb.setdefault(f.nome, {'erro': dq[f.nome], 'desde': datetime.now(timezone.utc).isoformat()})['erro'] = dq[f.nome]
             else: qb.pop(f.nome, None)
-    # Planou: what the person did there lands in the state before the hooks. A work-watch instance keeps work-watch's
-    # Planou tick (planou_tick.py: its task list, asks and tools go up after the hooks); any other instance the thin one.
+        core.save_state(s)                        # the cursors are on disk; what follows has a deadline (PLN0385)
+    # PLN0385: the cursors are saved before the output is printed, so a tick killed in the hooks or in Planou lost the
+    # new items for good. The two phases below run under the time left of the ceiling (less a tenth for the output);
+    # past it the rest is skipped with AVISO (tick) and the output is printed all the same.
+    fim_tick = _INICIO + teto_tick(cfg) * 0.9
+    cortes = []
     pl, pl_ww, pl_lines = False, None, []
-    if not dry and not a.so:
-        try:
-            from watch_core import planou
-            import role_edit                       # the Papel tab's edits (agent_docs_changed), applied by apply_events
-            planou.set_docs_handler(role_edit.handler(cfg))
-            if ww:
-                if cfg.get('planou'):
-                    import planou_tick
-                    if planou_tick.liga(cfg): pl_ww = planou_tick; pl_lines += pl_ww.before(s)
-            else:
-                pl = planou_on(cfg)
-                if pl: pl_lines += planou_before()
-        except Exception as e:
-            pl_lines.append(f'AVISO (planou): {type(e).__name__}: {str(e)[:160]}')
     lembrar, resolvidas, valores = [], [], {}
     ctx.agora = datetime.now(timezone.utc)
     ativos = [g for g in ganchos if not (g.so_sem_filtro and a.so) and all(r in res for r in g.requer)]
-    if not dry:
-        cruzadas = [r for g in ativos for r in (g.cruza(ctx) or [])]
-        fontes_ok = [q for f in sel if f.nome in res for q in f.lembrar]     # broken source: no reminder without evidence
-        lembrar = core.lembretes_devidos(s, ctx.agora, fontes_ok)
-        for p in lembrar: p['lembretes'] += 1; p['ultimo_lembrete'] = ctx.agora.isoformat()
-        resolvidas = [r for f in sel if f.nome in res for r in f.resolvidas(res[f.nome])] + cruzadas
-    for g in ativos:
-        if dry and not g.roda_em_dry: continue
-        valores[g.nome] = g.run(ctx)
+
+    def _fase(nome, corpo):
+        if cortes: return
+        resta = fim_tick - time.monotonic()
+        if resta <= 0: cortes.append(nome); return
+        try:
+            with prazo(resta): corpo()
+        except FonteLenta: cortes.append(nome)
+
+    def _antes():
+        # Planou: what the person did there lands in the state before the hooks. A work-watch instance keeps
+        # work-watch's Planou tick (planou_tick.py: its task list, asks and tools go up after the hooks); any other
+        # instance the thin one.
+        nonlocal pl, pl_ww, lembrar, resolvidas
+        if not dry and not a.so:
+            try:
+                from watch_core import planou
+                import role_edit                   # the Papel tab's edits (agent_docs_changed), applied by apply_events
+                planou.set_docs_handler(role_edit.handler(cfg))
+                if ww:
+                    if cfg.get('planou'):
+                        import planou_tick
+                        if planou_tick.liga(cfg): pl_ww = planou_tick; pl_lines.extend(pl_ww.before(s))
+                else:
+                    pl = planou_on(cfg)
+                    if pl: pl_lines.extend(planou_before())
+            except Exception as e:
+                pl_lines.append(f'AVISO (planou): {type(e).__name__}: {str(e)[:160]}')
+        if not dry:
+            cruzadas = [r for g in ativos for r in (g.cruza(ctx) or [])]
+            fontes_ok = [q for f in sel if f.nome in res for q in f.lembrar]     # broken source: no reminder without evidence
+            lembrar = core.lembretes_devidos(s, ctx.agora, fontes_ok)
+            for p in lembrar: p['lembretes'] += 1; p['ultimo_lembrete'] = ctx.agora.isoformat()
+            resolvidas = [r for f in sel if f.nome in res for r in f.resolvidas(res[f.nome])] + cruzadas
+        for g in ativos:
+            if dry and not g.roda_em_dry: continue
+            valores[g.nome] = g.run(ctx)
+
+    _fase('ganchos', _antes)
     if not dry:
         s['ultima'] = ctx.agora.isoformat(); core.save_state(s)
     if a.json:
         out = {'res': res, 'quebrados': quebrados, 'lembrar': lembrar}
         for g in ganchos:
             if g.json_key: out[g.json_key] = valores.get(g.nome)
+        if cortes: out['avisos'] = [_aviso_corte(cortes, fim_tick)]
         print(json.dumps(out, ensure_ascii=False, indent=1, default=str))
-        sys.exit(2 if quebrados else 0)
+        _sai(2 if quebrados else 0, cortou or bool(cortes))
     textos = {g.nome: g.texto(valores[g.nome]) for g in ganchos if valores.get(g.nome) is not None}
     for g in ganchos:                            # a hook may move another's block (alertas_azure: nao_acordar_junto)
         if valores.get(g.nome) is not None and hasattr(g, 'ajusta_textos'): g.ajusta_textos(ctx, valores, textos)
@@ -683,16 +790,19 @@ def main(argv=None):
     _fontes(True)                                 # a source with "posicao": "depois" comes after == PENDENTES
     for g in ganchos:
         if g.posicao == 'depois' and textos.get(g.nome): _add(textos[g.nome])
-    if not dry:
+    def _depois():
         for g in ativos:
             for x in (g.publica(ctx, list(blocos)) or []):
                 if x: _add(x)
         try:
             if pl_ww:                              # the manifest first: after() ends with the heartbeat that takes it
-                pl_lines += send_docs(ctx.cfg, datetime.now(timezone.utc)) + pl_ww.after(ctx, ganchos)
-            elif pl: pl_lines += planou_after(ctx, fontes)
+                pl_lines.extend(send_docs(ctx.cfg, datetime.now(timezone.utc)) + pl_ww.after(ctx, ganchos))
+            elif pl: pl_lines.extend(planou_after(ctx, fontes))
         except Exception as e:
             pl_lines.append(f'AVISO (planou): {type(e).__name__}: {str(e)[:160]}')
+
+    if not dry:
+        _fase('publicacao e Planou', _depois)
         core.save_state(s)
     b, soltas = planou_output(pl_lines) if pl_lines else (None, [])
     if b: _add(b)
@@ -709,11 +819,12 @@ def main(argv=None):
     print(saida.getvalue(), end='')
     for f, erro in quebrados: print(f'FONTE QUEBRADA ({f}): {erro}')
     for l in soltas: print(l)
+    if cortes: print(_aviso_corte(cortes, fim_tick))
     fim = [textos[g.nome] for g in ganchos if g.posicao == 'fim' and textos.get(g.nome)]
     if fim:
         if algo or quebrados: print()
         print('\n\n'.join(fim))
-    sys.exit(2 if quebrados else 0)
+    _sai(2 if quebrados else 0, cortou or bool(cortes))
 
 
 if __name__ == '__main__':

@@ -78,7 +78,7 @@ ENTRY_ALIASES = {'tipo': 'type', 'nome': 'name'}
 KNOWN = {'schema', 'live', 'language', 'tz_hours', 'business_hours', 'interval_s', 'session', 'workspace', 'code',
          'sources', 'hooks', 'behaviors', 'behavior_config', 'tools', 'autonomy', 'repos', 'planou', 'runtime',
          'max_reminders', 'agent', 'retry_s', 'videos_dir', 'archive_dir', 'idioma_pagina', 'meetings_keywords',
-         'meetings_include', 'wake', 'suggestions_target', 'repo_discovery'}
+         'meetings_include', 'wake', 'suggestions_target', 'repo_discovery', 'source_budget_s'}
 PAGE_LANGUAGES = ('pt', 'en')
 TOOL_KINDS = ('subagent', 'cli', 'skill', 'mcp', 'other')
 AUTONOMY_KEYS = ('can', 'ask_first', 'never')
@@ -439,6 +439,9 @@ def validate(c, behavior_file=None, adapter_exists=None):
     iv = c.get('interval_s')
     if iv == 0: err.append('"interval_s": 0 (sem tick pesado) ainda nao existe: use 60 ou mais')
     elif not _is_int(iv) or iv < 60: err.append(f'"interval_s": {iv!r} (inteiro, 60 ou mais)')
+    sb = c.get('source_budget_s')
+    if 'source_budget_s' in c and (not isinstance(sb, (int, float)) or isinstance(sb, bool) or sb < 0):
+        err.append(f'"source_budget_s": {sb!r} (segundos, numero 0 ou mais; 0 desliga o orcamento por fonte)')
     s = c.get('session')
     if s is not None:
         if not isinstance(s, dict): err.append('"session" precisa ser um objeto {cwd, aliases, rotate}')

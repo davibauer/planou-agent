@@ -130,7 +130,8 @@ def tick_teams(s, desde, dry):
     def _sondas_conector():
         # listchats nao traz a hora da ultima mensagem (lastUpdatedDateTime e' metadado do chat, nao serve):
         # sonda a mensagem mais recente de cada chat em paralelo e so le por inteiro os que mudaram.
-        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from watch_core import pool
         chats = tp.get('/flowbot/actions/listchats/chattypes/oneOnOne/topic/all/expandmembers/false').get('value', [])
         chats += tp.get('/flowbot/actions/listchats/chattypes/all/topic/isDefined/expandmembers/false').get('value', [])
         # grupo SEM nome (3+ pessoas, topic null) nao vem em nenhuma das duas rotas acima. Tratado como 1:1 nas pendencias.
@@ -150,19 +151,20 @@ def tick_teams(s, desde, dry):
             def _parado(c): h = sond.get(c['id']) or {}; return bool(h.get('ultimo')) and agora - dt(h['ultimo']) >= timedelta(days=30)
             parados = sorted((c for c in unicos if _parado(c)), key=lambda c: (sond.get(c['id']) or {}).get('sondado') or '')
             unicos = [c for c in unicos if not _parado(c)] + parados[:int(limite)]
-        import time
+        parar = threading.Event()                   # set when the source's time budget cuts the probes (PLN0385)
         def sonda(c):
             for tent in range(4):                       # o runtime devolve 429 com paralelismo alto
+                if parar.is_set(): return c, None, None, 'interrompida'
                 try: m = tp.mensagens(c['id'], 1)
                 except SystemExit as e:
-                    if '429' in str(e.code) and tent < 3: time.sleep(2 * (tent + 1)); continue
+                    if '429' in str(e.code) and tent < 3 and not parar.wait(2 * (tent + 1)): continue
                     return c, None, None, str(e.code)
                 except urllib.error.URLError as e:          # 'Connection refused' transitorio do NAT do WSL em paralelo
-                    if tent < 3: time.sleep(2 * (tent + 1)); continue
+                    if tent < 3 and not parar.wait(2 * (tent + 1)): continue
                     return c, None, None, f'URLError: {e.reason}'
                 de = normaliza(m[0], '')['de'] if m else None          # remetente da ultima msg: resolve pendencia sem chamada extra
                 return c, (m[0].get('createdDateTime') if m else None), de, None
-        with ThreadPoolExecutor(2) as ex: sondas = list(ex.map(sonda, unicos))
+        sondas = pool.mapa(sonda, unicos, 2, parar)    # the budget's interrupt never waits for the queued probes
         for c, ultimo, de, e in sondas:
             if not e: sond[c['id']] = {'ultimo': ultimo, 'sondado': agora.isoformat(), 'de': de}
         erros = [(c['id'], e) for c, _, _, e in sondas if e]
