@@ -3869,6 +3869,31 @@ def size_label(name):
     """'50 MB (limite de vídeo)' or '10 MB'."""
     return f'{max_size(name) // (1024 * 1024)} MB' + (' (limite de vídeo)' if max_size(name) == MAX_VIDEO_ATTACHMENT else '')
 ATTACH_REFUSED = (403, 409, 413, 415, 422)       # the same file would be refused again: not retried until it changes
+# what to do about each refusal Planou explains (PLN0338); the plugin has no command to delete an attachment
+ATTACH_HINTS = {
+    'too_many_attachments': 'Apague anexos de rodadas antigas pelo detalhe da tarefa no Planou (o plugin não apaga anexo) '
+                            'e envie de novo.',
+    'too_large': 'Reduza ou divida o arquivo e envie de novo.',
+    'unsupported_type': 'Envie num tipo aceito (confira a extensão e o conteúdo do arquivo).',
+}
+
+
+def refusal_line(source_key, task, name, e):
+    """The AVISO for an attachment Planou refused: its own message and code (the /v1 error body), plus what to do. A
+    reply without a body (code `http`) says so instead of guessing."""
+    head = f'AVISO (planou): anexo {source_key} de {task} ({name}) recusado pelo Planou ({e.status} {e.code})'
+    if e.code == 'http':
+        return f'{head}: o Planou não disse o motivo; não vai de novo até o arquivo mudar'
+    hint = ATTACH_HINTS.get(e.code)
+    return f'{head}: {e.message}' + (f' {hint}' if hint else '') + ' Não vai de novo até o arquivo mudar.'
+
+
+def cached_refusal(task, source_key):
+    """The AVISO saved with a refusal of this task and key (cache/planou/attachments.json), for `attach` to repeat when the
+    same file is sent again by hand: [] when there is none."""
+    code, _pid = _task_ref(task)
+    line = (_load('attachments.json', {}).get(f'{code}|{source_key}') or {}).get('line')
+    return [line] if line else []
 
 
 def _multipart(fields, filename, data, content_type):
@@ -3932,9 +3957,10 @@ def _send(code, source_key, path=None, data=None, name=None, now=None):
     if any(kk.startswith(f'{code}|') and kk != k and v.get('sha') == sha and v.get('id') for kk, v in cache.items()):
         return 'unchanged', []
     if len(data) > max_size(name):          # checked before sending: the limit of the type, by the name's extension
-        _cache_put(k, {'sha': sha, 'name': name, 'refused': 'too_large', 'at': now.isoformat()})
-        return 'refused', [f'AVISO (planou): anexo {source_key} de {code} ({name}, {len(data) / 1e6:.0f} MB) passa de '
-                           f'{size_label(name)}; não enviado']
+        line = (f'AVISO (planou): anexo {source_key} de {code} ({name}, {len(data) / 1e6:.0f} MB) passa de '
+                f'{size_label(name)}; não enviado')
+        _cache_put(k, {'sha': sha, 'name': name, 'refused': 'too_large', 'line': line, 'at': now.isoformat()})
+        return 'refused', [line]
     ctype = ATTACHMENT_TYPES.get(os.path.splitext(name)[1].lower(), 'application/octet-stream')
     if not pid: return 'pending', []      # the sync has not created the task (or refused it): a later tick sends it
     ref = urllib.parse.quote(pid, safe=':@-._~')
@@ -3946,10 +3972,8 @@ def _send(code, source_key, path=None, data=None, name=None, now=None):
     except PlanouError as e:
         if e.status == 404: return 'not_found', []          # not synced yet (the next tick tries again), or gone
         if e.status in ATTACH_REFUSED:
-            _cache_put(k, {'sha': sha, 'name': name, 'refused': e.code, 'at': now.isoformat()})
-            line = (f'AVISO (planou): anexo {source_key} de {code} ({name}) recusado pelo Planou: passa de {size_label(name)} '
-                    f'({e.status} {e.code}); não vai de novo até o arquivo mudar' if e.status == 413 else
-                    f'AVISO (planou): anexo {source_key} de {code} recusado ({e.status} {e.code})')
+            line = refusal_line(source_key, code, name, e)
+            _cache_put(k, {'sha': sha, 'name': name, 'refused': e.code, 'line': line, 'at': now.isoformat()})
             _log('attachments.log', line, now)
             return 'refused', [line]
         return 'pending', [f'AVISO (planou): anexo {source_key} de {code}: {e.message if e.status else e}']
@@ -5488,6 +5512,7 @@ def main(argv=None):
     if a.cmd == 'attach' or (a.cmd == 'anexo' and len(a.arg) == 2):
         if len(a.arg) != 2: ap.error('use: attach TAREFA ARQUIVO [--name NOME]  (TAREFA: PID, codigo do agente ou tarefa da fila)')
         outcome, out = attach_file(a.arg[0], a.arg[1], name=a.name)
+        if outcome == 'refused' and not out: out = cached_refusal(a.arg[0], file_key(a.arg[1]))   # the reason again
         print('\n'.join(out + [ATTACH_SAID[outcome].format(task=a.arg[0], name=a.name or os.path.basename(a.arg[1]))]))
         return 0 if outcome in ('sent', 'unchanged', 'pending', 'ignored') else 1
     if a.cmd == 'anexo':
