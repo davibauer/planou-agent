@@ -1,0 +1,16 @@
+{
+  "description": "Agent session never ends a turn with its runner down (PLN0383)",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/agent/scripts/stop_guard.py\" --plugin",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

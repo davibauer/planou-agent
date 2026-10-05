@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.95.1 (2026-10-05)
+- O runner não fica mais esquecido: quando a acordada chega no meio de outro pedido e a sessão termina o turno sem relançá-lo, um hook Stop (posto pelo launcher `team`, ou pelo plugin quando instalado como plugin) segura o fim do turno e manda relançar (`FIRST_NOW=0`). Só em sessão de agente que subiu o runner e não o parou de propósito (um stop feito por outro terminal ou pelo Desligar do Planou também conta); não insiste (no máximo uma vez a cada 30 min se o relançamento falhar).
+
 ## 0.95.0 (2026-10-05)
 - Opção `planou.all_roles` (PLN0368): o funcionário faz todos os papéis de coluna (Dev, Revisão de código, QA e Release) que o computador consegue, sem ligar cada comportamento. O heartbeat manda a lista explícita dos papéis; QA só entra com o navegador do Playwright instalado e Release só com o release em lote configurado, e o papel que fica fora vai ao Planou em `roles_unavailable` (a ficha mostra o motivo e o comando que o traz de volta) e aparece no `--validate`. Com a restrição de papéis feita no Planou (`role_limit`), o `--load` deixa de listar os papéis fora dela.
 - Com `all_roles`, Revisão de código, QA e Release passam a ser lidos sob demanda (o Dev continua lido em toda sessão): a linha da fila diz o papel da coluna, qual comportamento ler e o `--brief --role` do worker, e o `--brief --role` aceita o papel da coluna mesmo fora de `behaviors` (também pelo nome do papel: dev, qa, release).

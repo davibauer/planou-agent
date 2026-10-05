@@ -106,12 +106,19 @@ if [ ! -s "$ptr" ]; then
   python3 -c 'import uuid; print(uuid.uuid4())' > "$ptr"
 fi
 sid=$(tr -d '[:space:]' < "$ptr")
+# PLN0383: the Stop hook that makes the session relaunch a runner it forgot (scripts/stop_guard.py). The skills are
+# linked into ~/.claude/skills, not installed as a plugin, so the plugin's hooks/hooks.json never loads: the launcher
+# hands the hook to claude itself (--settings adds to the user's settings, never replaces them). TEAM_STOP_GUARD keeps
+# the plugin's copy, when the plugin is installed too, from running a second time.
+guard_settings=$(python3 -c 'import json, shlex, sys
+print(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 " + shlex.quote(sys.argv[1]), "timeout": 30}]}]}}))' "$here/stop_guard.py")
+export TEAM_STOP_GUARD=1
 if [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$slug/$sid.jsonl" ]; then
   echo ">> $m: retomando a sessão $sid"
-  claude --resume "$sid" --name "$m" --remote-control "$m" --dangerously-skip-permissions "/$skill"
+  claude --resume "$sid" --settings "$guard_settings" --name "$m" --remote-control "$m" --dangerously-skip-permissions "/$skill"
 else
   echo ">> $m: sessão nova $sid (a próxima abertura retoma esta)"
-  claude --session-id "$sid" --name "$m" --remote-control "$m" --dangerously-skip-permissions "/$skill"
+  claude --session-id "$sid" --settings "$guard_settings" --name "$m" --remote-control "$m" --dangerously-skip-permissions "/$skill"
 fi
 rc=$?
 # Planou (28/09/2026): the session closed -> session_closed sign of life for this agent, with the session id. Short

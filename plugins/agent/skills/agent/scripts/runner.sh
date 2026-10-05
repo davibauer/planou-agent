@@ -142,6 +142,9 @@ runners() {   # every runner of this instance alive now: group leaders running t
 # PLN0082: two launches in a row once left two runners of one instance, and a stop took down only the one in runner.pid.
 # The stop takes down every runner of the instance (the one in runner.pid and any other found in /proc).
 if [ "$2" = stop ]; then
+  # a stop that lasts (PLN0383): the session's Stop hook (stop_guard.py) never asks to relaunch a runner stopped on
+  # purpose, from the session, from another terminal or by the provisioner (Desligar); the next start clears it
+  mkdir -p "$D" && date '+%Y-%m-%dT%H:%M:%S' > "$D/runner.stopped"
   p=$(cat "$D/runner.pid" 2>/dev/null)
   alvos=$( { eh_runner "$p" && same_home "$p" && echo "$p"; runners; } | sort -un | tr '\n' ' ')
   if [ -z "${alvos// }" ]; then rm -f "$D/runner.pid"; echo "runner $INST ja estava parado"; exit 0; fi
@@ -269,10 +272,12 @@ if [ -z "$ROLLOUT_LIVE" ]; then
   RO=$(PYTHONPATH="$S" timeout 180 python3 -m watch_core.rollout start --scripts "$S" --agent "$INST" --runner-dir "$D" 2>> "$D/rollout.err")
   case "$RO" in
     STOP=*) echo "runner: $INST: ${RO#STOP=}"; exit 1;;
-    PIN=*) RUNNER_LOCK_HELD=$$ ROLLOUT_LIVE=$(cd -P "$S/../../.." && pwd -P) exec bash "${RO#PIN=}/runner.sh" "$@";;
+    # the stopped mark (PLN0383) goes here too: the pinned runner.sh may be a version that does not know it. Never
+    # before STOP=*: a runner the rollout refused stays down, and the Stop hook must not insist on it.
+    PIN=*) rm -f "$D/runner.stopped"; RUNNER_LOCK_HELD=$$ ROLLOUT_LIVE=$(cd -P "$S/../../.." && pwd -P) exec bash "${RO#PIN=}/runner.sh" "$@";;
   esac
 fi
-echo $$ > "$D/runner.pid"; rm -f "$D/runner.stop"
+echo $$ > "$D/runner.pid"; rm -f "$D/runner.stop" "$D/runner.stopped"
 
 # volta leve so' com o Planou configurado, live e com chave (conferido sem rede)
 planou=0; PL active >/dev/null 2>&1 && planou=1

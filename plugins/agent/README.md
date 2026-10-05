@@ -39,6 +39,18 @@ bash $S/scripts/runner.sh <instância>                # runner em background (in
 bash $S/scripts/runner.sh <instância> stop
 ```
 
+Runner esquecido (PLN0383): o plugin traz um hook Stop do Claude Code (`hooks/hooks.json`, `scripts/stop_guard.py`).
+No fim de cada turno de uma sessão de agente (a instância vem do `TEAM_AGENT` do launcher ou do
+`cache/planou/transcript.path`), se esta sessão subiu o runner em background, não o parou com `stop` e nenhum runner da
+instância está vivo, o hook segura o fim do turno e manda relançar com `FIRST_NOW=0`. Runner parado de propósito fica parado: o `runner.sh <instância> stop` (da sessão, de outro terminal ou do Desligar do Planou pelo provisionador) deixa `cache/runner/runner.stopped`, o hook fica quieto enquanto ela existir e o runner apaga a marca quando sobe. O runner continua sendo task da
+sessão (é o fim dele que acorda a sessão; um runner subido por fora não acordaria ninguém). Não insiste: nunca com
+`stop_hook_active` e, se o bloqueio não trouxe o runner de volta, só de novo depois de 30 min
+(`AGENT_STOP_GUARD_BACKOFF_S`). Sessão que não é de agente, instância em modo teste ou config inválido: nada. Não pega
+turno interrompido com Esc (o Stop não roda). Como entra: o launcher `team` (também sob a janela do funcionário) passa o hook ao
+`claude` com `--settings`, porque as skills ficam em links em `~/.claude/skills` e não como plugin instalado; o
+`hooks/hooks.json` cobre quem instalou como plugin e fica de fora quando a cópia do launcher roda (`TEAM_STOP_GUARD=1`).
+Sessão aberta sem o launcher e sem o plugin instalado não tem o hook.
+
 O launcher `team` mora em `scripts/team.sh` desde a 0.49.1 (PLN0215). O `~/.local/bin/team` é só um atalho que roda o
 arquivo da cópia do plugin em uso, e o `git pull` nessa cópia já atualiza o launcher:
 

@@ -704,13 +704,31 @@ def runner_of(name, cfg, entries):
 
 
 def stop_adopted(r, name):
-    """Stops an adopted agent's runner with its own runner.sh (the session and its config are left alone)."""
-    if not r or not pid_alive(r['pid'], r['arg']): return
+    """Stops an adopted agent's runner with its own runner.sh (the session and its config are left alone). An agent
+    plugin instance whose runner is already down still gets the stop (fast and idempotent): it leaves the
+    cache/runner/runner.stopped mark, so the session's Stop hook (stop_guard.py, PLN0383) never relaunches a runner
+    turned off in Planou; when the stop fails, the mark is written here."""
+    if not r: return
+    if not pid_alive(r['pid'], r['arg']):
+        if r['arg']: mark_stopped(r)
+        return
     if not r['script']: raise Fail(f'nao sei parar o runner de {name}; pare pela sessao dele')
     p = subprocess.run(['bash', r['script'], *r['stop']], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                        timeout=90)
     if p.returncode != 0 or pid_alive(r['pid'], r['arg']):
         raise Fail(f'nao consegui parar o runner de {name}')
+
+
+def mark_stopped(r):
+    try:
+        p = subprocess.run(['bash', r['script'], *r['stop']], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           timeout=90)
+        ok = p.returncode == 0
+    except (OSError, subprocess.SubprocessError): ok = False
+    d = os.path.dirname(r['pid'])
+    if ok and os.path.exists(os.path.join(d, 'runner.stopped')): return
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, 'runner.stopped'), 'w') as f: f.write(time.strftime('%Y-%m-%dT%H:%M:%S') + '\n')
 
 
 def tilde(path):
