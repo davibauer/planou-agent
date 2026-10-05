@@ -61,6 +61,7 @@ import argparse, contextlib, io, json, os, re, shlex, sys, time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from watch_core import column_roles                             # noqa: E402
 import paths, schema, core, adapters                           # noqa: E402
 
 _INICIO = time.monotonic()      # the runner's `timeout` counts from the launch, so the tick's deadlines do too (PLN0385)
@@ -485,6 +486,16 @@ LAYER_HEADS = (
 AUTONOMY_LABELS = (('can', 'pode sozinho'), ('ask_first', 'pede OK antes'), ('never', 'nunca'))
 
 
+def _role_limit():
+    """The role_limit Planou answered in the last heartbeat (cache/planou/role_limit.json, watch_core.planou.role_limit),
+    or None (no restriction, or not known yet)."""
+    try:
+        with open(os.path.join(paths.CACHE_DIR or '', 'planou', 'role_limit.json')) as f: v = json.load(f).get('role_limit')
+    except (OSError, ValueError, AttributeError):
+        return None
+    return [r for r in v if isinstance(r, str)] if isinstance(v, list) else None
+
+
 def load_plan(cfg, now=None):
     """--load: what the session reads, by layer in precedence order (PLN0257). Rules: the autonomy lines (the SKILL.md
     itself is already loaded); instructions: instructions.md and CONTEXT.md; skills: each behavior on by its frontmatter
@@ -497,12 +508,26 @@ def load_plan(cfg, now=None):
     for k, label in AUTONOMY_LABELS:
         if a.get(k): by['rules'].append(f'autonomia {label}: ' + '; '.join(a[k]))
     exists = lambda f: '' if f and os.path.isfile(f) else '  (nao existe)'
-    for label, f in load_list(cfg):
+    items = load_list(cfg)
+    every = column_roles.all_roles(cfg)
+    if every:       # PLN0368: every column role's behavior, on or not; review, QA and release read on demand
+        on = {label.split(' ', 1)[1] for label, _ in items if label.startswith('comportamento ')}
+        items += [(f'comportamento {b}', paths.behavior_file(b)) for _, b in column_roles.CATALOG if b not in on]
+        gaps = column_roles.gaps(cfg)
+        limit = _role_limit()
+    for label, f in items:
         if not label.startswith('comportamento '):
             by['instructions'].append(f'{label}: {f}{exists(f)}')
             continue
         name = label.split(' ', 1)[1]
         m = role_edit.load_meta(f) if f and os.path.isfile(f) else {'layer': 'skill', 'kind': 'always'}
+        if every and name in column_roles.ON_DEMAND:
+            role = column_roles.ROLE_OF[name]
+            m = {**m, 'kind': 'on_demand', 'when': f'tarefa da coluna de {role} (`$A --brief <repo> --role {name}`)'}
+            if limit is not None and role not in limit and name not in (cfg.get('behaviors') or []):
+                continue            # the person restricted this agent in Planou: a prompt it will not need
+            if role in gaps:
+                m['when'] += f'; INDISPONIVEL neste computador: {gaps[role][0]} ({gaps[role][1]})'
         if m['kind'] == 'on_demand':
             hint = m.get('when') or m.get('summary') or ''
             title = m.get('title') or name

@@ -35,6 +35,7 @@ worktree (the scratchpad), no release, the PNGs as the done criterion.
 import os, re, subprocess
 
 import permissions, schema
+from watch_core import column_roles
 
 DEV = 'delegate-to-worker'               # the dev worker's behavior (old name: dev-worker)
 RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
@@ -209,16 +210,21 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
 
 
 def role_of(cfg, rest, behavior_file):
-    """(rest without --role, the role's declaration or None). --role must be an enabled behavior; without it,
-    delegate-to-worker when enabled."""
+    """(rest without --role, the role's declaration or None). --role takes a behavior or the role a column calls for
+    (dev, code-review, qa, release: watch_core.column_roles) and must be an enabled behavior, or, with
+    "planou.all_roles" (PLN0368), any column role's behavior; without it, delegate-to-worker when enabled (or under
+    all_roles)."""
     rest, name = list(rest), None
+    on = cfg.get('behaviors') or []
+    every = column_roles.all_roles(cfg)
     if '--role' in rest:
         i = rest.index('--role')
         if i + 1 >= len(rest): raise SystemExit('uso: --brief [repo] [--role <comportamento>]')
-        name = schema.behavior_name(rest[i + 1]); del rest[i:i + 2]      # --role qa still means acceptance-testing
-        if name not in (cfg.get('behaviors') or []):
+        raw = rest[i + 1]; del rest[i:i + 2]
+        name = column_roles.behavior_of(raw) or schema.behavior_name(raw)    # --role qa still means acceptance-testing
+        if name not in on and not (every and name in column_roles.ROLE_OF):
             raise SystemExit(f'papel {name!r} nao esta em "behaviors" (tem: {", ".join(cfg.get("behaviors") or []) or "(nenhum)"})')
-    elif DEV in (cfg.get('behaviors') or []): name = DEV
+    elif DEV in on or every: name = DEV
     p = permissions.role(name, behavior_file) if name else None
     if p is not None: p = {**p, 'role': name}
     return rest, p

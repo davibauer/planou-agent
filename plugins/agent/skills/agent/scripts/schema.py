@@ -50,8 +50,12 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    the repository comes from the task's pr_url (repo_discovery.py, data/discovered.json; PLN0345)
   repo_discovery   {allowed_owners: [str]}: GitHub owners the agent may clone and run without asking, besides the
                    account of the instance's gh and its organizations (repo_discovery.py)
-  planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles, epics,
-                   epic_aliases, agent}; agent (str) is the agent's name in Planou when it differs from the instance
+  planou           {project, confidentiality, drafts_in_planou, publish, task_queue, conversation, roles, all_roles,
+                   epics, epic_aliases, agent}; all_roles (bool, PLN0368): the instance plays every column role
+                   (dev, code-review, qa, release) this computer can run, without each behavior in "behaviors": the
+                   heartbeat declares the explicit list (QA only with a Playwright browser, release only with the batch
+                   release configured: watch_core.column_roles), --load lists review, QA and release as on demand and
+                   --brief --role takes any of them; "roles" wins when both are there; agent (str) is the agent's name in Planou when it differs from the instance
                    name (PLN0282: the instance renamed, the Planou side not yet): sync, source keys, idempotency keys
                    and the whoami fallback use it; default the instance name; same pattern as an instance name.
                    roles [str]
@@ -69,7 +73,7 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
 import json, os, re, sys
 
 import permissions
-from watch_core import behavior_names
+from watch_core import behavior_names, column_roles
 
 ALIASES = {'fontes': 'sources', 'ganchos': 'hooks', 'intervalo_s': 'interval_s', 'fuso_horas': 'tz_hours',
            'comercial': 'business_hours', 'sigla': 'code', 'max_lembretes': 'max_reminders',
@@ -88,7 +92,7 @@ ROLE_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,39}$')
 ROLES_MAX = 10
 # "planou.agent" and "suggestions_target" (PLN0282): an instance name, as paths.NAME_RE
 INSTANCE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,60}$')
-PLANOU_BOOLS = ('drafts_in_planou', 'publish', 'task_queue', 'conversation', 'live')
+PLANOU_BOOLS = ('drafts_in_planou', 'publish', 'task_queue', 'conversation', 'live', 'all_roles')
 DEFAULTS = {'schema': 1, 'tz_hours': -3, 'business_hours': [8, 19], 'interval_s': 300, 'sources': [], 'hooks': [],
             'behaviors': [], 'tools': []}
 # old behavior name -> the one that replaced it (watch_core.behavior_names: the runner's Planou module reads it too)
@@ -400,7 +404,7 @@ def _release_warnings(c, repos):
     b = c.get('behaviors') if isinstance(c.get('behaviors'), list) else []
     br = ((c.get('behavior_config') or {}).get('batch-release') or {}) if isinstance(c.get('behavior_config'), dict) else {}
     batch = [e for e in repos if isinstance(e, dict) and e.get('release') == 'batch']
-    if batch and 'batch-release' not in b:
+    if batch and 'batch-release' not in b and not column_roles.all_roles(c):
         w.append(f'"repos": "{repo_name(batch[0])}" tem "release": "batch", mas "batch-release" nao esta em "behaviors"')
     if len(batch) > 1:
         w.append('"repos": mais de um repositorio com "release": "batch" (o batch-release publica um so, o do "repo")')
@@ -483,7 +487,8 @@ def validate(c, behavior_file=None, adapter_exists=None):
             err.append('"behavior_config" precisa ser {comportamento: {opcoes}}')
         elif isinstance(b, list):
             for name, opts in bc.items():
-                if name not in b: warn.append(f'"behavior_config": "{name}" nao esta em "behaviors"')
+                if name not in b and not (column_roles.all_roles(c) and name in column_roles.ROLE_OF):
+                    warn.append(f'"behavior_config": "{name}" nao esta em "behaviors"')
                 bad, unknown = option_problems(name, opts)
                 err += bad
                 warn += unknown
@@ -575,6 +580,12 @@ def validate(c, behavior_file=None, adapter_exists=None):
             if 'epic_aliases' in p and (not isinstance(p['epic_aliases'], dict) or not all(
                     isinstance(v, str) and v.strip() for v in p['epic_aliases'].values())):
                 err.append('"planou.epic_aliases" precisa ser um objeto {"apelido": "pid ou titulo do epico"}')
+            if p.get('all_roles') is True:
+                if 'roles' in p:
+                    warn.append('"planou.all_roles" e "planou.roles" juntos: vale "planou.roles" (a lista dada); tire um dos dois')
+                else:
+                    for role, (why, fix) in column_roles.gaps(c).items():
+                        warn.append(f'"planou.all_roles": o papel {role} fica fora do heartbeat ({why}): {fix}')
             if p.get('task_queue') is True and c.get('live') is not True:
                 warn.append('"planou.task_queue" so vale com "live": true (em modo teste a fila fica desligada)')
     st = c.get('suggestions_target')

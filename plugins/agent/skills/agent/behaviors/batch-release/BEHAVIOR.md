@@ -9,6 +9,8 @@ when: um worker volta com PRONTA PARA RELEASE, a saida traz == RELEASE ou == DEP
 ---
 # batch-release: release em lote pelo integrador e aviso de cada deploy
 
+**Sob demanda (`planou.all_roles`, PLN0368).** Numa instância com `"all_roles": true` no bloco `planou`, este comportamento não precisa estar em `behaviors` e não é lido em toda sessão: o `--load` o lista como `sob demanda` e a sessão lê este arquivo quando a linha `-- FILA` traz `papel da coluna <coluna>: ...` com ele; o integrador leva o bloco de `$A --brief <repo> --role batch-release`. Só entra na lista quando o release em lote está configurado neste computador (`behavior_config.batch-release.repo` apontando um repositório de `repos` com `"release": "batch"`); sem isso, a coluna Release espera outro agente.
+
 Vale para a instância que integra e publica um repositório: a lista `can` do `autonomy` inclui release em lote e
 deploy. O worker de desenvolvimento termina numa branch pronta; quem junta, testa tudo, versiona e publica é um worker
 só, o integrador, disparado por esta sessão. `A="python3 $S/scripts/agent.py <instância>"`.

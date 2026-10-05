@@ -8,6 +8,8 @@ kind: always
 ---
 # code-review: revisão independente antes do release
 
+**Sob demanda (`planou.all_roles`, PLN0368).** Numa instância com `"all_roles": true` no bloco `planou`, este comportamento não precisa estar em `behaviors` e não é lido em toda sessão: o `--load` o lista como `sob demanda` e a sessão lê este arquivo quando a linha `-- FILA` traz `papel da coluna <coluna>: ...` com ele; o worker leva o bloco de `$A --brief <repo> --role code-review`.
+
 O agente revisor é dono de uma coluna do projeto no Planou (ex.: "Revisão de código", "Ao terminar, vai para" o estado
 de release). O dev passa a tarefa para essa coluna quando a PR está aberta com os testes; a tarefa chega na fila do
 revisor como qualquer outra (`task-queue`) e ele confere a entrega com um contexto que não é o do dev. Vale com

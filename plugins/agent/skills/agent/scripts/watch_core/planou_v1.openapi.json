@@ -1271,6 +1271,37 @@
                     "type": "string",
                     "description": "auto: the provisioner of this computer brings this copy to the published version by itself (the installer's archive copy, or its clean git clone on main). Otherwise why not: disabled (auto_update false), no_provisioner, development (not the installer's copy), no_git, not_own_repo, other_remote, other_branch, local_changes (a tracked file changed), local_commits (a commit origin lacks), untracked_conflict (an untracked file where the new version brings one).",
                     "nullable": true
+                  },
+                  "roles_unavailable": {
+                    "type": "array",
+                    "items": {
+                      "required": [
+                        "role",
+                        "reason"
+                      ],
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "enum": [
+                            "dev",
+                            "code-review",
+                            "qa",
+                            "release"
+                          ],
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "description": "Why, in plain Portuguese, completing 'Fora por enquanto: ...' (e.g. sem navegador neste computador)."
+                        },
+                        "fix": {
+                          "type": "string",
+                          "description": "The command that brings the role back, shown as 'Rode <fix> e ele volta sozinho.'",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "nullable": true
                   }
                 }
               }
@@ -3055,6 +3086,14 @@
                     "format": "double",
                     "default": null,
                     "nullable": true
+                  },
+                  "ask_first": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": null,
+                    "nullable": true
                   }
                 }
               }
@@ -4259,7 +4298,117 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProvisionAgentV1"
+                  "required": [
+                    "agent_id",
+                    "name",
+                    "display_name",
+                    "roles",
+                    "projects",
+                    "work_dir",
+                    "autonomy",
+                    "mode",
+                    "desired",
+                    "status",
+                    "detail",
+                    "status_at",
+                    "requested_at",
+                    "key",
+                    "all_roles",
+                    "role_limit"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "display_name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ProvisionProjectV1"
+                      }
+                    },
+                    "work_dir": {
+                      "type": "string"
+                    },
+                    "autonomy": {
+                      "enum": [
+                        "autonomous",
+                        "semi_autonomous",
+                        "manual"
+                      ],
+                      "type": "string"
+                    },
+                    "mode": {
+                      "enum": [
+                        "live",
+                        "test"
+                      ],
+                      "type": "string"
+                    },
+                    "desired": {
+                      "enum": [
+                        "run",
+                        "paused",
+                        "remove"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "requested",
+                        "creating",
+                        "validated",
+                        "terminal_open",
+                        "runner_up",
+                        "paused",
+                        "removed",
+                        "error"
+                      ],
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "requested_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "key": {
+                      "$ref": "#/components/schemas/ProvisionKeyStateV1"
+                    },
+                    "all_roles": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "role_limit": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null,
+                      "nullable": true
+                    }
+                  }
                 }
               }
             }
@@ -8799,6 +8948,37 @@
             "type": "string",
             "description": "auto: the provisioner of this computer brings this copy to the published version by itself (the installer's archive copy, or its clean git clone on main). Otherwise why not: disabled (auto_update false), no_provisioner, development (not the installer's copy), no_git, not_own_repo, other_remote, other_branch, local_changes (a tracked file changed), local_commits (a commit origin lacks), untracked_conflict (an untracked file where the new version brings one).",
             "nullable": true
+          },
+          "roles_unavailable": {
+            "type": "array",
+            "items": {
+              "required": [
+                "role",
+                "reason"
+              ],
+              "type": "object",
+              "properties": {
+                "role": {
+                  "enum": [
+                    "dev",
+                    "code-review",
+                    "qa",
+                    "release"
+                  ],
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why, in plain Portuguese, completing 'Fora por enquanto: ...' (e.g. sem navegador neste computador)."
+                },
+                "fix": {
+                  "type": "string",
+                  "description": "The command that brings the role back, shown as 'Rode <fix> e ele volta sozinho.'",
+                  "nullable": true
+                }
+              }
+            },
+            "nullable": true
           }
         }
       },
@@ -8842,6 +9022,13 @@
           },
           "display_name": {
             "type": "string",
+            "nullable": true
+          },
+          "role_limit": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           }
         }
@@ -9642,7 +9829,9 @@
           "detail",
           "status_at",
           "requested_at",
-          "key"
+          "key",
+          "all_roles",
+          "role_limit"
         ],
         "type": "object",
         "properties": {
@@ -9723,6 +9912,18 @@
           },
           "key": {
             "$ref": "#/components/schemas/ProvisionKeyStateV1"
+          },
+          "all_roles": {
+            "type": "boolean",
+            "default": false
+          },
+          "role_limit": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
+            "nullable": true
           }
         }
       },
@@ -9793,7 +9994,117 @@
           "agents": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ProvisionAgentV1"
+              "required": [
+                "agent_id",
+                "name",
+                "display_name",
+                "roles",
+                "projects",
+                "work_dir",
+                "autonomy",
+                "mode",
+                "desired",
+                "status",
+                "detail",
+                "status_at",
+                "requested_at",
+                "key",
+                "all_roles",
+                "role_limit"
+              ],
+              "type": "object",
+              "properties": {
+                "agent_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "display_name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "projects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProvisionProjectV1"
+                  }
+                },
+                "work_dir": {
+                  "type": "string"
+                },
+                "autonomy": {
+                  "enum": [
+                    "autonomous",
+                    "semi_autonomous",
+                    "manual"
+                  ],
+                  "type": "string"
+                },
+                "mode": {
+                  "enum": [
+                    "live",
+                    "test"
+                  ],
+                  "type": "string"
+                },
+                "desired": {
+                  "enum": [
+                    "run",
+                    "paused",
+                    "remove"
+                  ],
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "requested",
+                    "creating",
+                    "validated",
+                    "terminal_open",
+                    "runner_up",
+                    "paused",
+                    "removed",
+                    "error"
+                  ],
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "status_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "requested_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "key": {
+                  "$ref": "#/components/schemas/ProvisionKeyStateV1"
+                },
+                "all_roles": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "role_limit": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": null,
+                  "nullable": true
+                }
+              }
             }
           }
         }
@@ -9869,6 +10180,14 @@
           "completed_h": {
             "type": "number",
             "format": "double",
+            "default": null,
+            "nullable": true
+          },
+          "ask_first": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "default": null,
             "nullable": true
           }

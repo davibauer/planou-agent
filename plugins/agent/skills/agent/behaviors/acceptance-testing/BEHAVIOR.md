@@ -8,6 +8,8 @@ kind: always
 ---
 # acceptance-testing: a entrega testada como usuário antes do release
 
+**Sob demanda (`planou.all_roles`, PLN0368).** Numa instância com `"all_roles": true` no bloco `planou`, este comportamento não precisa estar em `behaviors` e não é lido em toda sessão: o `--load` o lista como `sob demanda` e a sessão lê este arquivo quando a linha `-- FILA` traz `papel da coluna <coluna>: ...` com ele; o worker leva o bloco de `$A --brief <repo> --role acceptance-testing`. Só entra na lista com o navegador do Playwright neste computador (`npx playwright install chromium`).
+
 O agente de QA é dono de uma coluna do projeto no Planou (ex.: "QA", "Ao terminar, vai para" o estado de release). A
 tarefa chega pelo handoff de quem veio antes (o dev ou o revisor), com a PR (`pr_url`), e entra na fila do QA como
 qualquer outra (`task-queue`). Ele sobe um ambiente descartável da branch, percorre o fluxo da tarefa como a pessoa

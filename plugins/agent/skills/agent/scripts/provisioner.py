@@ -437,6 +437,11 @@ def render(a, template):
     prefix = str(projects[0].get('prefix') or '') if projects else ''
     from watch_core import behavior_names
     # a role card of a Planou before PLN0295 names the behavior by its old name: the new one is written
+    # every column role (PLN0368): Planou's `all_roles` (its roles then hold delegate-to-worker, code-review and
+    # acceptance-testing plus the "Tambem cuida de" behaviors, never batch-release), or no role asked (an older Planou):
+    # "planou.all_roles" reads review, QA and release on demand and declares the ones this computer can run; release
+    # never by default (it grants merge, tag and deploy, and is declared only once the person configures it)
+    every = a.get('all_roles') is True or not behavior_names.current(a.get('roles'))
     roles = behavior_names.current(a.get('roles')) or list(DEFAULT_ROLES)
     for r in roles:
         if not NAME_RE.fullmatch(r) or not os.path.isfile(os.path.join(BEHAVIORS_DIR, r, 'BEHAVIOR.md')):
@@ -486,6 +491,7 @@ def render(a, template):
         cfg['repos'] = []
     planou = dict(cfg.get('planou') or {})
     planou['project'] = prefix
+    if every: planou['all_roles'] = True
     if not cfg['live']: planou.pop('task_queue', None)       # the queue only runs live (schema warns otherwise)
     cfg['planou'] = planou
 

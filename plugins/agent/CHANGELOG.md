@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.95.0 (2026-10-05)
+- Opção `planou.all_roles` (PLN0368): o funcionário faz todos os papéis de coluna (Dev, Revisão de código, QA e Release) que o computador consegue, sem ligar cada comportamento. O heartbeat manda a lista explícita dos papéis; QA só entra com o navegador do Playwright instalado e Release só com o release em lote configurado, e o papel que fica fora vai ao Planou em `roles_unavailable` (a ficha mostra o motivo e o comando que o traz de volta) e aparece no `--validate`. Com a restrição de papéis feita no Planou (`role_limit`), o `--load` deixa de listar os papéis fora dela.
+- Com `all_roles`, Revisão de código, QA e Release passam a ser lidos sob demanda (o Dev continua lido em toda sessão): a linha da fila diz o papel da coluna, qual comportamento ler e o `--brief --role` do worker, e o `--brief --role` aceita o papel da coluna mesmo fora de `behaviors` (também pelo nome do papel: dev, qa, release).
+- Funcionário novo pedido com "faz todos os papéis" no Planou (`all_roles`), ou sem papéis, nasce com `all_roles` ligado (antes, só Dev); o release nunca vem ligado por padrão.
+
 ## 0.94.1 (2026-10-05)
 - Uma fonte lenta não congela mais as outras: o estado é gravado ao fim de cada fonte, e não só no fim do tick, então o tick que morre pelo teto do runner não faz as outras fontes relerem uma janela cada vez maior.
 - Cada fonte tem um orçamento de tempo (metade do teto do tick, ou `source_budget_s` no config, em segundos; 0 desliga só esse orçamento). A fonte que passa dele é interrompida, inclusive o Teams no meio das sondas, volta ao cursor do último tick que terminou e aparece como `FONTE QUEBRADA (<fonte>): FONTE LENTA`, com o mesmo silêncio de repetição de uma fonte quebrada. Nenhuma fonte começa depois de três quartos do teto.

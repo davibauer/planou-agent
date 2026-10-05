@@ -281,6 +281,7 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
 from . import behavior_names
+from . import column_roles
 from . import config
 from . import deadlines as _deadlines
 from . import fileio
@@ -1229,15 +1230,43 @@ def _agent_config():
 
 
 def roles():
-    """The roles this agent plays: "planou.roles" of its config when present (replaces the derived list), else the
-    roles of its behaviors (ROLE_OF_BEHAVIOR), normalized, without repeats, at most ROLES_MAX. None outside the agent
-    plugin's layout (a runner of another plugin declares no roles)."""
+    """The roles this agent plays: "planou.roles" of its config when present (replaces the derived list), else with
+    "planou.all_roles" the column roles this computer can run (column_roles.available: QA without a Playwright browser
+    and release without the batch release configured stay out), else the roles of its behaviors (ROLE_OF_BEHAVIOR);
+    normalized, without repeats, at most ROLES_MAX. None outside the agent plugin's layout (a runner of another plugin
+    declares no roles)."""
     if not _S['root'] or not config.is_agent_layout(_S['root']): return None
     c = _agent_config()
     pc = c.get('planou') if isinstance(c.get('planou'), dict) else {}
     if isinstance(pc.get('roles'), list): raw = pc['roles']
+    elif column_roles.all_roles(c):        # PLN0368: every column role this computer can run, as an explicit list
+        raw = column_roles.available(c)
     else: raw = [ROLE_OF_BEHAVIOR.get(b) for b in behavior_names.current(c.get('behaviors'))]
     return list(dict.fromkeys(r for r in map(role_name, raw) if r))[:ROLES_MAX]
+
+
+def roles_unavailable():
+    """The column roles left out of `roles` and why (Planou PLN0368 `roles_unavailable`): under "planou.all_roles" (and
+    no "planou.roles") [{role, reason, fix}] of the catalog roles this computer cannot run (column_roles.gaps), else []
+    (clears what an all_roles config left in Planou). None outside the agent plugin's layout."""
+    if not _S['root'] or not config.is_agent_layout(_S['root']): return None
+    c = _agent_config()
+    pc = c.get('planou') if isinstance(c.get('planou'), dict) else {}
+    if isinstance(pc.get('roles'), list) or not column_roles.all_roles(c): return []
+    return [{'role': r, 'reason': why[:200], 'fix': column_roles.FIX_CMD.get(r)} for r, (why, _) in column_roles.gaps(c).items()][:10]
+
+
+def role_limit():
+    """The roles the person restricted this agent to in Planou (`role_limit` of the last heartbeat answer, PLN0368), or
+    None without a restriction (or from an older Planou). Planou enforces it; the plugin only loads fewer prompts."""
+    v = _load('role_limit.json', {}).get('role_limit') if _S['root'] else None
+    return [r for r in v if isinstance(r, str)] if isinstance(v, list) else None
+
+
+def _role_limit_from(res):
+    """Keeps the heartbeat answer's role_limit (absent = no restriction) in cache/planou/role_limit.json."""
+    v = res.get('role_limit') if isinstance(res, dict) else None
+    _save('role_limit.json', {'role_limit': [role_name(r) for r in v if role_name(r)] if isinstance(v, list) else None})
 
 
 def _roles_held(now):
@@ -1250,8 +1279,9 @@ def _roles_refused(e):
     """The refusal is about `roles` (a Planou that does not know the field, or refuses its value)."""
     if e.status not in (400, 422): return False
     fields = list(e.fields or [])
-    if fields: return all(f == 'roles' or f.startswith(('roles[', 'roles.')) for f in fields)
-    return 'roles' in str(e.code or '') or bool(re.search(r'\broles\b', str(e.message or '')))
+    if fields: return all(f in ('roles', 'roles_unavailable') or f.startswith(('roles[', 'roles.', 'roles_unavailable'))
+                          for f in fields)
+    return 'roles' in str(e.code or '') or bool(re.search(r'\broles(_unavailable)?\b', str(e.message or '')))
 
 
 def session_fields(session_id=None):
@@ -1277,6 +1307,8 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     if caps: body['capabilities'] = caps       # absent = the server keeps what it had (the launcher's session_closed)
     rs = roles() if caps and not _roles_held(now) else None
     if rs is not None: body['roles'] = rs       # [] clears; absent keeps (PLN0284)
+    ru = roles_unavailable() if rs is not None else None
+    if ru is not None: body['roles_unavailable'] = ru     # why a column role is out (PLN0368); [] clears
     if next_tick: body['next_tick_at'] = next_tick.isoformat() if hasattr(next_tick, 'isoformat') else str(next_tick)
     body.update(session_fields(session_id))
     due = _tools_due(now)
@@ -1292,7 +1324,7 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
             if 'roles' not in body or not _roles_refused(e): raise
             # a Planou older than the roles (or that refuses them): the sign of life goes again without them, now, and
             # without them for a day; the refusal is logged with the field paths only
-            body.pop('roles')
+            body.pop('roles'); body.pop('roles_unavailable', None)
             _save('roles_sent.json', {'plain_until': (now + ROLES_EVERY).isoformat(), 'refused': e.code or str(e.status)})
             _log('roles.log', f'AVISO (planou): o Planou nao aceita os papeis ({e.status} {e.code}: '
                               f'{", ".join(e.fields) or "sem campo"}); o heartbeat vai sem eles por um dia', now)
@@ -1316,6 +1348,7 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     if due: _save('tools_sent.json', {'sig': due[0], 'at': now.isoformat()})
     if links: _save('links_sent.json', {'sig': links[0], 'at': now.isoformat()})
     if docs: _docs_taken(docs[0], now)
+    if 'roles' in body: _role_limit_from(res)
     told = pause_from_heartbeat(res, phase, now)
     return reaped + told + (flush_attachments(now) if phase == 'tick' else [])
 
@@ -1684,6 +1717,24 @@ def own_handoff(p, now=None):
     return {'column': column, 'role': role, 'note': note or None, 'named': named}
 
 
+def column_hint(p, now=None):
+    """Under "planou.all_roles" (PLN0368): the tail that names the role of the column a released task came to, when its
+    behavior is read on demand (code-review, acceptance-testing, batch-release), so the session reads that BEHAVIOR.md
+    and opens the worker with the right brief; '' otherwise (an instance without all_roles keeps its lines as they were;
+    a dev column is plain work, its behavior is read every session)."""
+    if not _S['root'] or not column_roles.all_roles(_agent_config()): return ''
+    ps = p.get('project_state')
+    column = one_line(ps.get('name') if isinstance(ps, dict) else ps, 60) or None
+    if not column: return ''
+    st = _column_state(p.get('project'), column, now)
+    r = role_name((st or {}).get('owner_role'))
+    b = BEHAVIOR_OF_ROLE.get(r) if r else column_role(column)     # an explicit role (dev) wins over the column's name
+    if b not in column_roles.ON_DEMAND: return ''
+    who = 'o integrador leva' if b == 'batch-release' else 'o worker NOVO leva'
+    return (f'; papel da coluna {column}: {column_roles.ROLE_OF[b]} (comportamento {b}, sob demanda: ler antes o '
+            f'BEHAVIOR.md da linha "sob demanda {b}" do --load; {who} o bloco de `$A --brief <repo> --role {b}`)')
+
+
 def own_handoff_line(own, pr=None):
     """The tail of a released task that this same agent handed to itself (another column of its own), or ''."""
     column, note, role = own.get('column'), own.get('note'), own.get('role')
@@ -1826,11 +1877,14 @@ def line(ev):
             return f'{head} -> NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA)' + (f'; PR: {pr}' if pr else '')
         handed = handoff_line(p, pr)
         if handed:
-            return f'{head} -> {handed}'
+            return f'{head} -> {handed}{column_hint(p)}'
         if pr:
             # a handoff brought the PR (Planou 0.43.0): the next owner (a reviewer) works on it, no search by the PID
             return (f'{head} -> tarefa da fila, com a PR: {pr}; `fila ver` para o detalhe e seguir o comportamento da '
-                    f'coluna (revisao: code-review, sem procurar a PR pelo PID)')
+                    f'coluna (revisao: code-review, sem procurar a PR pelo PID){column_hint(p)}')
+        hint = column_hint(p) if p.get('queued_by') == 'state' else ''
+        if hint:    # a task that waited in a review, QA or release column for a free agent: the column's part
+            return f'{head} -> tarefa da coluna, nao e tarefa nova: `fila ver` para o detalhe{hint}'
         return (f'{head} -> tarefa da fila: `fila ver` para o detalhe; worker, PR em rascunho e parar ali (SKILL, Fila do agente)'
                 + ('; o Planou tirou do backlog pela vaga livre: escopo sem clareza volta com `fila refinar`'
                    if p.get('queued_by') == 'auto' else ''))

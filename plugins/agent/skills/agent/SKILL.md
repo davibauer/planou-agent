@@ -149,6 +149,23 @@ dois estão juntos). Os papéis são comportamentos; o que garante a revisão in
 - a vaga de revisão ou de QA é uma tarefa da fila como as outras: conta no mesmo "Ao mesmo tempo" da aba Fila.
 Detalhe na seção "Mesma instância que desenvolve" do `code-review` e do `acceptance-testing`.
 
+**Todos os papéis de coluna (`planou.all_roles`, PLN0368).** Com `"all_roles": true` no bloco `planou` do config (o
+padrão do funcionário criado sem escolher papéis), a instância faz todos os papéis de coluna que este computador
+consegue, sem cada comportamento em `behaviors`:
+- o heartbeat declara a lista explícita: `dev` e `code-review` sempre, `qa` só com o navegador do Playwright instalado
+  (`npx playwright install chromium`) e `release` só com o release em lote configurado
+  (`behavior_config.batch-release.repo` apontando um repositório de `repos` com `"release": "batch"`); o papel que
+  fica fora vai em `roles_unavailable`, com o motivo e o comando que o traz de volta (a ficha do funcionário mostra), e
+  aparece no `--validate`;
+- o `delegate-to-worker` continua lido em toda sessão; `code-review`, `acceptance-testing` e `batch-release` vêm no
+  `--load` como `sob demanda`. Quando a linha `-- FILA` trouxer `papel da coluna <coluna>: <papel> (comportamento <b>,
+  sob demanda ...)`, ler antes o BEHAVIOR.md da linha `sob demanda <b>` do `--load` e abrir o worker com
+  `$A --brief <repo> --role <b>` (o `--role` aceita também o nome do papel: `dev`, `code-review`, `qa`, `release`);
+- quando a pessoa restringe o funcionário no Planou (`role_limit` na resposta do heartbeat), quem garante é o Planou;
+  o `--load` só deixa de listar os comportamentos de papel fora da restrição;
+- `planou.roles` no config vale sobre o `all_roles`; sem `all_roles` nada muda (os papéis vêm dos comportamentos
+  ligados).
+
 ## Planou pela linha de comando
 
 `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou --agent <instância>"`
