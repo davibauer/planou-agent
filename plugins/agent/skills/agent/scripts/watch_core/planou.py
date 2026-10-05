@@ -3868,7 +3868,14 @@ def max_size(name):
 def size_label(name):
     """'50 MB (limite de vídeo)' or '10 MB'."""
     return f'{max_size(name) // (1024 * 1024)} MB' + (' (limite de vídeo)' if max_size(name) == MAX_VIDEO_ATTACHMENT else '')
-ATTACH_REFUSED = (403, 409, 413, 415, 422)       # the same file would be refused again: not retried until it changes
+# A refusal is final (cached: not retried until the file changes) only when the same file would be refused again: the
+# codes of the per-task limit, size and type, or a status Planou gives for good (403 scope or not the agent's task, 413,
+# 415, 422 validation). Anything else (the 409 `conflict` of two sends of the same source_key at once, a reply with no
+# known code) goes again on the next tick (PLN0371).
+ATTACH_FINAL_CODES = ('too_many_attachments', 'too_large', 'unsupported_type')
+ATTACH_FINAL_STATUS = (403, 413, 415, 422)
+ATTACH_NOT_AGAIN = ' Não vai de novo até o arquivo mudar.'
+REFUSED_BY_PLANOU = 'recusado pelo Planou'      # what refusal_line's head says; `attach` tells it apart by this
 # what to do about each refusal Planou explains (PLN0338); the plugin has no command to delete an attachment
 ATTACH_HINTS = {
     'too_many_attachments': 'Apague anexos de rodadas antigas pelo detalhe da tarefa no Planou (o plugin não apaga anexo) '
@@ -3878,14 +3885,20 @@ ATTACH_HINTS = {
 }
 
 
+def final_refusal(status, code):
+    """True when Planou would refuse the same file again (see ATTACH_FINAL_CODES)."""
+    return code in ATTACH_FINAL_CODES or status in ATTACH_FINAL_STATUS
+
+
 def refusal_line(source_key, task, name, e):
     """The AVISO for an attachment Planou refused: its own message and code (the /v1 error body), plus what to do. A
-    reply without a body (code `http`) says so instead of guessing."""
-    head = f'AVISO (planou): anexo {source_key} de {task} ({name}) recusado pelo Planou ({e.status} {e.code})'
+    reply without a body (code `http`) says so instead of guessing. It does not say it will not go again: ATTACH_SAID
+    does where it is printed, and the log and `attach` add it where it is not."""
+    head = f'AVISO (planou): anexo {source_key} de {task} ({name}) {REFUSED_BY_PLANOU} ({e.status} {e.code})'
     if e.code == 'http':
-        return f'{head}: o Planou não disse o motivo; não vai de novo até o arquivo mudar'
+        return f'{head}: o Planou não disse o motivo.'
     hint = ATTACH_HINTS.get(e.code)
-    return f'{head}: {e.message}' + (f' {hint}' if hint else '') + ' Não vai de novo até o arquivo mudar.'
+    return f'{head}: {e.message}' + (f' {hint}' if hint else '')
 
 
 def cached_refusal(task, source_key):
@@ -3951,8 +3964,11 @@ def _send(code, source_key, path=None, data=None, name=None, now=None):
         with open(path, 'rb') as f: data = f.read()
     name = name or os.path.basename(path or '') or f'{source_key}.md'
     sha = hashlib.sha256(data).hexdigest()
-    if (cache.get(k) or {}).get('sha') == sha and cache[k].get('name') == name:
-        return ('refused' if cache[k].get('refused') else 'unchanged'), []     # a refusal is final until the file changes
+    prev = cache.get(k) or {}
+    if prev.get('sha') == sha and prev.get('name') == name and (
+            not prev.get('refused') or final_refusal(prev.get('status'), prev.get('refused'))):
+        # a final refusal holds until the file changes; one that was not final (a 409 cached before PLN0371) goes again
+        return ('refused' if prev.get('refused') else 'unchanged'), []
     # the same content already went up under another key of this task (job-scout's `cv` and a `file:` of the same PDF)
     if any(kk.startswith(f'{code}|') and kk != k and v.get('sha') == sha and v.get('id') for kk, v in cache.items()):
         return 'unchanged', []
@@ -3971,12 +3987,17 @@ def _send(code, source_key, path=None, data=None, name=None, now=None):
                        timeout=max(60, 30 + len(data) // UPLOAD_BYTES_PER_S))
     except PlanouError as e:
         if e.status == 404: return 'not_found', []          # not synced yet (the next tick tries again), or gone
-        if e.status in ATTACH_REFUSED:
+        if final_refusal(e.status, e.code):
             line = refusal_line(source_key, code, name, e)
-            _cache_put(k, {'sha': sha, 'name': name, 'refused': e.code, 'line': line, 'at': now.isoformat()})
-            _log('attachments.log', line, now)
+            _cache_put(k, {'sha': sha, 'name': name, 'refused': e.code, 'status': e.status, 'line': line,
+                           'at': now.isoformat()})
+            _log('attachments.log', line + ATTACH_NOT_AGAIN, now)      # the tick shows only the log: it says it here
             return 'refused', [line]
-        return 'pending', [f'AVISO (planou): anexo {source_key} de {code}: {e.message if e.status else e}']
+        if e.status:        # a 409 of a concurrent send, a 5xx, a code we do not know: the next tick tries again
+            why = e.message if e.code != 'http' else 'o Planou não disse o motivo'
+            return 'pending', [f'AVISO (planou): anexo {source_key} de {code} ({name}) não entrou agora '
+                               f'({e.status} {e.code}): {why}']
+        return 'pending', [f'AVISO (planou): anexo {source_key} de {code}: {e}']
     res = res if isinstance(res, dict) else {}
     if res.get('result') == 'ignored':      # 202: the person deleted it; Planou ignores this key on this task from now on
         _cache_put(k, {'sha': sha, 'name': name, 'result': 'ignored', 'reason': res.get('reason'), 'at': now.isoformat()})
@@ -4000,11 +4021,14 @@ def attach(code, source_key, path=None, data=None, name=None, now=None):
     under the attachment's `source_key` (stable per kind: 'roteiro', 'cv', 'respostas'), only when the content or the
     name changed since the last send (sha256 in cache/planou/attachments.json). Missing file: nothing. 404 (the task
     does not exist yet) and network failures are retried on a later tick; a file over the limit of its type (50 MB for a
-    video, 10 MB for the rest) is not sent; a refusal (403, 409, 413 too_large, 415) is not retried
-    until the file changes; an attachment the person deleted (202 ignored) is never sent again under that key, not even
+    video, 10 MB for the rest) is not sent; a final refusal (too_many_attachments, too_large, unsupported_type, 403, 413,
+    415, 422) is not retried until the file changes, any other error (a 409 of a concurrent send) goes again on a later call; an attachment the person deleted (202 ignored) is never sent again under that key, not even
     a new version (if the person restores it from the Lixeira, new versions stay local). Nothing goes under "minimum"
     confidentiality. Returns lines (AVISO on failure; an ignored attachment is not a failure: only attachments.log)."""
-    return _send(code, source_key, path, data, name, now)[1]    # a 404 is retried on every call (job-scout's tick)
+    outcome, out = _send(code, source_key, path, data, name, now)    # a 404 is retried on every call (job-scout's tick)
+    if outcome == 'refused' and out and REFUSED_BY_PLANOU in out[0]:    # no ATTACH_SAID after these lines
+        out = [out[0] + ATTACH_NOT_AGAIN] + out[1:]
+    return out
 
 
 # Files the agent produces for a task, or that a description cites (PLN0052): they go as attachments of the task, and
@@ -4127,7 +4151,8 @@ _FLUSHED = {'at': None}
 ATTACH_SAID = {                     # what `attach` prints for each outcome
     'sent': 'anexo {name} enviado para {task}',
     'unchanged': 'anexo {name} igual ao que já está em {task}; nada enviado',
-    'pending': 'anexo {name} guardado: vai para {task} no próximo tick (a tarefa ainda não existe no Planou, ou falhou a rede)',
+    'pending': 'anexo {name} guardado: vai para {task} no próximo tick (a tarefa ainda não existe no Planou, falhou a rede '
+               'ou o Planou pediu para tentar de novo)',
     'not_found': 'a tarefa {task} não existe no Planou (ou não é deste agente); nada enviado',
     'inactive': 'nada enviado: Planou desligado para este agente (config, chave, modo teste) ou confidencialidade "minimum"',
     'blocked': 'nada enviado',
@@ -4175,7 +4200,7 @@ def flush_attachments(now=None):
                 if task in reg and not reg[task]: reg.pop(task)
             _save('attach_files.json', reg)
     for ln in lines:
-        if 'recusado' not in ln: _log('attachments.log', ln, now)      # a refusal was logged where it happened
+        if REFUSED_BY_PLANOU not in ln: _log('attachments.log', ln, now)      # a refusal was logged where it happened
     return []
 
 

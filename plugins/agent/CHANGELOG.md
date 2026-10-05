@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.91.2 (2026-10-05)
+- O `attach` não trata mais como recusa definitiva um anexo que o Planou só pediu para tentar de novo (por exemplo, dois envios do mesmo arquivo ao mesmo tempo) nem um erro sem motivo conhecido: o aviso mostra a mensagem do Planou e o anexo vai de novo no próximo tick. Só o limite de anexos por tarefa, o tamanho, o tipo e os erros de validação seguram o arquivo até ele mudar, e o aviso de recusa não repete mais duas vezes que o anexo não vai de novo.
+
 ## 0.91.1 (2026-10-05)
 - O `attach` agora diz por que o Planou recusou o anexo: repete a mensagem e o código que o Planou devolve (limite de anexos por tarefa, tamanho ou tipo) e sugere o que fazer, como apagar anexos de rodadas antigas pelo detalhe da tarefa. Se o Planou não explicar, o aviso diz isso. Enviar de novo o mesmo arquivo recusado repete o motivo em vez de ficar calado.
 
