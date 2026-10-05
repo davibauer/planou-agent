@@ -259,8 +259,19 @@ a tag publicada (nunca a ponta da `main`) e nunca reescreve nada. Ele só mexe n
   próprio (o git não sobe para uma pasta acima);
 - o remote `origin` é o davibauer/planou-agent (https ou ssh);
 - a branch atual é a `main`;
-- não há mudança em arquivo rastreado nem commit que o `origin` não tenha (arquivo não rastreado, como `__pycache__`,
-  não conta).
+- não há mudança em arquivo rastreado nem commit que o `origin` não tenha (arquivo não rastreado, como `__pycache__`
+  ou a pasta de uma instância, não conta);
+- nenhum arquivo não rastreado está no lugar de um que a `main` do `origin` (a última buscada) traz: o `git merge`
+  recusaria sobrescrevê-lo (PLN0353).
+
+**O Planou sabe se a cópia atualiza sozinha (PLN0353).** A regra acima mora em `watch_core/self_update.py`, e o
+provisionador decide por ela. O runner manda no heartbeat a resposta da mesma função, em `plugin_self_update`: `auto`, ou
+o motivo (`no_provisioner`, sem a credencial do provisionador neste computador; `disabled`, `auto_update` desligado;
+`development`, cópia fora da pasta do instalador; `no_git`, `not_own_repo`, `other_remote`, `other_branch`,
+`local_changes`, `local_commits` ou `untracked_conflict`). Só leitura local, com `GIT_OPTIONAL_LOCKS=0` (nunca segura o
+`index.lock` enquanto o provisionador avança o clone), fora do poll leve e no máximo a cada 10 min; numa cópia fixada
+pelo canário, ou quando o git não responde, o campo não vai. Com `auto`, a ficha do funcionário diz "Atualiza sozinho em
+até 30 min" e não mostra comando; com motivo, mostra o motivo e o comando.
 
 Qualquer outro clone (um de desenvolvimento, como `~/src/claude-plugins`, outra branch, outro remote, trabalho local)
 fica como está, com uma linha no log dizendo o motivo, uma vez por motivo (o motivo fica em `data/update.json`). Os

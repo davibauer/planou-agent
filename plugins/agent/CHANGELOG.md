@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.93.0 (2026-10-05)
+- O funcionário passa a dizer ao Planou se a cópia do plugin que ele lê atualiza sozinha pelo provisionador e, quando não, o motivo (atualização desligada, sem provisionador, cópia de desenvolvimento, clone com mudança local, commit local, outra branch ou outro remote). A ficha mostra "Atualiza sozinho em até 30 min" sem o comando, ou o motivo e o comando. A regra é a mesma que o provisionador usa para decidir.
+- O provisionador deixa como está o clone que tem um arquivo não rastreado no lugar de um que a versão nova traz, com o motivo no log, em vez de tentar o avanço e falhar a cada 30 min.
+
 ## 0.92.0 (2026-10-05)
 - travel-agent: cada plano de viagem vira um card no projeto do Planou (com `"plan_cards": {"detail": true}` no config), com título (datas, voo e voo+hotéis para o grupo) e descrição (roteiro, voo, hotéis, total, meta e referência). O card é atualizado em todo tick e logo depois dos passos do Expedia e dos hotéis (`--done expedia`, `--done hoteis`), o plano escolhido (`card.chosen`) fica com prioridade alta, e o card fecha quando o voo é comprado (feito) ou a viagem é pausada ou sai do config (sem ação). `card.code` adota um card que já existe. `--plan-cards` sincroniza na hora e `--plan-cards --dry` mostra o que subiria.
 

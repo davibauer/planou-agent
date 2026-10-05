@@ -35,7 +35,9 @@ PLN0352: the installer's copy may also be a git clone of davibauer/planou-agent 
 With the same switch, interval and release read, that clone moves to the release tag by `git fetch --tags origin` and
 `git merge --ff-only <tag>` (never the tip of main, never a rewrite), only when it is the installer's folder
 (PLANOU_INSTALL_DIR, default ~/.local/share/planou/claude-plugins), its origin is davibauer/planou-agent, it is on main
-and it has no change in a tracked file and no commit origin does not have (untracked files do not count). Any other
+and it has no change in a tracked file, no commit origin does not have and no untracked file where origin's main has
+one (other untracked files do not count; the rule is watch_core/self_update.py, PLN0353, which the runner's heartbeat
+also reports to Planou as plugin_self_update). Any other
 git copy (a clone of development such as ~/src/claude-plugins) is never touched: one log line per reason, kept in
 data/update.json until the reason changes. After the swap, the same as the archive: restart on it (75), the canary.
 
@@ -1086,74 +1088,60 @@ UPDATE_STATE = 'update.json'
 def install_root():
     """The installer's archive copy holding the plugin in use (<root>/plugins/agent with <root>/.planou-install and no
     .git), or None. A git clone is handled by git_clone_root (PLN0352)."""
-    live = live_dir()
-    if not live: return None
-    root = os.path.dirname(os.path.dirname(os.path.realpath(live)))
-    if os.path.isfile(os.path.join(root, INSTALL_MARK)) and not os.path.exists(os.path.join(root, '.git')): return root
-    return None
+    from watch_core import self_update as su
+    return su.archive_root(live_dir())
 
 
 # ---------------------------------------------------------------- the installer's git clone (PLN0352)
+# The rule lives in watch_core/self_update.py (PLN0353): the runner's heartbeat reports the same answer to Planou.
 
 GIT_REPO = 'https://github.com/davibauer/planou-agent.git'   # the only origin a clone may follow (tests patch it)
 GIT_BRANCH = 'main'
 GIT_TIMEOUT_S = 120
 
+# The log words of each reason of watch_core.self_update.git_skip.
+GIT_SKIP_TEXT = {
+    'development': 'nao e a pasta do instalador',
+    'no_git': 'git nao encontrado',
+    'not_own_repo': 'a pasta nao e um repositorio git proprio',
+    'other_remote': 'o remote origin nao e davibauer/planou-agent',
+    'other_branch': f'fora da branch {GIT_BRANCH}',
+    'local_changes': 'tem mudanca local em arquivo rastreado',
+    'local_commits': 'tem commit local que o origin nao tem',
+    'untracked_conflict': 'tem arquivo nao rastreado no lugar de um que a versao nova traz',
+}
+
 
 def repo_key(url):
-    """A comparable form of a git remote: host/owner/repo (lower case, no scheme, user, .git or trailing /) for an URL
-    or scp-like address, the real path for a local folder."""
-    u = str(url or '').strip().rstrip('/')
-    if u.endswith('.git'): u = u[:-4]
-    m = re.fullmatch(r'(?:[a-z+]+://)?(?:[^@/]+@)?([^/:]+)[:/]+(.+)', u, re.I)
-    if m and not u.startswith(('/', '.', '~', 'file:')): return (m.group(1) + '/' + m.group(2).strip('/')).lower()
-    if u.startswith('file://'): u = u[7:]
-    return os.path.realpath(os.path.expanduser(u)) if u else ''
+    from watch_core import self_update as su
+    return su.repo_key(url)
 
 
 def git_clone_root():
     """The git checkout that holds the plugin in use (the folder two levels above it, with a .git), or None."""
-    live = live_dir()
-    if not live: return None
-    root = os.path.dirname(os.path.dirname(os.path.realpath(live)))
-    return root if os.path.exists(os.path.join(root, '.git')) else None
+    from watch_core import self_update as su
+    return su.clone_root(live_dir())
 
 
 def git(root, *args, timeout=GIT_TIMEOUT_S):
-    """`git -C root args` with no prompt, never walking above root to another repository. Returns (code, output);
-    a missing git or a timeout becomes Fail, so the service loop goes on."""
-    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_CEILING_DIRECTORIES=os.path.dirname(root), LC_ALL='C')
-    env.setdefault('GIT_SSH_COMMAND', 'ssh -oBatchMode=yes')
+    """`git -C root args` (watch_core.self_update.git); a missing git or a timeout becomes Fail, so the service loop
+    goes on."""
+    from watch_core import self_update as su
     try:
-        r = subprocess.run(['git', '-C', root, *args], capture_output=True, text=True, timeout=timeout, env=env,
-                           stdin=subprocess.DEVNULL)
-    except FileNotFoundError:
-        raise Fail('git nao encontrado')
-    except subprocess.TimeoutExpired:
-        raise Fail(f'git {args[0]} passou de {timeout} s')
-    return r.returncode, (r.stdout or '').strip() or (r.stderr or '').strip()
+        return su.git(root, *args, timeout=timeout)
+    except su.GitError as e:
+        raise Fail(str(e))
 
 
 def git_skip_reason(root):
-    """Why the git clone `root` is not updated here, or None when it may be: it must be the installer's folder, a real
-    repository of its own, with origin at davibauer/planou-agent, on main, no tracked change and no commit that origin
-    does not have. Untracked files (a __pycache__) do not count. Local reads only, no network."""
-    from watch_core import rollout as ro
-    inst = ro.installed_dir('agent')
-    if not inst or os.path.realpath(os.path.dirname(os.path.dirname(inst))) != os.path.realpath(root):
-        return 'nao e a pasta do instalador'
-    if shutil.which('git') is None: return 'git nao encontrado'
-    code, top = git(root, 'rev-parse', '--show-toplevel')
-    if code != 0 or os.path.realpath(top) != os.path.realpath(root): return 'a pasta nao e um repositorio git proprio'
-    code, url = git(root, 'remote', 'get-url', 'origin')
-    if code != 0 or repo_key(url) != repo_key(GIT_REPO): return 'o remote origin nao e davibauer/planou-agent'
-    code, branch = git(root, 'symbolic-ref', '-q', '--short', 'HEAD')
-    if code != 0 or branch != GIT_BRANCH: return f'fora da branch {GIT_BRANCH}'
-    code, out = git(root, 'status', '--porcelain', '--untracked-files=no')
-    if code != 0 or out: return 'tem mudanca local em arquivo rastreado'
-    code, out = git(root, 'rev-list', '--max-count=1', 'HEAD', '--not', '--remotes=origin')
-    if code != 0 or out: return 'tem commit local que o origin nao tem'
-    return None
+    """Why the git clone `root` is not updated here (the log words), or None when it may be: the shared rule of
+    watch_core.self_update.git_skip, against GIT_REPO read now."""
+    from watch_core import self_update as su
+    try:
+        code = su.git_skip(root, repo=GIT_REPO)
+    except su.GitError as e:
+        raise Fail(str(e))
+    return GIT_SKIP_TEXT.get(code, code) if code else None
 
 
 def git_update(root, tag):
@@ -1213,10 +1201,11 @@ def auto_update(cfg, now=None, force=False):
     copy by the release's .tar.gz, the installer's git clone by a fast-forward to the release tag (PLN0352). Returns
     the new version, or None. Reads the release at most every update_every_s; a failure is logged and tried on the
     next round. Another git copy (development) is never touched: one log line per reason."""
-    if cfg.get('auto_update') is False: return None
-    root = install_root()
-    clone = None if root else git_clone_root()
-    if not root and not clone: return None
+    from watch_core import self_update as su
+    copy = su.kind(live_dir(), cfg.get('auto_update'))       # the same rule the heartbeat reports (PLN0353)
+    if copy in ('disabled', 'development'): return None
+    root = install_root() if copy == 'archive' else None
+    clone = git_clone_root() if copy == 'clone' else None
     from watch_core import rollout as ro
     now = time.time() if now is None else now
     path = prov_dir('data', UPDATE_STATE)

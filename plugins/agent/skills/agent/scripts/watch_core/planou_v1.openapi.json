@@ -1252,6 +1252,25 @@
                   "plugin_path": {
                     "type": "string",
                     "nullable": true
+                  },
+                  "plugin_self_update": {
+                    "enum": [
+                      "auto",
+                      "disabled",
+                      "no_provisioner",
+                      "development",
+                      "no_git",
+                      "not_own_repo",
+                      "other_remote",
+                      "other_branch",
+                      "local_changes",
+                      "local_commits",
+                      "untracked_conflict",
+                      "other"
+                    ],
+                    "type": "string",
+                    "description": "auto: the provisioner of this computer brings this copy to the published version by itself (the installer's archive copy, or its clean git clone on main). Otherwise why not: disabled (auto_update false), no_provisioner, development (not the installer's copy), no_git, not_own_repo, other_remote, other_branch, local_changes (a tracked file changed), local_commits (a commit origin lacks), untracked_conflict (an untracked file where the new version brings one).",
+                    "nullable": true
                   }
                 }
               }
@@ -8529,6 +8548,25 @@
           },
           "plugin_path": {
             "type": "string",
+            "nullable": true
+          },
+          "plugin_self_update": {
+            "enum": [
+              "auto",
+              "disabled",
+              "no_provisioner",
+              "development",
+              "no_git",
+              "not_own_repo",
+              "other_remote",
+              "other_branch",
+              "local_changes",
+              "local_commits",
+              "untracked_conflict",
+              "other"
+            ],
+            "type": "string",
+            "description": "auto: the provisioner of this computer brings this copy to the published version by itself (the installer's archive copy, or its clean git clone on main). Otherwise why not: disabled (auto_update false), no_provisioner, development (not the installer's copy), no_git, not_own_repo, other_remote, other_branch, local_changes (a tracked file changed), local_commits (a commit origin lacks), untracked_conflict (an untracked file where the new version brings one).",
             "nullable": true
           }
         }

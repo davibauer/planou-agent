@@ -273,6 +273,7 @@ import secrets
 import socket
 import stat
 import sys
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -416,6 +417,39 @@ def plugin_copy(start=None):
 def _own_copy():
     if not _COPY_CACHE: _COPY_CACHE.append(plugin_copy())
     return _COPY_CACHE[0]
+
+
+_SELF_UPDATE = []                    # [(monotonic time, plugin dir, value)] of the last answer
+SELF_UPDATE_EVERY_S = 600
+
+
+def _plugin_dir(start=None):
+    d = os.path.dirname(os.path.realpath(start or __file__))
+    for _ in range(8):
+        if os.path.isfile(os.path.join(d, '.claude-plugin', 'plugin.json')): return d
+        up = os.path.dirname(d)
+        if up == d: break
+        d = up
+    return None
+
+
+def self_update(kind, phase, start=None):
+    """plugin_self_update for the heartbeat (PLN0353): 'auto' when the provisioner updates this copy by itself, else
+    why not; the rule is the provisioner's own (watch_core.self_update). None (the field is left out, Planou keeps what
+    it had) on the light poll, for a snapshot (the rollout canary decides) and when git does not answer. Read at most
+    every SELF_UPDATE_EVERY_S in a long process."""
+    if phase == 'poll' or kind in (None, 'snapshot'): return None
+    from . import self_update as su
+    plugin = _plugin_dir(start)
+    now = time.monotonic()
+    if _SELF_UPDATE and _SELF_UPDATE[0][1] == plugin and now - _SELF_UPDATE[0][0] < SELF_UPDATE_EVERY_S:
+        return _SELF_UPDATE[0][2]
+    try:
+        value = su.report(plugin)
+    except Exception:                    # never let it break the heartbeat
+        value = None
+    _SELF_UPDATE[:] = [(now, plugin, value)]
+    return value
 
 
 _NAME_CACHE = []
@@ -1232,6 +1266,8 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     body = {'phase': phase, 'broken_sources': list(broken_sources), 'host': socket.gethostname(), 'plugin_version': _S['plugin_version']}
     kind, where = _own_copy()
     if kind: body.update(plugin_kind=kind, plugin_path=where)    # which copy to update (PLN0332)
+    su = self_update(kind, phase)
+    if su: body['plugin_self_update'] = su    # whether it updates by itself, or why not (PLN0353)
     caps = capabilities()
     if caps: body['capabilities'] = caps       # absent = the server keeps what it had (the launcher's session_closed)
     rs = roles() if caps and not _roles_held(now) else None
