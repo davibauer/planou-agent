@@ -542,13 +542,30 @@ def prioridades(its, agora):
     return {pids[c]: planou._priority(it.get('prio'), planou._date(it.get('prazo')), hoje) for c, it in its.items() if pids.get(c)}
 
 
+def fechadas_na_origem(s, its, fontes, agora):
+    """Closes for the tasks Planou still has open that the list no longer shows, when a source confirms the item was
+    closed at the origin (Fonte.tarefas_fechadas; an ADO work item that left "assigned to me" because it was done).
+    Without this, a row an instance builds only from open items (wi<id>) stayed in progress on Planou forever (PLN0391).
+    Only for the sync: never asks, never the Foco do dia. A source that fails is skipped (its own tick warns)."""
+    orfas = planou.open_codes() - set(its)
+    if not orfas: return {}
+    out = {}
+    for f in fontes:
+        try: r = f.tarefas_fechadas(s, set(orfas), agora) or {}
+        except Exception: continue
+        for cod, it in r.items():
+            if cod in orfas and cod not in out: out[cod] = {**it, 'fecha_na_origem': True}
+    return out
+
+
 def after(ctx, ganchos=()):
     """Heavy tick, after the hooks: full list, asks, sign of life. Returns lines."""
     s = ctx.s
     _motor(ctx, ganchos)
     agora = datetime.now(timezone.utc)
-    its = enriquece(s, tc.itens(s, agora), list((getattr(ctx, 'fontes', None) or {}).values()))
-    linhas = planou.sync(its, agora)
+    fontes = list((getattr(ctx, 'fontes', None) or {}).values())
+    its = enriquece(s, tc.itens(s, agora), fontes)
+    linhas = planou.sync({**fechadas_na_origem(s, its, fontes, agora), **its}, agora)
     conf = (settings(ctx.cfg) or {}).get('confidentiality') or 'minimum'
     falhou = any(l.startswith('FONTE QUEBRADA (planou)') or (l.startswith('AVISO (planou)') and ' recusada: ' not in l)
                  for l in linhas)

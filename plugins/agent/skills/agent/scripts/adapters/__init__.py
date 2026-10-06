@@ -26,6 +26,7 @@ SOURCE (Fonte) -- one block of the tick output
   vence(s)                optional: ISO expiry of the source's credential when the source knows it (e.g. the GitLab token
                           reads it from the API); None = unknown. Planou shows it on the Ferramentas tab
   tarefas_extras(s, now)  optional: extra rows for the Notion tasks board ({id: row})
+  tarefas_fechadas(s, codes, now)  optional: closes for Planou tasks the list dropped, confirmed at the origin
   args(ap) / cli(a, ctx)  optional extra CLI flags; cli returns True when it handled the command
 
 HOOK (Gancho) -- runs around the sources
@@ -80,6 +81,11 @@ class Fonte:
     def resolvidas(self, r): return (r or {}).get('resolvidas', [])
     def linha_ref(self, p): return f'   ref: {p["ref"]}' + (f' · {p["link"]}' if p.get('link') else '')
     def tarefas_extras(self, s, agora): return {}
+    def tarefas_fechadas(self, s, codigos, agora):
+        """{code: row} for codes Planou still has open that the task list no longer shows and this source confirms were
+        closed at the origin (row: status Feito / Descartada / Sem ação, concluida, fecha_na_origem). Reads only the
+        state: the network goes in tick(), under the source's budget (PLN0391)."""
+        return {}
     pend = ()
     def pronta(self, p, s): return None
     def vence(self, s): return None

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.95.2 (2026-10-05)
+- Item do Azure DevOps que sai da lista de atribuídos agora fecha a tarefa dele no Planou (`wi<id>`): Done, Closed e Resolved fecham como feita, Removed ou item apagado como descartada, com a data de fechamento do próprio item, e item reatribuído a outra pessoa (ou movido para fora dos projetos) como sem ação, com a data da reatribuição ou da mudança de projeto. Antes a tarefa ficava em andamento para sempre e podia entrar no foco do dia.
+- As tarefas que já estavam presas se recuperam sozinhas no tick: a fonte confere por id, numa chamada só, os `wi<id>` que o Planou ainda tem abertos e que não estão mais na lista. Erro nessa conferência vira um aviso, sem derrubar a fonte, e a conferência só volta 6 h depois (sem aviso a cada tick). Nessa conferência, item que o Azure DevOps não devolve (apagado ou sem permissão de leitura) não fecha a tarefa: ela fica aberta para fechar à mão.
+- Novas chaves da fonte `ado_workitems`: `prefixos_tarefa` (padrão `["wi"]`) e `descartados` (padrão `["Removed"]`).
+
 ## 0.95.1 (2026-10-05)
 - O runner não fica mais esquecido: quando a acordada chega no meio de outro pedido e a sessão termina o turno sem relançá-lo, um hook Stop (posto pelo launcher `team`, ou pelo plugin quando instalado como plugin) segura o fim do turno e manda relançar (`FIRST_NOW=0`). Só em sessão de agente que subiu o runner e não o parou de propósito (um stop feito por outro terminal ou pelo Desligar do Planou também conta); não insiste (no máximo uma vez a cada 30 min se o relançamento falhar).
 

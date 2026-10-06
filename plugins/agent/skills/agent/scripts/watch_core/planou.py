@@ -739,11 +739,37 @@ def _still_open(entry):
     return bool(entry and entry.get('pid') and entry.get('state') != 'closed')
 
 
-def open_codes():
+def open_codes(root=None):
     """Codes Planou has and did not confirm closed (state.json): a close for them goes whatever its age (CLOSED_WINDOW
-    only bounds a task Planou never had). A source that drops old closed items keeps these. Empty when not configured."""
-    if not _S['root']: return set()
-    return {c for c, e in (_load('state.json', {}).get('tasks') or {}).items() if _still_open(e)}
+    only bounds a task Planou never had). A source that drops old closed items keeps these. Empty when not configured.
+    `root`: that instance's folder, read without configuring this module (a source during the tick, PLN0391)."""
+    if root:
+        try:
+            with open(os.path.join(root, 'cache', 'planou', 'state.json')) as f: tasks = (json.load(f) or {}).get('tasks') or {}
+        except (OSError, ValueError, AttributeError):
+            return set()
+    elif not _S['root']:
+        return set()
+    else:
+        tasks = _load('state.json', {}).get('tasks') or {}
+    return {c for c, e in tasks.items() if isinstance(e, dict) and _still_open(e)}
+
+
+def closing_task(code, it, kt, sent):
+    """The sync row that closes a task the agent's list no longer shows (an item a source confirmed closed at the origin,
+    `it['fecha_na_origem']`, PLN0391): the body last sent (sent.json) with the close, never a new title or description
+    (absent = Planou keeps its own). None when the agent never sent it (the regular row is built instead)."""
+    state, resolution = STATE_OF.get(it.get('status'), ('closed', 'done'))
+    if state != 'closed' or not kt.get('pid'): return None
+    body = sent.get(code) if isinstance(sent.get(code), dict) else {}
+    title = body.get('title') or kt.get('title')
+    if not title: return None
+    t = {k: v for k, v in body.items() if k not in ('state', 'resolution', 'completed_at', 'waiting', 'ready_reason',
+                                                    'project_state', 'assignee', 'description')}
+    t.setdefault('source_id', it.get('uid') or code)
+    t.update({'source_key': f'{_S["agent"]}:{code}', 'title': title, 'state': 'closed', 'resolution': resolution,
+              'completed_at': _completed_at(it.get('concluida')), 'base_version': kt.get('version')})
+    return t
 
 
 def payload(items, now=None, autonomy=None, default_project=None):
@@ -758,10 +784,17 @@ def payload(items, now=None, autonomy=None, default_project=None):
     _S['cited'] = {}
     _S['epic_picker'] = None
     out, picker, new_epics = [], None, []
+    sent = None
     for code, it in items.items():
         state, resolution = STATE_OF.get(it.get('status'), ('todo', None))
         completed = _date(it.get('concluida'))
         kt = known.get(code) or {}
+        if it.get('fecha_na_origem'):
+            if sent is None: sent = _load('sent.json', {})
+            task = closing_task(code, it, kt, sent)
+            if task:
+                out.append(task)
+                continue
         if (state == 'closed' and completed and date.fromisoformat(completed) < (now - CLOSED_WINDOW).date()
                 and not _still_open(kt)):
             # closed long ago: Planou does not create it, and one it already has closed needs nothing. One it still has
