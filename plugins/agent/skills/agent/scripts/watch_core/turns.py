@@ -188,15 +188,19 @@ def subagent_name(meta, aid):
 
 
 def subagent_task(meta, first, st, aid):
-    """The task a subagent works for, fixed at its first stretch (st['sub_tasks']): the queue task whose PID its
-    description names, else the task in progress when it started."""
+    """The task a subagent works for, fixed at its first stretch (st['sub_tasks']): the queue task (or the agent's own
+    open task, `tarefa nova`) whose PID its description names, else the task in progress when it started."""
     tasks = st.setdefault('sub_tasks', {})
     if aid in tasks: return tasks[aid]
-    desc = str(meta.get('description') or '') + ' ' + str(meta.get('prompt') or '')[:300]
-    words = set(re.findall(r'[A-Za-z]{2,6}-?\d{1,6}', desc.upper()))
+    pat = r'[A-Za-z]{2,6}-?\d{1,6}'
+    # in the order they appear, the description before the prompt: the first PID named wins (never the lowest)
+    words = list(dict.fromkeys(w.upper() for w in re.findall(pat, str(meta.get('description') or ''))
+                               + re.findall(pat, str(meta.get('prompt') or '')[:300])))
     task = None
     try:
-        task = next((str(v['pid']).upper() for v in planou.queue_tasks() if v.get('pid') and str(v['pid']).upper() in words), None)
+        # a queue task, or one of the agent's own open tasks (`tarefa nova`, PLN0396)
+        mine = {str(v['pid']).upper() for v in planou.queue_tasks() if v.get('pid')} | planou.act_pids()
+        task = next((w for w in words if w in mine), None)
     except Exception:
         task = None
     tasks[aid] = task or planou.current_task(at=first)

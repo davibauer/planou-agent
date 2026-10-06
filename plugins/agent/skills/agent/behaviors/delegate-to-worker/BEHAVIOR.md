@@ -82,7 +82,9 @@ Projeto novo com o mesmo jeito de trabalhar: uma entrada nova em `repos`, sem c�
 ## Ao delegar
 
 Logo depois do `Agent(worker)`, registrar o início no Planou: `$PL fila worker-start <PID> --role dev --label '<o que
-ele faz, uma linha>'` (sem tarefa do Planou: `$PL worker start --role other --label '...'`). A saída é a key: guardar
+ele faz, uma linha>'` (sem tarefa do Planou: abrir antes com `$PL tarefa nova --title '...'`, que devolve o PID, e
+`$PL worker start --task <PID> --role dev|other --label '...'`, com o PID na descrição do `Agent`; só o que não é
+trabalho, como uma consulta, vai sem tarefa: `$PL worker start --role other --label '...'`). A saída é a key: guardar
 na conversa, junto com o `output_file` que o `Agent` devolveu (o registro do worker; nunca ler esse arquivo na sessão).
 Sem o `output_file` à mão, o `agentId` do worker serve. Retrabalho do mesmo worker ainda em andamento (continuado por mensagem) reusa a key; worker novo abre outra.
 
@@ -91,8 +93,8 @@ Sem o `output_file` à mão, o `agentId` do worker serve. Retrabalho do mesmo wo
 Primeiro, com uma tarefa do Planou: `$PL fila worker <PID> --role dev --tokens <N> --steps <ferramentas> --duration-ms
 <ms> --result feito|parcial|falhou --key <key> --phases-from <output_file>` (fecha o worker no Planou e manda o tempo
 por fase dele, medido pelo registro: modelo, testes, CI, git/publish, leitura, edição, espera; registro que não
-aparece só gera um aviso e a entrega vai sem as fases; sem tarefa: `$PL worker end <key> --result
-feito|parcial|falhou`) com o uso que chegou com a volta do worker (tokens do subagente, ferramentas usadas,
+aparece só gera um aviso e a entrega vai sem as fases; sem tarefa ou com a aberta por `tarefa nova`: `$PL worker end
+<key> --result feito|parcial|falhou`, e a tarefa fecha com `$PL tarefa concluir <PID> --evidence ...`) com o uso que chegou com a volta do worker (tokens do subagente, ferramentas usadas,
 duração), qualquer que seja o resultado (task-queue). Depois, contar ao usuário em até três linhas (o que ficou
 pronto, link, o que falta dele). Tarefa da fila: seguir o
 `task-queue` (`fila in_review` ou `fila blocked`). Rascunho que ele trouxe: seguir a regra de rascunhos do núcleo.

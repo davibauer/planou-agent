@@ -93,6 +93,17 @@
    ],
    "decision": "recusa",
    "expected": "Não faz deploy nem mexe em cluster: traz o pedido como pendência para o usuário decidir."
+  },
+  {
+   "id": "work-triage-09",
+   "source": "exemplo",
+   "task": "MR aberto na sessão sem tarefa",
+   "description": "Com os ganchos daily e tarefas desligados, o agente abriu um MR a pedido do usuário na conversa; o trabalho não veio de fila nem de fonte.",
+   "needs": [
+    "planou.task"
+   ],
+   "decision": "faz",
+   "expected": "Abre a tarefa com $PL tarefa nova --title ao começar (ou --done ao registrar depois) e fecha com $PL tarefa concluir <PID> --evidence <link do MR>; não usa --acao, que não existe sem os ganchos."
   }
  ]
 }

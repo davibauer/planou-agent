@@ -900,9 +900,11 @@ def note_warnings(code, notes, now=None):
     return new
 
 
-def sync(items, now=None):
-    """Sends the whole list. Returns lines for the tick output (empty when all went well and nothing needs attention)."""
-    _S['warnings'], _S['no_epics'] = [], []
+def sync(items, now=None, only=False):
+    """Sends the whole list. Returns lines for the tick output (empty when all went well and nothing needs attention).
+    `only`: a partial batch (`tarefa nova|concluir`): Planou never erases what a batch leaves out, and neither does this
+    side (the `pronta` marks of the other tasks stay). The rows Planou answered stay in sync_results()."""
+    _S['warnings'], _S['no_epics'], _S['results'] = [], [], {}
     if not active(): return []
     alloc = allocation(now)
     aut = autonomy(_S['project'] or (alloc or {}).get('default'), now)
@@ -922,6 +924,7 @@ def sync(items, now=None):
                 continue
             return lines + [_failed(e.message if e.status else e, now)]
     _ok()
+    _S['results'] = {r.get('source_key'): r for r in (res or {}).get('tasks') or [] if r.get('source_key')}
     picker = _S.get('epic_picker')
     epic_rows = {t['source_key'] for t in body['tasks'] if t.get('kind') == 'epic'}
     if picker is not None:
@@ -980,7 +983,7 @@ def sync(items, now=None):
         _save('state.json', st)
         _save('sent.json', {k: v for k, v in kept.items() if k in tasks})
         marks = _load('ready.json', {})      # ready.json too: mark_ready writes it under the same lock
-        if any(c not in items for c in marks): _save('ready.json', {c: m for c, m in marks.items() if c in items})
+        if not only and any(c not in items for c in marks): _save('ready.json', {c: m for c, m in marks.items() if c in items})
     for code, files in (_S.get('cited') or {}).items():      # outside the lock: the attachments go over the network
         if code in tasks: register_files(code, files, now)
     lines += flush_attachments(now)
@@ -2244,7 +2247,13 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             applied, held, view = None, [], p
         label = STATUS_OF_RESOLUTION.get(p.get('resolution')) if kind == 'task_completed' else 'A fazer' if kind == 'task_reopened' else None
         if 'state' in held: label = None          # the agent moved it meanwhile: its state goes up again
-        changed = bool(label) and bool(apply(code, label))
+        if label and code.startswith(ACT_PREFIX):
+            # the agent's own task (`tarefa nova`, PLN0396): no agent handler knows it; applied here for every agent
+            act_state = _act_person(code, label, p.get('pid'))
+            changed = act_state is not None
+        else:
+            act_state = None
+            changed = bool(label) and bool(apply(code, label))
         if edit and on_change and (not partial or applied):
             changed = bool(on_change(code, view, sent))
         pv = view.get('project_state')
@@ -2262,6 +2271,7 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
                 for f in ('title', 'due', 'deadline', 'state'):
                     if f in applied: tasks[code][f] = _local_value(f, applied[f])
             if ps and on_state: tasks[code]['project_state'] = ps
+            if act_state: tasks[code]['state'] = act_state
             if partial and code in kept_bodies:
                 for f, v in applied.items():
                     if f in kept_bodies[code]: kept_bodies[code][f] = _local_value(f, v)
@@ -2275,6 +2285,8 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
                 tasks[code]['refining'] = {'ask': None, 'scope': True, 'since': datetime.now(timezone.utc).isoformat()}
         elif kind == 'task_deleted':
             tasks.pop(code, None)
+            if code.startswith(ACT_PREFIX) and p.get('pid') and (current_task() or '') == str(p['pid']).upper():
+                current_task('-')       # the agent's own task, deleted by the person: the cost stops going to it
         what = {'task_completed': 'concluida', 'task_reopened': 'reaberta', 'task_changed': 'alterada', 'task_deleted': 'apagada',
                 'task_restored': 'restaurada'}.get(kind, kind)
         if code in tasks and kind != 'task_deleted' and (p.get('assignee') or {}).get('self'):
@@ -5330,6 +5342,225 @@ STATE_SAID = {
 }
 
 
+# ---------------------------------------------------------------- the agent's own work as tasks (PLN0396)
+# Work the agent does in the session that came from no queue and no source (a MR, an investigation, a merge, a cleanup):
+# `tarefa nova` opens it in Planou through the same sync (source_key `<agent>:act:<date>:<slug>`, a partial batch: the
+# rest is never touched) and `tarefa concluir` closes it with the evidence. The item lives in cache/planou/actions.json.
+
+ACT_PREFIX = 'act:'
+ACT_READY = 'trabalho do agente na sessão, sem fila nem fonte'
+ACT_RESOLUTION = {'done': 'Feito', 'feito': 'Feito', 'no_action': 'Sem ação', 'sem_acao': 'Sem ação', 'sem-acao': 'Sem ação',
+                  'discarded': 'Descartada', 'descartada': 'Descartada'}
+ACT_SAID = {'Feito': 'concluida', 'Sem ação': 'fechada sem acao', 'Descartada': 'descartada', 'Fazendo': 'em andamento'}
+
+
+ACT_SLUG_MAX = 48
+
+
+def _act_key(text):
+    """The slug of a key from free text: ascii, lowercase, dashes; one cut at ACT_SLUG_MAX keeps a short hash of the
+    whole text (two long titles that start the same are two tasks). Under "minimum" only a short hash of the text: the
+    key goes up as source_key, source_id, title and description, and the text may name a client."""
+    norm = ' '.join(str(text or '').lower().split())
+    if not norm: return ''
+    if _S['confidentiality'] == 'minimum':
+        return hashlib.sha256(norm.encode()).hexdigest()[:8]
+    import unicodedata
+    t = unicodedata.normalize('NFKD', norm).encode('ascii', 'ignore').decode()
+    t = re.sub(r'[^a-z0-9]+', '-', t).strip('-')
+    if not t: return hashlib.sha256(norm.encode()).hexdigest()[:8]
+    if len(t) > ACT_SLUG_MAX:
+        t = t[:ACT_SLUG_MAX - 9].strip('-') + '-' + hashlib.sha256(norm.encode()).hexdigest()[:8]
+    return t
+
+
+def _act_slug(title, slug=None):
+    """The slug of the key: --slug, else the title (the same title the same day is the same task)."""
+    return _act_key(slug) if slug else _act_key(title)
+
+
+def _act_item(title, evidence, note, status, now, prev=None):
+    it = dict(prev or {})
+    iso = now.isoformat()
+    if title: it.update(titulo=title, curto=title)
+    it.update(status=status, origem='agente', prio=2, ready_reason=ACT_READY, ready_reason_min=ACT_READY)
+    it.setdefault('entrou', iso)
+    it['planou_origin'] = {'type': 'other', 'label': f'Sessão do agente · {when_label(it["entrou"])}', 'url': None,
+                           'author': _S['agent'], 'at': it['entrou']}
+    if evidence:
+        it['evidencia'] = evidence
+        if evidence.startswith(('http://', 'https://')): it['link'] = evidence
+    if note: it['nota'] = note
+    if _S['confidentiality'] == 'minimum':
+        it.pop('link', None)        # al-436: the evidence URL may carry the client's name; it stays local (evidencia)
+    if it.get('link'): it['planou_origin']['url'] = it['link']
+    if status in ('Feito', 'Sem ação', 'Descartada'): it['concluida'] = iso
+    else: it.pop('concluida', None)
+    lines = ['De onde veio: trabalho do agente na sessão (sem fila nem fonte).', f'O que foi feito: {it["titulo"]}']
+    if it.get('nota'): lines.append(f'Nota: {it["nota"]}')
+    if it.get('evidencia'): lines.append(f'Evidência: {it["evidencia"]}')
+    it['planou_description'] = '\n'.join(lines)
+    return it
+
+
+def _act_code(ref, now=None):
+    """The code (act:...) of the agent's own task from its PID, the code (with or without the agent prefix) or its slug
+    (as given to --slug, or the title): today's first, else the one still open from an earlier day. None when it is not
+    one; PlanouError when the slug names open tasks of more than one day (say the PID)."""
+    r = str(ref or '').strip()
+    if r.startswith(_S['agent'] + ':'): r = r[len(_S['agent']) + 1:]
+    acts = _load('actions.json', {})
+    if r in acts: return r
+    known = _load('state.json', {}).get('tasks') or {}
+    code = next((c for c, v in known.items() if str((v or {}).get('pid') or '').upper() == r.upper()), None)
+    if code and code.startswith(ACT_PREFIX): return code
+    slugs = {s for s in (r, _act_key(r)) if s}
+    today = f'{ACT_PREFIX}{(now or datetime.now(timezone.utc)).astimezone().date().isoformat()}:'
+    hit = next((today + s for s in slugs if today + s in acts), None)
+    if hit: return hit
+    closed = ('Feito', 'Sem ação', 'Descartada')
+    older = sorted((c for c, it in acts.items() if c.startswith(ACT_PREFIX) and c.split(':', 2)[-1] in slugs
+                    and (it or {}).get('status') not in closed and (known.get(c) or {}).get('state') != 'closed'), reverse=True)
+    if len(older) > 1:
+        pids = ', '.join(str((known.get(c) or {}).get('pid') or c) for c in older)
+        raise PlanouError(0, 'ambiguous', f'{one_line(ref, 60)} esta aberta em mais de um dia ({pids}): diga o PID')
+    return older[0] if older else None
+
+
+def _act_send(code, it, now):
+    """One-task sync of an agent's own task. Returns {"result", "pid", "notes", "lines"}; raises PlanouError when
+    Planou is off or the call failed."""
+    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    lines = sync({code: it}, now, only=True)
+    failed = [l for l in lines if l.startswith('FONTE QUEBRADA (planou)') or (l.startswith('AVISO (planou)') and ' recusada: ' not in l)]
+    r = _S.get('results', {}).get(f'{_S["agent"]}:{code}')
+    if not r:
+        raise PlanouError(0, 'sync', '; '.join(failed or lines) or 'o Planou nao respondeu sobre a tarefa')
+    notes = list(r.get('warnings') or []) + ([r['reason']] if r.get('reason') else [])
+    return {'result': r.get('result'), 'pid': r.get('pid') or ((_load('state.json', {}).get('tasks') or {}).get(code) or {}).get('pid'),
+            'notes': notes, 'lines': lines}
+
+
+def act_new(title, project=None, evidence=None, note=None, done=False, slug=None, area=None, epic=None, now=None):
+    """`tarefa nova`: opens (or, with `done`, records already closed) a task for the agent's own work. Same title (or
+    --slug) the same day = the same task (idempotent). Open: marks it as the current task (the cost of the session goes
+    to it until `tarefa concluir`). Returns (code, answer of _act_send)."""
+    now = now or datetime.now(timezone.utc)
+    title = one_line(title, 200)
+    if not title: raise PlanouError(0, 'title', '--title: o que o agente fez ou esta fazendo, numa linha')
+    if area and _S['confidentiality'] == 'minimum':
+        # the area names the agent's own epic ("Agente: <area>"), and the subject may name a client
+        raise PlanouError(0, 'area', '--area nao vale com confidentiality minimum (viraria nome de epico): tire o --area')
+    for t in (title, evidence, note):
+        if t and looks_secret(t): raise PlanouError(0, 'secret', 'o texto parece ter um segredo: reescreva sem ele')
+    code = f'{ACT_PREFIX}{now.astimezone().date().isoformat()}:{_act_slug(title, slug)}'
+    known = (_load('state.json', {}).get('tasks') or {}).get(code) or {}
+    with _locked('actions.json'):
+        acts = _load('actions.json', {})
+        if not done and ((acts.get(code) or {}).get('status') in ('Feito', 'Sem ação', 'Descartada') or known.get('state') == 'closed'):
+            # never reopens a closed one by a repeated title (another MR the same day, or one the person closed)
+            raise PlanouError(0, 'closed', f'{known.get("pid") or code} ({code}) ja foi fechada hoje: para outro trabalho '
+                                           'com o mesmo titulo, diga --slug')
+        it = _act_item(title, one_line(evidence, 2000) or None, one_line(note, 1000) or None, 'Feito' if done else 'Fazendo',
+                       now, acts.get(code))
+        if project: it['project'] = str(project)
+        if epic: it['epic'] = str(epic)
+        it['uid'] = code[len(ACT_PREFIX):]
+        it['area'] = area or it.get('area') or 'agente'
+        acts[code] = it
+        _save('actions.json', acts)
+    res = _act_send(code, it, now)
+    if res['pid'] and res['result'] in ('created', 'updated', 'unchanged'):
+        if not done: current_task(res['pid'], now=now)
+        elif (current_task(at=now) or '') == str(res['pid']).upper(): current_task('-', now=now)
+    return code, res
+
+
+def act_close(ref, evidence=None, note=None, resolution='done', now=None):
+    """`tarefa concluir`: closes a task `tarefa nova` opened (done, no_action or discarded) with the evidence. Only the
+    agent's own (act:) tasks: a queue task closes with `fila done`, a source task at its origin. Returns (code, answer)."""
+    now = now or datetime.now(timezone.utc)
+    status = ACT_RESOLUTION.get(str(resolution or 'done').strip().lower())
+    if not status: raise PlanouError(0, 'resolution', '--resolution: done, no_action ou discarded')
+    for t in (evidence, note):
+        if t and looks_secret(t): raise PlanouError(0, 'secret', 'o texto parece ter um segredo: reescreva sem ele')
+    code = _act_code(ref, now)
+    if not code or code not in _load('actions.json', {}):
+        raise PlanouError(0, 'not_act', f'{one_line(ref, 60) or "?"} nao e tarefa aberta por `tarefa nova`: tarefa da fila '
+                                        'fecha com `fila done`, tarefa de fonte fecha na origem')
+    with _locked('actions.json'):
+        acts = _load('actions.json', {})
+        it = _act_item(None, one_line(evidence, 2000) or None, one_line(note, 1000) or None, status, now, acts[code])
+        acts[code] = it
+        _save('actions.json', acts)
+    res = _act_send(code, it, now)
+    if res['pid'] and (current_task(at=now) or '') == str(res['pid']).upper(): current_task('-', now=now)
+    return code, res
+
+
+def act_pids():
+    """PIDs of the agent's own open tasks (`tarefa nova`): a worker whose description names one is charged to it."""
+    known = _load('state.json', {}).get('tasks') or {}
+    return {str(v['pid']).upper() for c, v in known.items()
+            if c.startswith(ACT_PREFIX) and (v or {}).get('pid') and v.get('state') != 'closed'}
+
+
+def _act_person(code, label, pid, now=None):
+    """The person closed (`label` Feito, Sem ação, Descartada) or reopened ('A fazer') in Planou one of the agent's own
+    tasks: actions.json takes the new status (the next `tarefa concluir` or `tarefa nova` starts from it) and a closed
+    one stops being the current task for the cost. Called by apply_events under the state.json lock (state.json, then
+    actions.json: act_new and act_close never hold actions.json while they sync). Returns the local state (closed,
+    todo) or None when the code is not in actions.json."""
+    now = now or datetime.now(timezone.utc)
+    if label not in STATE_OF: return None
+    with _locked('actions.json'):
+        acts = _load('actions.json', {})
+        if code not in acts: return None
+        acts[code] = _act_item(None, None, None, label, now, acts[code])
+        _save('actions.json', acts)
+    state = STATE_OF[label][0]
+    if state == 'closed' and pid and (current_task(at=now) or '') == str(pid).upper(): current_task('-', now=now)
+    return state
+
+
+def _tarefa_acao(a, ap):
+    """tarefa nova --title T [--project P] [--evidence E] [--note N] [--done] [--slug S] [--area A] [--epic E] |
+    tarefa concluir PID|CODIGO [--evidence E] [--note N] [--resolution done|no_action|discarded]."""
+    sub = a.arg[0]
+    try:
+        if sub == 'nova':
+            if len(a.arg) != 1 or not a.title:
+                ap.error("use: tarefa nova --title '<o que foi feito>' [--project P] [--evidence URL] [--note T] [--done] [--slug S]")
+            code, res = act_new(a.title, a.project, a.evidence, _text_arg(a.note) if a.note else None, a.done, a.slug, a.area, a.epic)
+        else:
+            if len(a.arg) != 2:
+                ap.error('use: tarefa concluir PID|CODIGO [--evidence URL] [--note T] [--resolution done|no_action|discarded]')
+            code, res = act_close(a.arg[1], a.evidence, _text_arg(a.note) if a.note else None, a.resolution or 'done')
+    except PlanouError as e:
+        print(f'AVISO (planou): {e.message}', file=sys.stderr)
+        return 1
+    st = ((_load('state.json', {}).get('tasks') or {}).get(code) or {})
+    pid = res['pid'] or '-'
+    status = _load('actions.json', {}).get(code, {}).get('status')
+    if res['result'] == 'conflict':
+        print(f'AVISO (planou): {pid} ({code}) mudou no Planou (a pessoa concluiu, reabriu ou editou): o proximo tick '
+              'traz a mudanca dela para o agente; depois dele, veja se o comando ainda faz sentido e repita', file=sys.stderr)
+        return 1
+    if res['result'] == 'ignored':
+        print(f'AVISO (planou): {pid} ({code}): o Planou ignorou ({"; ".join(res["notes"]) or "sem motivo"})', file=sys.stderr)
+        return 1
+    if res['result'] not in ('created', 'updated', 'unchanged'):
+        print(f'AVISO (planou): {code} recusada: {"; ".join(res["notes"] + res["lines"]) or res["result"]}', file=sys.stderr)
+        return 1
+    head = {'created': 'criada', 'updated': 'atualizada', 'unchanged': 'ja estava assim'}[res['result']]
+    said = ACT_SAID.get(status, status)
+    if st.get('backlog') and status == 'Fazendo': said = 'no backlog (o Planou manteve: a pessoa aprova)'
+    tail = '; o custo da sessao vai para ela ate `tarefa concluir`' if sub == 'nova' and status == 'Fazendo' else ''
+    print(f'{pid}: {head}, {said} ({code}){tail}')
+    for n in res['notes']: print(f'  aviso do Planou: {one_line(n, 200)}')
+    return 0
+
+
 def _state_error(e, tid, column):
     if e.code in STATE_SAID:
         return PlanouError(e.status, e.code, STATE_SAID[e.code].format(tid=tid, col=column))
@@ -5551,6 +5782,13 @@ def main(argv=None):
     ap.add_argument('--priority', help='sugestao: suggested priority, P1 (urgent) to P4 (low); default P3')
     ap.add_argument('--reply-to', help='comentario: the comment_id it answers (from the -- COMENTARIO line)')
     ap.add_argument('--ver', action='store_true', help='comentario: list the task comments instead of posting')
+    ap.add_argument('--project', help='tarefa nova: the project (sigla); default the instance\'s, else Planou\'s default')
+    ap.add_argument('--evidence', help='tarefa nova|concluir: the evidence (MR/PR link, result in one line)')
+    ap.add_argument('--done', action='store_true', help='tarefa nova: the work is already done: record it closed')
+    ap.add_argument('--slug', help='tarefa nova: the key of the task (default: from the title; same day + slug = same task)')
+    ap.add_argument('--area', help='tarefa nova: the subject that picks the epic (default: agente)')
+    ap.add_argument('--epic', help='tarefa nova: the epic (pid or source_key)')
+    ap.add_argument('--resolution', help='tarefa concluir: done (default), no_action or discarded')
     ap.add_argument('--cost-usd', type=float, help='retro votar, daily explicar: the cost, in USD (optional)')
     a = ap.parse_args(argv)
     if a.cmd == 'sugestao':
@@ -5662,6 +5900,8 @@ def main(argv=None):
         return 0
     if a.cmd == 'anexo' and a.arg and a.arg[0] in ('ver', 'baixar'):
         return _anexo_ler(a, ap)
+    if a.cmd == 'tarefa' and a.arg and a.arg[0] in ('nova', 'concluir'):
+        return _tarefa_acao(a, ap)
     if a.cmd == 'tarefa' and a.arg and a.arg[0] == 'estado':
         return _tarefa_estado(a, ap)
     if a.cmd == 'attach' or (a.cmd == 'anexo' and len(a.arg) == 2):

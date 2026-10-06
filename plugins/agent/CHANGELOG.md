@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.96.0 (2026-10-05)
+- Trabalho feito na sessão sem fila nem fonte (um MR, uma investigação, um merge, uma operação num cluster) agora vira tarefa no Planou mesmo com os ganchos `daily` e `tarefas` desligados: `tarefa nova --title '...'` abre a tarefa e devolve o PID, e `tarefa concluir <PID> --evidence '<link ou resultado>'` fecha com a evidência (`--done` registra o que já foi feito). O custo da sessão vai para a tarefa aberta, o worker ligado com `worker start --task <PID>` também, e repetir o mesmo título no mesmo dia não duplica. Concluir ou reabrir a tarefa no Planou chega ao agente no próximo tick, e com `confidentiality: minimum` sobe só "Agente <data>:<código>", sem o link da evidência.
+
 ## 0.95.2 (2026-10-05)
 - Item do Azure DevOps que sai da lista de atribuídos agora fecha a tarefa dele no Planou (`wi<id>`): Done, Closed e Resolved fecham como feita, Removed ou item apagado como descartada, com a data de fechamento do próprio item, e item reatribuído a outra pessoa (ou movido para fora dos projetos) como sem ação, com a data da reatribuição ou da mudança de projeto. Antes a tarefa ficava em andamento para sempre e podia entrar no foco do dia.
 - As tarefas que já estavam presas se recuperam sozinhas no tick: a fonte confere por id, numa chamada só, os `wi<id>` que o Planou ainda tem abertos e que não estão mais na lista. Erro nessa conferência vira um aviso, sem derrubar a fonte, e a conferência só volta 6 h depois (sem aviso a cada tick). Nessa conferência, item que o Azure DevOps não devolve (apagado ou sem permissão de leitura) não fecha a tarefa: ela fica aberta para fechar à mão.

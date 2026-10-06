@@ -43,7 +43,9 @@ O estado da instância é a única fonte: ações `aN`, pendências `pN` e as li
 fixo `<SIGLA>-N` (nunca renumerado); nas mensagens ao usuário, citar pelo `<SIGLA>-N`.
 - **Trabalho do dia que não é ação nem pendência** (sessão, investigação, apply): `$A --acao add "texto"` e
   `$A --acao done N "<evidência>"`, senão some do Feito hoje e do Ontem. No fechamento, o `-- SEM TAREFA` lista o que
-  o motor achou sem tarefa: cadastrar antes da fala.
+  o motor achou sem tarefa: cadastrar antes da fala. Sem o gancho `daily` ou `tarefas` (sem `--acao`), pelo comando do Planou do núcleo (`$PL`): `$PL tarefa nova
+  --title '...'` e `$PL tarefa concluir <PID> --evidence '...'` (ou `tarefa nova ... --done --evidence ...`), núcleo,
+  "Planou pela linha de comando".
 - **Decisão sempre com opções e a recomendada**: `--acao add "..." balde=decisao` e as opções `A*: ...` / `B: ...`
   (`*` = recomendada) pelo motor de tarefas (`--opcoes`). Opção marcada na página chega como `-- DECISAO ...`: agir e
   fechar com `$A --acao done N "<opção>"`.

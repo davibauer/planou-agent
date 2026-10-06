@@ -134,6 +134,12 @@ está aberto e até 24 h depois da resposta (Acesso pelo pedido, Planou 0.84): c
 coluna (`tarefa estado <PID> "<coluna>"`) e ler os anexos (`anexo ver <PID>`, `anexo baixar <PID> <anexo> [--out
 <caminho>]`). Nunca conclui, nunca mexe no backlog e nunca leva para coluna com dono; cada recusa sai em palavras.
 
+Trabalho que o agente faz na sessão sem ter vindo de fila nem de fonte (um MR, uma investigação, um merge, uma operação
+num cluster) vira tarefa dele no Planou, sem depender do Notion: `tarefa nova --title '...' [--evidence <link>]
+[--done]` devolve o PID (o custo da sessão vai para ela enquanto está aberta) e `tarefa concluir <PID> --evidence
+'...'` fecha com a evidência. O mesmo título no mesmo dia é a mesma tarefa; `worker start --task <PID>` liga o worker.
+Com `confidentiality: minimum` sobe só "Agente <data>:<código>" (título e slug em hash, sem o link da evidência e sem `--area`).
+
 ## Instalar com um comando
 
 Num computador novo, um comando instala o plugin (e um Python portátil, se o computador não tiver o python3) e o

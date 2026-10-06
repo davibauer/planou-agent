@@ -202,6 +202,18 @@ consegue, sem cada comportamento em `behaviors`:
   nunca põe nem tira do backlog (é da pessoa) e, com o acesso do pedido, nunca leva para coluna com dono; na tarefa da
   fila do próprio agente o Planou recusa (`in_queue`): mude pelo `fila`. A saída diz o motivo de cada recusa em
   palavras; não insistir.
+- **Trabalho da sessão vira tarefa** (sem fila nem fonte: um MR, uma investigação, um merge, uma operação num cluster,
+  uma limpeza): ao começar, `$PL tarefa nova --title '<o que está fazendo, uma linha>' [--project <sigla>] [--evidence
+  <link>]`; a saída traz o PID, e o custo da sessão vai para ela até concluir. Ao terminar, `$PL tarefa concluir <PID>
+  --evidence '<link do MR ou resultado, uma linha>' [--note '...'] [--resolution done|no_action|discarded]`. Já feito
+  antes de registrar: `$PL tarefa nova --title '...' --done --evidence '...'`. Mesmo título (ou `--slug`) no mesmo dia é
+  a mesma tarefa, sem duplicar (chave `act:<data>:<slug>`). Worker para ela: `$PL worker start --task <PID> --role
+  dev|other --label '...'` e o PID na descrição do `Agent` (o custo dele vai para a tarefa); fecha com `$PL worker end
+  <key> --result ...`. Só para o que não veio de fila nem de fonte: tarefa da fila fecha com `fila done`, tarefa de fonte
+  fecha na origem. Concluir pelo slug acha a de hoje ou a ainda aberta de um dia anterior; aberta em mais de um dia,
+  diga o PID. Concluída ou reaberta pela pessoa no Planou, o próximo tick traz a mudança (a concluída sai do custo). Com
+  `confidentiality: minimum`, o Planou mostra só "Agente <data>:<código>": título e `--slug` viram um hash curto, o
+  link da evidência não sobe (fica só no agente) e `--area` é recusado (viraria nome de épico).
 - Chave nova: `$PL key set` (lê do stdin; grava `secrets/planou.env` com 0600). Nunca imprimir a chave.
 
 ## Decisão com recomendada: seguir sem esperar

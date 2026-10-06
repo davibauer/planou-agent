@@ -116,6 +116,11 @@ reabrir ou editar uma tarefa no Planou vale como a caixinha da página. O que ch
   direta, que vira pedido com as opções e a recomendada marcada (núcleo, "Pergunta ao usuário vira pedido com opções"):
   `$PL pergunta --title "<uma linha>" --option "A=..." --option "B=..." --recommended A [--task aN|pN]`; respondida aqui
   antes, `$PL cancel <código>`. A resposta dela não fecha ação com `--acao done`, mesmo com `--task`.
+- **Trabalho do dia sem tarefa** (MR aberto, investigação, merge, operação num cluster, limpeza que não veio de fila nem
+  de fonte): com o gancho `tarefas` ou `daily` desligado, o `--acao` não existe; abrir no Planou com `$PL tarefa nova
+  --title '...'` ao começar e fechar com `$PL tarefa concluir <PID> --evidence '<link ou resultado>'` ao terminar (já
+  feito: `tarefa nova ... --done --evidence ...`). Núcleo, "Planou pela linha de comando". Com os ganchos ligados,
+  continua o `--acao add` e `--acao done`.
 - Limite ou defeito do Planou ou do plugin (não da empresa): `$PL sugestao` (núcleo), sem nada da empresa no texto.
 - **Pronta ou backlog**: tarefa nova nasce em Backlog. Pedido explícito de uma pessoa (ou do usuário), dentro da
   autonomia e com os dados completos: `$PL pronta pN|aN "<quem pediu o quê>"` (`pronta pN -` desfaz).
