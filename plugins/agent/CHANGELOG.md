@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.97.0 (2026-10-19)
+- `fila blocked --ask-first <ação>` avisa o Planou qual ação da autonomia parou o agente (`mark_ready_for_review`, `merge`, `message_people`, `touch_production`, `open_change_request`; repetir a opção ou separar por vírgula). O Planou mostra "O agente parou no limite da autonomia" na tarefa. O comportamento task-queue diz quando mandar.
+
 ## 0.96.2 (2026-10-19)
 - Painel de credenciais: uma credencial por comando que já está vencida e estoura o tempo da checagem não acorda mais a sessão a cada troca entre ✗ e ?. Só acorda quando passa de válida para não válida e de não válida para válida; o estado mostrado continua o último conhecido.
 - Falha repetida ao arquivar a gravação de uma reunião (disco de destino desconectado ou sem gravação) não acorda mais a sessão a cada tick: avisa na primeira falha, tenta de novo com espera crescente (5 min até 6 h) sem repetir o aviso e avisa uma vez quando o arquivamento volta a funcionar.

@@ -177,7 +177,7 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
   python3 -m watch_core.planou --agent job-scout key set | status | active |
       heartbeat PHASE [--next-heavy EPOCH] [--session-id ID] |
       poll [--next-heavy EPOCH] [--poll-s 90] [--wait 50] | cursor-commit | ack-delivered | events | ack SEQ | tarefa [PID | -] |
-      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--estimate-h H] [--remaining-h H] |
+      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] |
       fila tempo [PID] --remaining-h H [--estimate-h H] | fila refinar [PID] --note TEXT|- |
       fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--model M] [--key K] [--phases-from ARQ] |
       fila worker-start PID [--task PID2 ...] --role dev|integrator|other --label TEXT |
@@ -2746,7 +2746,24 @@ def _hours(name, value):
     return h
 
 
-def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None):
+# The autonomy actions Planou accepts in `ask_first` of a blocked progress (AgentQueue.AutonomyAskFirst on the server).
+ASK_FIRST_ACTIONS = ('mark_ready_for_review', 'merge', 'message_people', 'touch_production', 'open_change_request')
+
+
+def _ask_first(values):
+    """`--ask-first` (repeatable, or comma separated) -> the validated list, in order and without repeats; None when empty."""
+    out = []
+    for v in values or ():
+        for a in str(v).split(','):
+            a = a.strip()
+            if not a: continue
+            if a not in ASK_FIRST_ACTIONS:
+                raise PlanouError(0, 'ask_first', f'--ask-first: {a} nao existe; use {", ".join(ASK_FIRST_ACTIONS)}')
+            if a not in out: out.append(a)
+    return out or None
+
+
+def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None, ask_first=None):
     """POST /agent/tasks/{id}/progress for a task of the agent's queue (ref: pid, task_id or source_key; empty = the only
     one). started when the work begins; in_review with the draft PR (pr_url); done concludes the task; blocked with a
     note opens a decision in "Precisa de você" (the note never goes up under "minimum"). Returns the server answer.
@@ -2761,7 +2778,12 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     Time (Planou 0.26.0, "Tempo no sync"): `estimate_h` (the agent's estimate, sent with started) and `remaining_h`
     (what is left, on every step); done without hours sends remaining_h 0. completed_h is never sent: Planou measures it
     from the cost turns tied to the task (watch_core.turns, through the current-task marker set here). An hour the
-    person changed stays hers (`ignored_fields` in the answer)."""
+    person changed stays hers (`ignored_fields` in the answer).
+
+    `ask_first` (blocked only): the autonomy actions that made the agent stop (ASK_FIRST_ACTIONS); Planou then shows
+    "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too."""
+    ask_first = _ask_first([ask_first] if isinstance(ask_first, str) else ask_first)
+    if ask_first and state != 'blocked': raise PlanouError(0, 'ask_first', '--ask-first so vale com `fila blocked`')
     if state not in PROGRESS_STATES: raise PlanouError(0, 'state', f'estado {state}: use {", ".join(PROGRESS_STATES)}')
     estimate_h, remaining_h = _hours('estimate_h', estimate_h), _hours('remaining_h', remaining_h)
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
@@ -2783,6 +2805,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         rem = 0 if sent == 'done' and remaining_h is None else remaining_h
         b = {k: v for k, v in {'state': sent, 'pr_url': pr_url, 'note': note}.items() if v}
         b.update({k: v for k, v in {'estimate_h': estimate_h, 'remaining_h': rem}.items() if v is not None})
+        if ask_first: b['ask_first'] = ask_first
         return b
 
     sent = 'handoff' if state == 'done' and owns_a_column(entry, now) else state
@@ -4644,7 +4667,8 @@ def _fila(a, ap):
         if sub == 'tempo':
             res = update_time(ref, a.remaining_h, a.estimate_h)
         else:
-            res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h)
+            res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h,
+                           ask_first=a.ask_first)
             if sub == 'blocked' and paused():
                 tid, entry = _queue_entry(res.get('pid') or ref)
                 pause_hold(res.get('task_id') or tid, res.get('pid') or (entry or {}).get('pid'), (entry or {}).get('title'))
@@ -5763,6 +5787,8 @@ def main(argv=None):
     ap.add_argument('--code'); ap.add_argument('--severity'); ap.add_argument('--reason')
     ap.add_argument('--pr-url', help='fila in_review: the draft PR; fila ajuste: the PR to send back (default: the task\'s)')
     ap.add_argument('--note', help="fila: note for the person (blocked: what the agent needs); '-' reads stdin")
+    ap.add_argument('--ask-first', action='append', help='fila blocked: the autonomy action(s) that stopped the agent '
+                    '(mark_ready_for_review, merge, message_people, touch_production, open_change_request); repeat or use commas')
     ap.add_argument('--estimate-h', help='fila: estimate in hours (with started, or fila tempo)')
     ap.add_argument('--remaining-h', help='fila: hours left (every step; done without it sends 0)')
     ap.add_argument('--role', help='fila worker: dev or integrator; fila worker-start: also other')

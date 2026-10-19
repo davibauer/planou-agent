@@ -149,6 +149,10 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    `printf '%s' "<o que precisa, curto>" | $PL fila blocked <PID> --note -`. Abre a pergunta em Precisa de você; a
    resposta volta como `-- DECISAO` e aí `$PL fila started <PID>` de novo para seguir. Com `"confidentiality":
    "minimum"` a nota não sobe: dizer o que precisa também na sessão.
+   Se parou porque a ação é de `ask_first` da autonomia (`mark_ready_for_review`, `merge`, `message_people`,
+   `touch_production`, `open_change_request`), mandar também `--ask-first <ação>` (repetir ou separar por vírgula; só
+   com `blocked`): o Planou mostra "O agente parou no limite da autonomia" com a ação. Parou por acesso, escolha de
+   desenho ou outro motivo: sem `--ask-first`. Valor fora dessa lista o plugin recusa sem enviar.
 
 ## Ajuste pedido pelo botão ou pelo revisor: `-- AJUSTE PEDIDO <PID> (<quem>): <texto>`
 
@@ -251,7 +255,7 @@ ainda (`last_change_at` vazio) fica com o servidor, que monta pela regra quando 
 ## Limite
 
 Vale a autonomia mais restrita entre a da tarefa (`fila ver`) e a da instância (`autonomy` do config). O que está em
-`never` não se faz nem com a tarefa pedindo; o que está em `ask_first` vira `fila blocked` antes. Mandar mensagem a
+`never` não se faz nem com a tarefa pedindo; o que está em `ask_first` vira `fila blocked --ask-first <ação>` antes (passo 5). Mandar mensagem a
 alguém nunca é do agent: vira rascunho.
 
 ## Sessão reiniciada
