@@ -765,27 +765,70 @@ def print_reengage(items):
         print(f'   {r["url"]}')
     return True
 
-# ---------------- Pipeline jobs that closed on LinkedIn (1x/day) ----------------
+# ---------------- Pipeline jobs that closed on LinkedIn (a round per day, in budgeted batches) ----------------
 ACTIVE = ('interested', 'applied', 'replied', 'interview', 'offer')
+# 19/10/2026: with ~110 active jobs the serial check (1 s apart, up to 3 attempts of 30 s each) passed the runner's 600 s
+# and the tick was killed (exit 124) before saving the state, so the routine started over on every tick. Now each tick
+# checks a batch within CLOSED_BUDGET_S, oldest check first, and never starts a request whose worst case does not fit.
+CLOSED_BUDGET_S = 180
+CLOSED_ATTEMPTS, CLOSED_TIMEOUT_S = 2, 20     # per request (linkedin_jobs._get); the worst case is the reserve
+CLOSED_PAUSE_S = 1
+CLOSED_PROGRESS = os.path.join(os.path.dirname(STATE), 'closed_checks.json')   # {job id: iso} of open checks not yet in state.json
 
-def check_closed(s, now):
+def _closed_progress():
+    try:
+        with open(CLOSED_PROGRESS) as f: d = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError): return {}
+    return d if isinstance(d, dict) else {}
+
+def _merge_closed_progress(an):
+    """Brings back the checks a killed tick wrote to the side file (the tick that saves state.json may never come).
+    Entries the state already has were saved for good and leave the file."""
+    prog = _closed_progress()
+    keep = {k: w for k, w in prog.items() if k in an and w > (an[k].get('closed_checked') or '')}
+    for k, w in keep.items(): an[k]['closed_checked'] = w
+    if keep != prog: fileio.write_json(CLOSED_PROGRESS, keep)
+    return keep
+
+def closed_due(s, now):
+    """Active jobs (no closure yet) not checked today (BRT), oldest check first; never checked comes first."""
+    an = (s.get('jobs') or {}).get('tracked') or {}
+    today = now.astimezone(BRT).date()
+    due = [(k, v) for k, v in an.items() if v.get('status') in ACTIVE and not v.get('closure') and str(k).isdigit()
+           and not (v.get('closed_checked') and dt(v['closed_checked']).astimezone(BRT).date() == today)]
+    return sorted(due, key=lambda kv: kv[1].get('closed_checked') or '')
+
+def check_closed(s, now, budget=CLOSED_BUDGET_S, clock=None):
     """Checks on the public page (no cookie, 1 s between each) whether the pipeline jobs are still open.
     A closed/removed 'interested' becomes 'ignored' (leaves Notion). From the 'applied' stage on the status does NOT change
     (a closed job does not mean rejected): marks v['closure'] and Notion shows 'VAGA ENCERRADA NO LINKEDIN'.
+    Time budget: at most `budget` seconds, counting the worst case of each request (attempts x timeout + backoff) before
+    starting it; the rest stays for the next tick. Each check is stored in v['closed_checked'] and, right away, in the side
+    file CLOSED_PROGRESS, so a tick killed in the middle does not lose what it already checked (state.json is only saved
+    at the end of the tick, and saving it here would mark this tick's new jobs as seen before they were shown).
     """
     import linkedin_jobs as lj
+    clock = clock or time.monotonic
+    deadline = clock() + budget
+    reserve = lj.worst_case_s(CLOSED_ATTEMPTS, CLOSED_TIMEOUT_S) + CLOSED_PAUSE_S
     an = (s.get('jobs') or {}).get('tracked') or {}
+    prog = _merge_closed_progress(an)
     now_iso = now.isoformat(timespec='seconds'); day = now.astimezone(BRT).strftime('%d/%m')
-    lines, errors = [], 0
-    for jid, v in list(an.items()):
-        if v.get('status') not in ACTIVE or v.get('closure') or not str(jid).isdigit(): continue
+    lines, errors, rate_limited = [], 0, False
+    queue = closed_due(s, now)
+    for n, (jid, v) in enumerate(queue):
+        if deadline - clock() < reserve: break
         try:
-            state = lj.job_state(jid)
-        except Exception:
-            errors += 1; continue
+            state = lj.job_state(jid, attempts=CLOSED_ATTEMPTS, timeout=CLOSED_TIMEOUT_S)
+        except Exception as e:
+            if 'HTTP 429' in str(e): rate_limited = True; break    # the next ones would get 429 too; spare the budget
+            state = None; errors += 1
         finally:
-            time.sleep(1)
-        if state == 'aberta': continue
+            time.sleep(CLOSED_PAUSE_S)
+        v['closed_checked'] = now_iso    # also on error: tried today, again tomorrow
+        if state in ('aberta', None):
+            prog[jid] = now_iso; fileio.write_json(CLOSED_PROGRESS, prog)
+            continue
         label = f'{v.get("title", "")} — {v.get("company", "")}'
         if v['status'] == 'interested':
             v['status'] = 'ignored'; v.setdefault('history', []).append({'when': now_iso, 'status': 'ignored'})
@@ -794,9 +837,12 @@ def check_closed(s, now):
         else:
             v['closure'] = {'kind': state, 'when': day}
             lines.append(f'-- {state}: {label} · voce esta em "{schema.label(v["status"])}", status mantido; a vaga nao recebe mais candidaturas')
-    if not lines and not errors: return ''
-    txt = ['== ENCERRADAS (1x/dia: vagas do funil que fecharam ou sumiram no LinkedIn)'] + lines
-    if errors: txt.append(f'   ({errors} nao consultada(s) por erro de rede/rate; tenta de novo amanha)')
+    if not lines and not errors and not rate_limited: return ''
+    left = len(closed_due(s, now))
+    txt = ['== ENCERRADAS (1 volta por dia: vagas do funil que fecharam ou sumiram no LinkedIn)'] + lines
+    if errors: txt.append(f'   ({errors} nao consultada(s) por erro de rede; tenta de novo amanha)')
+    if rate_limited: txt.append('   (LinkedIn limitou as consultas (HTTP 429); o resto fica para o proximo tick)')
+    if left: txt.append(f'   ({left} vaga(s) ainda sem consulta hoje; ficam para o proximo tick, ate {budget} s por tick)')
     return '\n'.join(txt)
 
 # ---------------- Applications you made directly on LinkedIn (1x/day, only with logged_in_sources) ----------------
@@ -1164,10 +1210,11 @@ def routines(s, now):
     today = d.strftime('%Y-%m-%d')
     # closed jobs: every day, weekends included (26/09/2026: a shortlisted job closed on a Saturday morning and the list
     # kept recommending it; the check is public and cheap, one page per job in the pipeline)
+    # Budgeted batches (CLOSED_BUDGET_S), oldest check first, on every tick until the day's round is complete.
     if d.hour >= 9 and s.get('routine_closed') != today:
-        s['routine_closed'] = today
         txt = check_closed(s, now)
         if txt: out.append(txt)
+        if not closed_due(s, now): s['routine_closed'] = today
     if d.weekday() < 5 and d.hour >= 9:
         if s.get('routine_pipeline') != today:
             an = (s.get('jobs') or {}).get('tracked') or {}

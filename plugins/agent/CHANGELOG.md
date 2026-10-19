@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.96.1 (2026-10-19)
+- job-scout: a rotina de vagas encerradas não estoura mais o tempo do tick com funil grande. Cada tick consulta um lote de até 180 s, pela vaga consultada há mais tempo, sem começar consulta que não cabe no que resta (contando tentativas e timeout), e o resto fica para o tick seguinte até cobrir o funil no dia. O progresso é gravado a cada vaga, então um tick interrompido não recomeça do zero, e um limite do LinkedIn (HTTP 429) encerra o lote em vez de gastar o tempo todo.
+
 ## 0.96.0 (2026-10-05)
 - Trabalho feito na sessão sem fila nem fonte (um MR, uma investigação, um merge, uma operação num cluster) agora vira tarefa no Planou mesmo com os ganchos `daily` e `tarefas` desligados: `tarefa nova --title '...'` abre a tarefa e devolve o PID, e `tarefa concluir <PID> --evidence '<link ou resultado>'` fecha com a evidência (`--done` registra o que já foi feito). O custo da sessão vai para a tarefa aberta, o worker ligado com `worker start --task <PID>` também, e repetir o mesmo título no mesmo dia não duplica. Concluir ou reabrir a tarefa no Planou chega ao agente no próximo tick, e com `confidentiality: minimum` sobe só "Agente <data>:<código>", sem o link da evidência.
 

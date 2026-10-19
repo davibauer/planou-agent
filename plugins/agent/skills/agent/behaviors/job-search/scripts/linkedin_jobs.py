@@ -46,17 +46,22 @@ SATURATED_APPLICANTS = int((_CFG.get('saturation') or {}).get('applicants', 100)
 TOP_APPLICANT_EXEMPT = bool((_CFG.get('saturation') or {}).get('top_applicant_exempt', True))
 # ---------------------------------------------------------------------------
 
-def _get(url, attempts=3):
+def _get(url, attempts=3, timeout=30):
     for i in range(attempts):
         try:
             r = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8'})
-            with urllib.request.urlopen(r, timeout=30) as resp: return resp.read().decode('utf-8', 'replace')
+            with urllib.request.urlopen(r, timeout=timeout) as resp: return resp.read().decode('utf-8', 'replace')
         except urllib.error.HTTPError as e:
             if e.code in (429, 503) and i < attempts - 1: time.sleep(5 * (i + 1)); continue
             raise RuntimeError(f'HTTP {e.code} em {url[:90]}')
         except (urllib.error.URLError, TimeoutError) as e:
             if i < attempts - 1: time.sleep(3); continue
             raise RuntimeError(f'rede: {e}')
+
+def worst_case_s(attempts=3, timeout=30):
+    """Longest a _get with these arguments should take: every attempt hits the timeout, with the longest pause between
+    them (the 429/503 backoff). Lets a routine with a time budget skip a request that might not fit in what is left."""
+    return attempts * timeout + sum(5 * (i + 1) for i in range(attempts - 1))
 
 def _txt(m, g=1):
     return html.unescape(re.sub(r'\s+', ' ', m.group(g))).strip() if m else ''
@@ -139,12 +144,12 @@ def recruiter(h):
     return {'name': name, 'headline': _txt(re.search(r'base-main-card__subtitle[^>]*>\s*([^<]+?)\s*<', b)),
             'profile': url.group(1) if url else ''}
 
-def job_page(jid):
+def job_page(jid, **get_kw):
     """One read of the public page: {'state': 'aberta' | 'encerrada' | 'removida', 'days', 'n_applicants', 'applicants'}.
     The shortlist uses it to check, with a single request per job, that the job is open and how many applied (01/10/2026:
     a job that entered the pipeline with fewer applicants than the saturation rule passed it later and was recommended)."""
     try:
-        h = _get(f'{BASE}/jobPosting/{jid}')
+        h = _get(f'{BASE}/jobPosting/{jid}', **get_kw)
     except RuntimeError as e:
         if 'HTTP 404' in str(e) or 'HTTP 410' in str(e): return {'state': 'removida', 'days': None, 'n_applicants': None, 'applicants': ''}
         raise
@@ -153,10 +158,10 @@ def job_page(jid):
     return {'state': 'encerrada' if re.search(r'No longer accepting applications|closed-job__flavor--closed', h) else 'aberta',
             'days': _days(posted), 'n_applicants': _n_applicants(_txt(cand) if cand else ''), 'applicants': _txt(cand) if cand else ''}
 
-def job_state(jid):
+def job_state(jid, **get_kw):
     """'aberta' | 'encerrada' (public page says "No longer accepting applications") | 'removida' (HTTP 404).
-    Verified on 23/09/2026 with old jobs; no cookie, same page as a logged-out visitor."""
-    return job_page(jid)['state']
+    Verified on 23/09/2026 with old jobs; no cookie, same page as a logged-out visitor. get_kw: attempts/timeout of _get."""
+    return job_page(jid, **get_kw)['state']
 
 def logged_in_detail(jid):
     """Extras that only the logged-in API gives (linkedin_msgs session): applicants, views, salary, screening questions. None without a session."""
