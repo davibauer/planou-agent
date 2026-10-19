@@ -22,6 +22,18 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
      ambiente (`scripts/repo_discovery.py`, estado em `data/discovered.json`; [qa.md](qa.md) e o `delegate-to-worker`);
    - `config/instructions.md` com os marcadores trocados e uma seção com papéis, autonomia e projetos;
    - `data/provisioned.json`, a marca de que a pasta é dele (só remove pasta com essa marca).
+   - com pasta de trabalho (o `"workspace"` do config que sai do modelo, com `{instance}` trocado pelo nome curto; uma
+     instância `work-watch-<x>` sem ele usa `~/WorkWatch/<x>`), o que a pessoa edita nasce lá dentro, com link no lugar
+     de origem (PLN0410): `config/` (link de pasta, para a escrita atômica da aba Papel, arquivo temporário e troca de
+     nome dentro de `config/`, continuar funcionando), `handoff.md` (link em `data/handoff.md`) e `memory/` (link na
+     pasta de memória do Claude Code da sessão, `~/.claude/projects/<pasta da sessão>/memory`). O estado
+     (`data/state.json`), os segredos e o cache continuam na instância. Nunca sobrescreve: um `config/` que já tem
+     `config.json` ou `instructions.md` na pasta de trabalho (um funcionário de mesmo nome removido antes) fica como
+     está e o config nasce na instância; `memory/` e `handoff.md` que já existem são ligados como estão. A memória só
+     vai quando a sessão abre numa pasta só dela: na pasta pessoal (`~`), numa pasta de outro agente da lista do time,
+     numa pasta onde o Claude Code já abriu sessão (`projects/<pasta da sessão>/` já existe, com ou sem memória) ou
+     num caminho tão longo que o Claude Code encurta o nome da pasta (mais de 200 caracteres), ela fica onde está. Pasta de trabalho que não dá para gravar (disco não montado):
+     tudo fica na instância, como antes. Sem pasta de trabalho, nada muda.
    - papel que não é de desenvolvimento e tem modelo próprio (`behaviors/<papel>/instance.json`, com
      `{"example": "<pasta de config-example>"}`, hoje o `product-radar`): as fontes e as opções do papel vêm desse
      modelo; sem `delegate-to-worker` nem `batch-release`, a autonomia e o `instructions.md` também (o `never` do modelo dev
@@ -312,5 +324,9 @@ Comandos: `provisioner.py run` (o serviço), `once` (uma volta), `status`, `chec
 - O `config.json` nasce do modelo dev: repositório, testes e conta do GitHub ficam para a pessoa revisar antes de
   ligar (a seção "Criado pelo provisionador" do `instructions.md` lembra isso).
 - Só o primeiro projeto vai para `planou.project`; os outros ficam listados no `instructions.md`.
+- O pedido da tela Time não traz pasta de trabalho: ela vem do `"workspace"` do modelo (`template` no `config.json`
+  do provisionador) ou do padrão `~/WorkWatch/<x>` das instâncias `work-watch-<x>`. Instância que já existia não ganha
+  os links sozinha (mudar a pasta à mão, como antes); a memória fica presa à pasta da sessão: trocar o `cwd` depois
+  deixa o link antigo para trás.
 - A autonomia do Planou (`autonomous`, `semi_autonomous`, `manual`) vira o bloco `autonomy` por um mapeamento fixo e
   conservador (semiautônomo: pode branch, testes filtrados e push; pergunta antes de abrir PR).

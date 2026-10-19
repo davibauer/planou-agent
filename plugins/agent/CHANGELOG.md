@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.98.0 (2026-10-19)
+- Funcionário novo com pasta de trabalho já nasce com `config/`, `memory/` e `handoff.md` dentro dela, com link no lugar de origem (o `config/` como link de pasta, para a edição da aba Papel continuar funcionando): dá para ler e editar as regras e a memória direto pela pasta de trabalho, sem mover nada à mão. Estado, segredos e cache continuam na pasta da instância, e nada que já exista na pasta de trabalho é sobrescrito. A memória só vai para a pasta de trabalho quando ninguém abriu o Claude Code naquela pasta antes; se já houve sessão lá, ela fica onde está. Sem pasta de trabalho, nada muda.
+
 ## 0.97.1 (2026-10-19)
 - O `AVISO (tick): sem tempo para ...` sozinho não acorda mais a sessão: vai para o `avisos.log` e sai junto na próxima acordada. Um gancho que passava do prazo em todo tick acordava a sessão em todo tick, e uma fonte lenta já avisada voltava a acordar por causa dele.
 - O prazo dos ganchos e do Planou dentro do tick segue o tempo que o runner dá ao tick, inclusive quando ele é encurtado perto do fim do ciclo; antes o tick podia ser morto antes de chegar ao próprio corte.

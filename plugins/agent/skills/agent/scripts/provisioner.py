@@ -5,7 +5,9 @@ A user service (systemd, see ../provisioner/) that follows Planou through /v1/pr
 and, for each agent the person asked for:
 
   1. reports `creating`, makes ~/.config/agent/<name>/ from the template (config-example/dev: config.json and
-     instructions.md, with the roles as behaviors) and a marker data/provisioned.json with the agent id;
+     instructions.md, with the roles as behaviors) and a marker data/provisioned.json with the agent id; with a
+     workspace (config "workspace", or ~/WorkWatch/<x> for work-watch-<x>), config/, memory/ and handoff.md are made
+     there with links at their places of origin (PLN0410, prepare_workspace and link_workspace);
   2. runs `agent.py <name> --validate` (before the key leaves the vault, so a broken config never burns it);
   3. picks up the key once and writes it to secrets/planou.env (0600, folder 0700); reports `validated`;
   4. runs `config-snapshot` (when it exists; a failure does not stop the flow);
@@ -537,6 +539,136 @@ def write_key(name, key):
 def key_file(name): return os.path.join(instance_root(name), 'secrets', 'planou.env')
 
 
+# ---------------------------------------------------------------- what the person edits lives in the workspace (PLN0410)
+
+WORK_WATCH_PREFIX = 'work-watch-'
+
+
+def workspace_of(cfg, name):
+    """The instance's workspace, by paths.use_workspace's rule (config "workspace", {instance} = the short name, ~
+    expanded; a work-watch-<x> without it: ~/WorkWatch/<x>) but without its exit. None without one, or when it is not
+    absolute (--validate says so)."""
+    p = cfg.get('workspace') if isinstance(cfg.get('workspace'), str) else ''
+    short = name[len(WORK_WATCH_PREFIX):] if name.startswith(WORK_WATCH_PREFIX) and len(name) > len(WORK_WATCH_PREFIX) else name
+    if not p.strip() and short != name: p = '~/WorkWatch/{instance}'
+    if not p.strip(): return None
+    p = os.path.expanduser(p.strip().replace('{instance}', short))
+    return os.path.normpath(p) if os.path.isabs(p) else None
+
+
+def session_cwd(work_dir):
+    """The folder the session opens in: the cwd that goes to agents.json, expanded."""
+    cwd = os.path.expanduser(work_dir or '~')
+    return cwd.rstrip('/') if len(cwd) > 1 else cwd
+
+
+# Claude Code shortens a long project folder name and adds a hash to it; past this (conservative) length the name
+# computed here may not be the one the session reads, so the memory is not linked
+PROJECT_NAME_MAX = 200
+
+
+def memory_dir(cwd):
+    """Claude Code's memory of the sessions opened in `cwd`: <claude dir>/projects/<cwd with every character that is not
+    a letter or a digit as ->/memory. The folder is Claude Code's, not the plugin's: it follows the cwd. None when the
+    name is too long to be sure of (PROJECT_NAME_MAX)."""
+    from watch_core.config import claude_dir
+    project = re.sub(r'[^A-Za-z0-9]', '-', cwd)
+    if len(project) > PROJECT_NAME_MAX: return None
+    return os.path.join(claude_dir(), 'projects', project, 'memory')
+
+
+def cwd_shared(name, cwd):
+    """The name of another agent of this machine whose session opens in the same folder (and so shares the memory);
+    '?' when the team list cannot be read. None when the folder is only this agent's."""
+    import team_agents
+    try:
+        for a in team_agents.all_agents():
+            if a['name'] != name and os.path.realpath(a['cwd']) == os.path.realpath(cwd): return a['name']
+    except (team_agents.AgentsError, OSError, ValueError, KeyError, TypeError):
+        return '?'
+    return None
+
+
+def prepare_workspace(name, cfg, work_dir):
+    """Before the instance folder exists: makes in the workspace what the person edits from there (config/, memory/
+    and handoff.md) and returns the links to make, {link: target}. State, secrets and cache never go there. Nothing
+    without a workspace. Never overwrites: a config/ there that already holds config.json or instructions.md (an
+    employee of the same name removed earlier: removal leaves the workspace) is not taken, the config stays in the
+    instance folder; an existing memory/ or handoff.md is linked as it is. The memory only when the session opens in a
+    folder of its own (not the home folder, no other agent there) where Claude Code never opened a session (no
+    projects/<cwd>/ yet: the memory of sessions opened there by hand is not taken) and whose name is short enough to be
+    sure of. A workspace that cannot be written (a drive not mounted) leaves the instance as before."""
+    ws = workspace_of(cfg, name)
+    if not ws: return {}
+    root = instance_root(name)
+    rws, rroot = os.path.realpath(ws), os.path.realpath(root)
+    if rws == rroot or rws.startswith(rroot + os.sep) or rroot.startswith(rws + os.sep):
+        log(f'{name}: pasta de trabalho {ws} dentro da instancia (ou o contrario); config, memoria e handoff ficam onde estao')
+        return {}
+    links, notes = {}, []
+    try:
+        os.makedirs(ws, exist_ok=True)
+        conf = os.path.join(ws, 'config')
+        if any(os.path.lexists(os.path.join(conf, f)) for f in ('config.json', 'instructions.md')):
+            notes.append(f'{conf} ja tem config de antes: o config fica em {root}/config')
+        elif os.path.lexists(conf) and not os.path.isdir(conf):
+            notes.append(f'{conf} existe e nao e pasta: o config fica em {root}/config')
+        else:
+            os.makedirs(conf, exist_ok=True)
+            links[os.path.join(root, 'config')] = conf
+        hand = os.path.join(ws, 'handoff.md')
+        if not os.path.lexists(hand):
+            with open(hand, 'x'): pass                   # 'x': never over a file that showed up meanwhile
+        if os.path.isfile(hand): links[os.path.join(root, 'data', 'handoff.md')] = hand
+        else: notes.append(f'{hand} nao e arquivo: o handoff fica em {root}/data')
+        cwd = session_cwd(work_dir)
+        other = None if cwd == home() else cwd_shared(name, cwd)
+        mem, wmem = memory_dir(cwd), os.path.join(ws, 'memory')
+        if cwd == home():
+            notes.append('a sessao abre na pasta pessoal (memoria de todas as sessoes de la): a memoria fica onde esta')
+        elif other:
+            notes.append(f'a sessao abre em {tilde(cwd) or cwd}, a mesma pasta de {other}: a memoria fica onde esta')
+        elif not mem:
+            notes.append(f'o caminho {tilde(cwd) or cwd} e longo demais para saber a pasta da sessao: a memoria fica '
+                         f'onde esta')
+        elif os.path.lexists(mem):
+            notes.append(f'{mem} ja existe: a memoria fica onde esta')
+        elif os.path.lexists(os.path.dirname(mem)):
+            notes.append(f'ja houve sessao em {tilde(cwd) or cwd} ({os.path.dirname(mem)}): a memoria fica onde esta')
+        elif os.path.lexists(wmem) and not os.path.isdir(wmem):
+            notes.append(f'{wmem} existe e nao e pasta: a memoria fica onde esta')
+        else:
+            os.makedirs(wmem, exist_ok=True)
+            links[mem] = wmem
+    except OSError as e:
+        log(f'{name}: pasta de trabalho {ws} indisponivel ({e.__class__.__name__}); config, memoria e handoff ficam '
+            f'no lugar de sempre')
+        return {}
+    for n in notes: log(f'{name}: {n}')
+    return links
+
+
+def link_workspace(name, links):
+    """The links prepare_workspace asked for, at their places of origin (config/ as a link to the folder, so the
+    atomic writes of the Papel tab, a temporary file and a rename inside config/, keep working). Never replaces what
+    is there; a link that fails is told and the rest goes on (the file stays where it was)."""
+    made = []
+    for link, target in links.items():
+        try:
+            if os.path.lexists(link):
+                if not (os.path.islink(link) and os.path.realpath(link) == os.path.realpath(target)):
+                    log(f'{name}: {link} ja existe; nao troquei pelo link para {target}')
+                continue
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            os.symlink(target, link)
+            made.append(os.path.basename(link) + ('/' if os.path.isdir(target) else ''))
+        except OSError as e:
+            log(f'{name}: nao consegui o link {link} -> {target} ({e.__class__.__name__})')
+    if made:
+        log(f'{name}: {", ".join(made)} na pasta de trabalho {os.path.dirname(next(iter(links.values())))}, com link '
+            f'no lugar de origem')
+
+
 def pid_alive(pidfile, arg=None):
     """runner.pid names a live runner.sh (with `arg` among its arguments, for an instance of the agent plugin)."""
     try:
@@ -1047,10 +1179,14 @@ class Provisioner:
         self.report(a, 'creating')
         root = instance_root(name)
         if not mine:
+            # the workspace side first (it may fail on an unmounted drive), then the marker, then the links: config.json
+            # and instructions.md are written through the config/ link (PLN0410)
+            links = prepare_workspace(name, cfg, a.get('work_dir'))
             os.makedirs(os.path.join(root, 'data'), exist_ok=True)
             write_atomic(os.path.join(root, 'data', MARKER), json.dumps(
                 {'agent_id': aid, 'name': name, 'mode': a.get('mode'),
                  'created_at': datetime.now().isoformat(timespec='seconds')}, indent=1) + '\n', 0o600)
+            link_workspace(name, links)
             write_atomic(os.path.join(root, 'config', 'config.json'),
                          json.dumps(cfg, ensure_ascii=False, indent=2) + '\n', 0o644)
             write_atomic(os.path.join(root, 'config', 'instructions.md'), instr, 0o644)
