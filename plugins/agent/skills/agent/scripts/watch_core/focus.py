@@ -37,12 +37,27 @@ refusal (focus_locked, focus_removed, focus_not_keeper, 422) is an `AVISO (plano
 never wakes the session). What was written goes to cache/planou/focus.log. The tick prints nothing for a write: the
 history is on the Planou screen.
 
+Foco de amanhã (Planou 0.100.0, PLN0405/PLN0423): at the day's close (the first heavy tick at or after
+daily.HORA_FECHAMENTO, BRT, on a workday: the same close as the == DAILY, when the agent already prepares the next day)
+the keeper also leaves the focus of the next workday ready, once per project and day. The target is the workday after
+the `day` today's GET answers (the workspace's local date, never the machine's: from Friday it is Monday), read with
+`?day=` so the person's pins for it ("Fixar amanhã também", `locked`) and its promises keep their places. That day
+nobody built yet, so plan(build=True) writes it from what the agent knows, but only an order that fills all `max` places
+(the person's locked ones count): a shorter one is not written and the day is left to the server's rule, which looks at
+the whole project (urgent tasks of other people too). The server never builds by its rule a day that has a keeper and
+any change, so a short order from the agent would start the day with empty places. The POST carries `day`. A GET that answers
+another day (an older Planou ignores `?day=`) writes nothing; 409 focus_conflict or focus_locked (the person just
+pinned) reads again and tries once; a 422 on `day` or any other refusal is one AVISO line, and the day is marked done
+either way, also when nothing is written (only a network failure, a 429 or a 5xx is tried again on the next tick), so
+nothing loops. Every AVISO of this step reads `foco de AAAA-MM-DD <key>`. The close is BRT on purpose, the same clock as
+the == DAILY (this installation's workspace is in BRT); the target day itself always comes from the server's `day`.
+
 Off switch: "planou": {"focus": false} in the instance config.
 """
 import hashlib, json, re
 from datetime import date, datetime, timedelta, timezone
 
-from . import planou as P
+from . import daily, planou as P
 
 FILE = 'focus.json'
 LOG = 'focus.log'
@@ -56,6 +71,8 @@ OUT_STATES = ('closed', 'backlog', 'blocked', 'waiting')       # a known task in
 NEVER_SEND = ('closed', 'backlog')                             # the server refuses these outside their locked slot
 KIND_TEXT = {'promised': 'prometida para hoje', 'blocks': 'outra tarefa espera esta', 'overdue': 'atrasada',
              'due_today': 'vence hoje', 'priority': 'P1', 'other': 'continua no foco'}
+NEXT_TEXT = {**KIND_TEXT, 'promised': 'prometida para o dia', 'due_today': 'vence no dia'}
+NEXT_PREFIX = 'Fechamento do dia: '
 OUT_TEXT = {'closed': 'concluida', 'backlog': 'voltou ao backlog', 'blocked': 'bloqueada', 'waiting': 'aguardando alguem'}
 _PID = re.compile(r'^([A-Z]{2,6})\d{3,}$')
 
@@ -128,11 +145,11 @@ def rank(t, day):
     return 4, 'other'
 
 
-def _item_reason(kind, t=None, slot=None):
+def _item_reason(kind, t=None, slot=None, texts=KIND_TEXT):
     if slot and slot.get('reason') and kind == slot.get('reason_kind'): return str(slot['reason'])[:ITEM_REASON_MAX]
     d = t and (t.get('deadline') or t.get('due'))
     if kind == 'overdue' and d: return f'atrasada desde {str(d)[8:10]}/{str(d)[5:7]}'
-    return KIND_TEXT.get(kind)
+    return texts.get(kind)
 
 
 def _may_lower(kind, to, t):
@@ -145,12 +162,16 @@ def _may_lower(kind, to, t):
     return True
 
 
-def plan(focus, tasks, refused=()):
+def plan(focus, tasks, refused=(), build=False):
     """(items, reason) of the new order, or None when the order stays (or no valid order exists). `focus` is the GET
     answer, `tasks` the known() of this project, `refused` the pids the server just said are not open. A day nobody built
     yet (no change, `last_change_at` null) is left alone: the server builds it by its rule, with the whole project in
-    view, when the person opens the focus; an order from the agent first would count as the day's build."""
-    if not focus.get('last_change_at'): return None
+    view, when the person opens the focus; an order from the agent first would count as the day's build. `build` is the
+    day's close writing the next workday (PLN0423): that day is built from what the agent knows, with texts for that day
+    and the reason prefixed with NEXT_PREFIX; an order that does not fill the `max` places (counting the locked ones) is
+None: the server's rule builds that day, with the whole project in view."""
+    if not build and not focus.get('last_change_at'): return None
+    texts = NEXT_TEXT if build else KIND_TEXT
     if refused: tasks = {**tasks, **{pid: {**(tasks.get(pid) or {'pid': pid}), 'state': 'closed'} for pid in refused}}
     day = _day(focus.get('day')) or date.today()
     size = int(focus.get('max') or 3)
@@ -167,7 +188,7 @@ def plan(focus, tasks, refused=()):
     pool, left = {}, {}          # pool: pid -> (rank, current?, priority, due, order, kind, reason)
     for i, pid in enumerate(promised):
         if pid in locked_pids: continue
-        pool[pid] = (0, pid in current, 0, '', i, 'promised', KIND_TEXT['promised'])
+        pool[pid] = (0, pid in current, 0, '', i, 'promised', texts['promised'])
     for s in slots:
         pid = s['pid']
         if pid in locked_pids or pid in pool: continue
@@ -183,13 +204,13 @@ def plan(focus, tasks, refused=()):
             if kr < r or (kr > r and _may_lower(sk, kr, t)): r, kind = kr, kk
         if kind == 'person': kind = 'other'
         pool[pid] = (r, True, (t or {}).get('priority') or 9, str((t or {}).get('due') or '9999'), s.get('position') or 9,
-                     kind, _item_reason(kind, t, s))
+                     kind, _item_reason(kind, t, s, texts))
     for pid, t in tasks.items():
         if pid in pool or pid in locked_pids or pid in removed or pid in left: continue
         if t.get('state') in OUT_STATES: continue
         r, kind = rank(t, day)
         if r > 3: continue
-        pool[pid] = (r, False, t.get('priority') or 9, str(t.get('due') or '9999'), 99, kind, _item_reason(kind, t))
+        pool[pid] = (r, False, t.get('priority') or 9, str(t.get('due') or '9999'), 99, kind, _item_reason(kind, t, texts=texts))
     order = sorted(pool, key=lambda pid: (pool[pid][0], not pool[pid][1], pool[pid][2], pool[pid][3], pool[pid][4], pid))
     # promised first, then the rest; a promise never leaves: the free places go to them before anything else
     free = [i for i in range(1, size + 1) if i not in locked]
@@ -205,16 +226,19 @@ def plan(focus, tasks, refused=()):
             if any(p > pos for p in locked): return None       # a hole before a locked slot: nothing valid to write
             break
         out.append((pid, pool[pid][5], pool[pid][6], False))
+    if build and len(out) < size: return None     # a short day: left to the server's rule (it sees the whole project)
     new = [x[0] for x in out]
     if new == current: return None
     for pid in current:
         if pid not in new and pid not in left: left[pid] = 'deu lugar a uma tarefa mais urgente'
     entered = [(pid, k, r) for pid, k, r, lk in out if pid not in current]
-    parts = [f'entrou {pid} ({r or KIND_TEXT.get(k, k)})' for pid, k, r in entered]
+    parts = [f'entrou {pid} ({r or texts.get(k, k)})' for pid, k, r in entered]
     parts += [f'saiu {pid} ({why})' for pid, why in left.items() if pid in current and pid not in new]
     if not parts: parts = ['nova ordem: ' + ', '.join(new)]
     reason = '; '.join(parts)
-    reason = (reason[:1].upper() + reason[1:])[:REASON_MAX - 1].rstrip() + '.'
+    reason = (reason[:1].upper() + reason[1:])
+    if build: reason = NEXT_PREFIX + reason
+    reason = reason[:REASON_MAX - 1].rstrip() + '.'
     items = []
     for pid, kind, why, lk in out:
         item = {'task': pid}
@@ -250,23 +274,43 @@ def _remote_queue():
     return tasks if isinstance(tasks, list) else None
 
 
-def _get(key):
-    _, data = P._call('GET', f'/agent/projects/{key}/focus')
+def _get(key, day=None):
+    _, data = P._call('GET', f'/agent/projects/{key}/focus' + (f'?day={day}' if day else ''))
     return data if isinstance(data, dict) else {}
+
+
+def next_workday(day):
+    """The workday after `day` (Monday to Friday), as the Planou counts it: tomorrow, or Monday from Friday to Sunday."""
+    d = day + timedelta(days=1)
+    while d.weekday() >= 5: d += timedelta(days=1)
+    return d
+
+
+def close_due(now):
+    """Whether `now` is past the day's close: a workday at or after daily.HORA_FECHAMENTO in BRT (the == DAILY's close)."""
+    local = now.astimezone(daily.BRT)
+    return local.weekday() < 5 and local.hour >= daily.HORA_FECHAMENTO
+
+
+def _transient(e):
+    return not e.status or e.status >= 500 or e.status == 429
 
 
 _ITEM = re.compile(r'^items\[(\d+)\]')
 
 
 def _keep_one(key, tasks, now):
-    """Lines for one project (AVISO only). Reads, plans, writes; one more try after a 409 focus_conflict (read again) or
-    a 422 that names an item (a task the agent does not know went to backlog or closed: it leaves)."""
+    """(can_write, lines, day) for one project: lines are AVISO only, day is the `day` today's GET answered (the
+    day's close counts the next workday from it). Reads, plans, writes; one more try after a 409 focus_conflict (read
+    again) or a 422 that names an item (a task the agent does not know went to backlog or closed: it leaves)."""
     refused = []
+    day = None
     for attempt in (1, 2):
         focus = _get(key)
-        if not focus.get('can_write'): return False, []
+        day = focus.get('day') or day
+        if not focus.get('can_write'): return False, [], day
         planned = plan(focus, tasks, refused)
-        if not planned: return True, []
+        if not planned: return True, [], day
         items, reason = planned
         try:
             _, res = P._call('POST', f'/agent/projects/{key}/focus', {'reason': reason, 'items': items})
@@ -276,15 +320,58 @@ def _keep_one(key, tasks, now):
             if attempt == 1 and e.code == 'validation' and bad and bad[0] < len(items):
                 refused.append(items[bad[0]]['task'])
                 continue
-            return True, [f'AVISO (planou): foco do dia {key}: {str(e)[:200]}']
+            return True, [f'AVISO (planou): foco do dia {key}: {str(e)[:200]}'], day
         if (res or {}).get('changed') is not False:
             P._log(LOG, f'{key}\t{" ".join(i["task"] for i in items)}\t{reason}', now)
+        return True, [], day
+    return True, [], day
+
+
+def _next_one(key, tasks, now, today=None):
+    """The day's close for one project: writes the focus of the next workday (PLN0423). `today` is the `day` the
+    tick's GET of today already answered (read again only when that GET did not run). Returns (done, lines): done is
+    False only after a failure worth another try (network, 429, 5xx); every answer of the server marks the day done,
+    also a short order that is not written. A failure is one AVISO `foco de AAAA-MM-DD <key>` line."""
+    target = _day(today) and next_workday(_day(today)).isoformat()
+    try:
+        if not target:
+            answer = _get(key)
+            if not answer.get('can_write') or not _day(answer.get('day')): return True, []
+            target = next_workday(_day(answer.get('day'))).isoformat()
+        return _write_next(key, tasks, now, target)
+    except P.PlanouError as e:
+        label = target or next_workday(now.astimezone(daily.BRT).date()).isoformat()    # today's GET failed: BRT guess
+        return not _transient(e), [f'AVISO (planou): foco de {label} {key}: {str(e)[:200]}']
+
+
+def _write_next(key, tasks, now, target):
+    refused = []
+    for attempt in (1, 2):
+        focus = _get(key, target)
+        if str(focus.get('day') or '')[:10] != target: return True, []      # an older Planou: it answered today
+        if not focus.get('can_write'): return True, []
+        planned = plan(focus, tasks, refused, build=True)
+        if not planned: return True, []
+        items, reason = planned
+        try:
+            _, res = P._call('POST', f'/agent/projects/{key}/focus', {'reason': reason, 'items': items, 'day': target})
+        except P.PlanouError as e:
+            if _transient(e): return False, [f'AVISO (planou): foco de {target} {key}: {str(e)[:200]}']
+            if attempt == 1 and e.code in ('focus_conflict', 'focus_locked'): continue    # the person just pinned it
+            bad = [int(m.group(1)) for f in e.fields for m in [_ITEM.match(str(f))] if m]
+            if attempt == 1 and e.code == 'validation' and bad and bad[0] < len(items):
+                refused.append(items[bad[0]]['task'])
+                continue
+            return True, [f'AVISO (planou): foco de {target} {key}: {str(e)[:200]}']
+        if (res or {}).get('changed') is not False:
+            P._log(LOG, f'{key}\t{target}\t{" ".join(i["task"] for i in items)}\t{reason}', now)
         return True, []
     return True, []
 
 
 def keep(priorities=None, projects=None, now=None, force=False):
-    """The heavy tick's step: keeps the focus of each project this agent may order. Returns AVISO lines (never raises)."""
+    """The heavy tick's step: keeps the focus of each project this agent may order and, at the day's close, leaves the
+    next workday's ready (once per project and day). Returns AVISO lines (never raises)."""
     if not P.active(): return []
     now = now or datetime.now(timezone.utc)
     try:
@@ -292,7 +379,11 @@ def keep(priorities=None, projects=None, now=None, force=False):
         know = None                      # with the fresh queue, fetched once and only when a project is read
         st = P._load(FILE, {})
         seen = st.get('projects') if isinstance(st.get('projects'), dict) else {}
+        closed = st.get('next') if isinstance(st.get('next'), dict) else {}
+        close = close_due(now)
+        close_day = now.astimezone(daily.BRT).date().isoformat()
         lines = []
+        # the close is BRT on purpose (the == DAILY's clock; this workspace is in BRT): the target day is the server's
         for key in projects or _projects():
             day = now.astimezone().date().isoformat()
             fp = _fingerprint(day, {pid: t for pid, t in local.items() if (t.get('project') or '').upper() == key})
@@ -300,20 +391,28 @@ def keep(priorities=None, projects=None, now=None, force=False):
             try: age = now - datetime.fromisoformat(last.get('at'))
             except (TypeError, ValueError): age = None
             every = FOCUS_EVERY if last.get('can_write', True) else NOT_KEEPER_EVERY
-            if not force and age is not None and age < every and last.get('fp') == fp: continue
+            today_due = force or age is None or age >= every or last.get('fp') != fp
+            next_due = close and (closed.get(key) or {}).get('on') != close_day
+            if not today_due and not (next_due and last.get('can_write', True)): continue
             if know is None: know = known(priorities, _remote_queue())
             mine = {pid: t for pid, t in know.items() if (t.get('project') or '').upper() == key}
-            try:
-                can, out = _keep_one(key, mine, now)
-            except P.PlanouError as e:
-                if e.status == 404 and e.code in ('not_found', 'http'):          # an older Planou or an unknown project
-                    can, out = False, []
-                else:
-                    lines.append(f'AVISO (planou): foco do dia {key}: {str(e)[:200]}')
-                    continue
-            lines += out
-            seen[key] = {'fp': fp, 'at': now.isoformat(), 'can_write': can}
-        P._save(FILE, {'projects': seen})
+            today = None
+            if today_due:
+                try:
+                    can, out, today = _keep_one(key, mine, now)
+                except P.PlanouError as e:
+                    if e.status == 404 and e.code in ('not_found', 'http'):      # an older Planou or an unknown project
+                        can, out = False, []
+                    else:
+                        lines.append(f'AVISO (planou): foco do dia {key}: {str(e)[:200]}')
+                        continue
+                lines += out
+                seen[key] = {'fp': fp, 'at': now.isoformat(), 'can_write': can}
+            if next_due and seen.get(key, {}).get('can_write', True):     # the day's close: the next workday (PLN0423)
+                done, out = _next_one(key, mine, now, today)
+                lines += out
+                if done: closed[key] = {'on': close_day, 'at': now.isoformat()}
+        P._save(FILE, {'projects': seen, 'next': closed})
         return lines
     except Exception as e:                       # never costs the tick
         return [f'AVISO (planou): foco do dia: {type(e).__name__}: {str(e)[:160]}']

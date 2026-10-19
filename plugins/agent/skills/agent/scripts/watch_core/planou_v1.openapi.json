@@ -1595,6 +1595,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "day",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1726,6 +1733,12 @@
                         }
                       }
                     },
+                    "nullable": true
+                  },
+                  "day": {
+                    "type": "string",
+                    "description": "The day of the focus (YYYY-MM-DD, the workspace's local date): today (the default) up to the next workday (Monday to Friday).",
+                    "format": "date",
                     "nullable": true
                   }
                 }
@@ -13274,6 +13287,12 @@
                 }
               }
             },
+            "nullable": true
+          },
+          "day": {
+            "type": "string",
+            "description": "The day of the focus (YYYY-MM-DD, the workspace's local date): today (the default) up to the next workday (Monday to Friday).",
+            "format": "date",
             "nullable": true
           }
         }

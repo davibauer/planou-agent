@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.100.0 (2026-10-19)
+- Foco de amanhã: no fechamento do dia (a partir das 18h, em dia útil, uma vez por projeto), o agente que cuida da ordem deixa pronto o foco do próximo dia útil (de sexta, o de segunda). As tarefas que você fixou com "Fixar amanhã também" ficam no lugar, as promessas para o dia entram, e o resto vem do que o agente sabe de urgente para esse dia (vence ou atrasa nele, P1, bloqueia outra). Sem o bastante para encher o dia (contando as fixadas), nada é gravado e o Planou monta o dia pela regra dele, olhando o projeto inteiro. Recusa do Planou vira um aviso e não se repete.
+
 ## 0.99.1 (2026-10-19)
 - `tarefa nova` e `tarefa concluir` aceitam `--completed-at` (AAAA-MM-DD ou instante ISO 8601): trabalho feito em dias anteriores entra no Planou concluído no dia real, até 30 dias para trás, e a data de uma tarefa que o agente já fechou pode ser corrigida. Data no futuro é recusada com o motivo.
 

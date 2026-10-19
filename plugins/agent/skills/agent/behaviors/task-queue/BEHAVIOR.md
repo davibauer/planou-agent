@@ -247,6 +247,19 @@ este dia, que o Planou não fixa sozinho), e tarefa que o agente não conhece fi
 projeto, então só sobe uma vaga do servidor: `blocks` nunca cai, atrasada ou vence hoje só cai quando ele conhece a data
 e o Prazo da tarefa, e a vaga que fica guarda o motivo do servidor. Dia que ninguém montou
 ainda (`last_change_at` vazio) fica com o servidor, que monta pela regra quando a pessoa abre o foco.
+
+Foco de amanhã: no fechamento do dia (primeiro tick pesado a partir das 18h BRT em dia útil, o mesmo da `== DAILY`), uma
+vez por projeto e dia, o tick também deixa pronto o foco do próximo dia útil (de sexta, a segunda), contado a partir do
+`day` que o Planou devolve. Lê esse dia com `?day=`, mantém na posição as vagas `locked` (o "Fixar amanhã também" da
+pessoa) e as promessas para ele, e grava com `day` o que conhece de urgente para esse dia (vence ou atrasada nele, P1,
+bloqueia outra), com o motivo começando por "Fechamento do dia:". Só grava quando a ordem enche as `max` posições (as
+fixadas contam): o servidor nunca monta pela regra um dia que tem keeper e alguma mudança, e a regra olha o projeto
+inteiro (inclusive tarefas urgentes de outras pessoas), então com menos que isso não grava nada e o dia fica com a regra
+do servidor, que já respeita as fixadas e as promessas. Não gravar também dá o dia por feito (não tenta a cada tick).
+O horário do fechamento é BRT de propósito (o mesmo relógio da `== DAILY`); o dia alvo vem sempre do `day` do servidor,
+aproveitando o GET de hoje que o tick já fez. 422 em `day`, `focus_locked` (depois de ler de novo e tentar uma vez) e
+outras recusas viram uma linha `AVISO (planou): foco de AAAA-MM-DD <projeto>: ...` (todo aviso deste passo tem esse
+formato) e o dia fica dado por feito; só falha de rede, 429 ou 5xx tenta de novo no tick seguinte.
 - A sessão **nunca** grava o foco à mão nem mexe em data, prioridade, promessa, fixar ou tirar: isso é da pessoa.
 - O que foi gravado fica em `cache/planou/focus.log`; recusa (`focus_locked`, `focus_removed`, `focus_not_keeper`, 422)
   é linha `AVISO (planou): foco do dia ...` em `cache/planou/avisos.log`, sem nova tentativa; 409 `focus_conflict` lê de
