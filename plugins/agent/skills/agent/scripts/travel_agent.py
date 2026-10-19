@@ -20,7 +20,9 @@ not live in one process, so this plugin's agent.py runs travel-agent's in a proc
 
 Plan cards: with "plan_cards" in the config, a live full tick and the steps that bring new prices (--done expedia,
 --done hoteis) sync the cards the engine builds (behaviors/flight-price-watch/scripts/cards.py). A closed plan goes up
-only while Planou still has its card open; a plan taken out of the config closes its card ("Sem ação").
+only while Planou still has its card open; a plan taken out of the config closes its card ("Sem ação"). An adopted card
+(`card.code`) this instance never synced, whose plan is already paused or bought, goes up closed once. The cards sync is a
+partial batch: it drops only the plan cards' `pronta` marks, never the other tasks'.
 
 Only travel-agent's own commands pass: its agent.py runs a full tick (hundreds of searches, state saved) for any
 argument it does not know, so --pending, --since, --json or a typo are refused here. The instance name goes to the
@@ -41,7 +43,7 @@ ENGINE = os.path.join(SCRIPTS, 'agent.py')
 COMMANDS = ('--report', '--gmail', '--gflights', '--real', '--hotel-price', '--booked', '--timeline', '--done', '--hotels',
             '--dashboard', '--sheet', '--points', '--bonus', '--quote', '--compare', '--award', '--miles', '--plan-cards')
 CARD_STEPS = ('expedia', 'hoteis')     # --done <step> after new prices: the plan cards are synced right after
-CARDS_FILE = 'plan_cards.json'         # cache/planou: {code: {title, closed_on}} of the plan cards sent
+CARDS_FILE = 'plan_cards.json'         # cache/planou: {code: {title, closed_on, adopted}} of the plan cards sent
 REMOVED = 'Plano tirado da configuração do agente de viagem: card fechado.'
 BROKEN = re.compile(r'^AGENTE QUEBRADO \(([^)]+)\)', re.M)
 
@@ -127,10 +129,12 @@ def plan_items():
     return json.loads(r.stdout or '{}')
 
 
-def card_batch(items, known, opened, today):
+def card_batch(items, known, opened, today, tracked=()):
     """What goes up and what is remembered: the open plans always; a closed plan only while Planou still has its card
     open (its close date fixed the first time it was seen closed); a plan known before and gone from the config closes as
-    "Sem ação". Returns (batch, known after)."""
+    "Sem ação". An adopted card (`card.code`, a card made before) that this instance never synced (`tracked`: every code
+    in its state.json, open or closed) goes up closed once, dated today: its card may be open in Planou with no record
+    here, and an older date would fall out of the sync's closed window. Returns (batch, known after)."""
     items = dict(items)
     for code, prev in known.items():
         if code not in items:
@@ -145,7 +149,21 @@ def card_batch(items, known, opened, today):
             it = {**it, 'concluida': it.get('concluida') or (known.get(code) or {}).get('closed_on') or today}
             batch[code] = it
             after[code] = {'title': it.get('titulo'), 'closed_on': it['concluida']}
+        elif it.get('adopted') and (known.get(code) or {}).get('adopted'):
+            after[code] = known[code]                   # its one close already went: never again
+        elif it.get('adopted') and code not in tracked:
+            batch[code] = {**it, 'concluida': today}
+            after[code] = {'title': it.get('titulo'), 'closed_on': today, 'adopted': True}
     return batch, after
+
+
+def prune_marks(planou, codes):
+    """Drops the `pronta` marks (ready.json) of these plan cards only: the cards sync is a partial batch, so the marks of
+    the instance's other tasks stay. Under the lock mark_ready writes it with."""
+    if not codes: return
+    with planou._locked('state.json'):
+        marks = planou._load('ready.json', {})
+        if any(c in marks for c in codes): planou._save('ready.json', {c: m for c, m in marks.items() if c not in codes})
 
 
 def sync_cards(cfg, now=None):
@@ -156,17 +174,23 @@ def sync_cards(cfg, now=None):
     import datetime as dt
     items = plan_items()
     known = planou._load(CARDS_FILE, {})
-    batch, after = card_batch(items, known, planou.open_codes(), dt.date.today().isoformat())
+    tracked = set(planou._load('state.json', {}).get('tasks') or {})
+    batch, after = card_batch(items, known, planou.open_codes(), dt.date.today().isoformat(), tracked)
+    prune_marks(planou, (set(items) | set(known)) - set(batch))
     if not batch: return []
     opts = cfg.get('plan_cards') if isinstance(cfg.get('plan_cards'), dict) else {}
     conf = planou._S['confidentiality']
     if opts.get('detail') is True and conf != 'minimum': planou._S['confidentiality'] = 'detail'
     try:
-        lines = planou.sync(batch, now)
+        lines = planou.sync(batch, now, only=True)      # partial: never prunes the other tasks' marks
     finally:
         planou._S['confidentiality'] = conf
-    still = planou.open_codes()
-    planou._save(CARDS_FILE, {c: v for c, v in after.items() if 'closed_on' not in v or c in still})
+    still, res = planou.open_codes(), planou._S.get('results') or {}
+    # an adopted card's one close counts only once Planou answered for it (ignored too) and not with an error: a failed
+    # sync (Planou down, 5xx, a row with error) leaves it unmarked, so the next tick sends the close again
+    sent = lambda c: (res.get(f"{planou._S['agent']}:{c}") or {'result': 'error'}).get('result') != 'error'
+    after = {c: v for c, v in after.items() if not (v.get('adopted') and c in batch) or sent(c)}
+    planou._save(CARDS_FILE, {c: v for c, v in after.items() if 'closed_on' not in v or c in still or v.get('adopted')})
     return lines
 
 

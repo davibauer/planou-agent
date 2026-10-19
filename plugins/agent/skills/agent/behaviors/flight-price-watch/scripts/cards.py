@@ -9,7 +9,8 @@ trip with several date options is several trips, as the spreadsheet's Resumo sho
   any other status (paused...)  -> closed without action ("Sem ação")
 
 Per trip, optional `card`: {"code": the card's code (default "plano-<id>"; set it to adopt a card made before),
-"name": the short name for the title (default the trip's name), "chosen": true for the plan the user picked}.
+"name": the short name for the title (default the trip's name), "chosen": true for the plan the user picked}. An adopted
+card (`code` set) goes with "adopted": true. A hotel without checkin/checkout shows "(sem datas)" and no price.
 The text is only the user's own trip (itinerary, fares, hotels, totals), never a third party's.
 """
 import datetime as dt
@@ -70,28 +71,38 @@ def flight_of(trip, tstate, alerts, grid_rows, to_home):
     return None, 'Voo', 'ainda sem preço para as datas do plano'
 
 
+def day(iso):
+    """The date of an ISO string, or None (missing or malformed)."""
+    try: return dt.date.fromisoformat(str(iso)[:10]) if iso else None
+    except ValueError: return None
+
+
 def hotels_of(trip, tstate, hotel_rows, to_home, money, cur):
     """([text per hotel], total of the priced ones, names without a price)."""
     texts, total, missing = [], 0, []
     for h in trip.get('hotels') or []:
-        nights = (dt.date.fromisoformat(h['checkout']) - dt.date.fromisoformat(h['checkin'])).days
-        what = f"{h['name']} {ddmm(h['checkin'])}→{ddmm(h['checkout'])} ({nights} noites)"
-        b = next((x for x in tstate.get('bookings') or [] if x.get('hotel') == h['id']), None)
-        rows = sorted((r for r in hotel_rows if (r.get('trip'), r.get('hotel'), r.get('checkin'), r.get('checkout'))
-                       == (trip['id'], h['id'], h['checkin'], h['checkout']) and r.get('home') is not None), key=lambda r: r['ts'])
+        name, hid = h.get('name') or h.get('id') or 'hotel', h.get('id')
+        ci, co = day(h.get('checkin')), day(h.get('checkout'))
+        if ci and co:
+            what = f"{name} {ddmm(h['checkin'])}→{ddmm(h['checkout'])} ({(co - ci).days} noites)"
+            rows = sorted((r for r in hotel_rows if (r.get('trip'), r.get('hotel'), r.get('checkin'), r.get('checkout'))
+                           == (trip['id'], hid, h['checkin'], h['checkout']) and r.get('home') is not None), key=lambda r: r['ts'])
+        else:       # no dates (or bad ones) yet: shown without them, no price looked up; a booking still counts
+            what, rows = f'{name} (sem datas)', []
+        b = next((x for x in tstate.get('bookings') or [] if hid and x.get('hotel') == hid), None)
         if b:
             amt = to_home(b['amount'], b['currency'])
             texts.append(f"{what}: reservado" + (f" {money(amt, cur)}" if amt is not None else '')
                          + (f", cancela grátis até {ddmm(b['cancel_by'])}" if b.get('cancel_by') else ''))
             if amt is not None: total += amt
-            else: missing.append(h['name'])
+            else: missing.append(name)
         elif rows:
             r = rows[-1]
             texts.append(f"{what}: {money(r['home'], cur)} ({r.get('source') or '?'}, {ddmm(r['ts'])})")
             total += r['home']
         else:
             texts.append(f'{what}: sem preço ainda')
-            missing.append(h['name'])
+            missing.append(name)
     return texts, total, missing
 
 
@@ -128,6 +139,7 @@ def card(trip, tstate, cfg, alerts, hotel_rows, grid_rows, to_home, money):
         lines.append(m[0].upper() + m[1:] + '.')
     item = {'titulo': title[:300], 'planou_description': '\n'.join(lines), 'uid': trip['id'], 'origem': 'travel-agent',
             'area': 'viagem', 'prio': 1 if chosen else 2}
+    if c.get('code'): item['adopted'] = True        # a card made before: closes once even if never synced open here
     if bought_on or status in BOUGHT:
         item['status'] = DONE
         if bought_on: item['concluida'] = bought_on

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.100.2 (2026-10-19)
+- travel-agent: um hotel sem checkin ou checkout no config não derruba mais os cards dos planos (antes virava AVISO em todo tick); ele aparece como "(sem datas)", sem preço, e a reserva dele ainda conta
+- travel-agent: um card adotado por `card.code` que esta instância nunca sincronizou fecha uma vez quando o plano já entra pausado ou comprado, em vez de ficar aberto no Planou
+- travel-agent: a sincronização dos cards dos planos apaga só as marcas `pronta` dos próprios cards, nunca as das outras tarefas da instância
+
 ## 0.100.1 (2026-10-19)
 - Agenda: reunião cancelada não gera mais o aviso EM BREVE. No Outlook, o evento que continua na agenda com o prefixo "Cancelado:"/"Canceled:" no título ficava de fora só do CANCELADO e voltava como "em N min" no tick seguinte; no Google Calendar vale o mesmo para o status cancelado e para o prefixo no título.
 
