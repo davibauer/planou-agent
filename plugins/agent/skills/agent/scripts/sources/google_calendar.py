@@ -21,6 +21,7 @@ from core import enfileira, resolve, pend_abertas
 
 SOBREPOSICAO = timedelta(minutes=2)
 EM_BREVE = timedelta(minutes=30)
+CANCELADO = re.compile(r'^\s*(canceled|cancelled|cancelad[ao])\s*:', re.I)   # mesmo prefixo do calendario do Outlook
 BRT = timezone(timedelta(hours=-3))
 
 
@@ -192,11 +193,12 @@ def tick_calendar(s, desde, dry):
                 if resp: itens.append({'tipo': 'respostas', 'ev': e, 'resp': resp})
             # so a sua resposta / descricao / RSVP repetido: silencioso, atualiza a foto
         if not (dry or fixo): conhecidos[e['id']] = nova
-    # reuniao comecando em ate 30 min (uma vez por evento; recusada nao conta)
+    # reuniao comecando em ate 30 min (uma vez por evento; recusada e cancelada nao contam)
     avisados = set() if fixo else set(st.get('avisados') or [])
     breve = []
     for e in proximos(cal, agora + EM_BREVE, agora):
         if e['id'] in avisados or e['minha_resposta'] == 'declined' or e['dia_inteiro'] or not e['ini']: continue
+        if e['status'] == 'cancelled' or CANCELADO.match(e['titulo'] or ''): continue   # convite de fora cancelado so no titulo
         if dt(e['ini']) < agora: continue
         breve.append({'tipo': 'em_breve', 'ev': e, 'min': int((dt(e['ini']) - agora).total_seconds() // 60)})
     itens += breve

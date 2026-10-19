@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.100.1 (2026-10-19)
+- Agenda: reunião cancelada não gera mais o aviso EM BREVE. No Outlook, o evento que continua na agenda com o prefixo "Cancelado:"/"Canceled:" no título ficava de fora só do CANCELADO e voltava como "em N min" no tick seguinte; no Google Calendar vale o mesmo para o status cancelado e para o prefixo no título.
+
 ## 0.100.0 (2026-10-19)
 - Foco de amanhã: no fechamento do dia (a partir das 18h, em dia útil, uma vez por projeto), o agente que cuida da ordem deixa pronto o foco do próximo dia útil (de sexta, o de segunda). As tarefas que você fixou com "Fixar amanhã também" ficam no lugar, as promessas para o dia entram, e o resto vem do que o agente sabe de urgente para esse dia (vence ou atrasa nele, P1, bloqueia outra). Sem o bastante para encher o dia (contando as fixadas), nada é gravado e o Planou monta o dia pela regra dele, olhando o projeto inteiro. Recusa do Planou vira um aviso e não se repete.
 

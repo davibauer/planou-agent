@@ -90,11 +90,12 @@ def tick_calendar(s, desde, dry):
               'organizador': ant.get('organizador') or '?', 'org_eu': ant.get('org_eu', False), 'minha_resposta': ant.get('resposta'),
               'meet': None, 'link': None, 'recorrente': False, 'recorrencia': None}
         itens.append({'tipo': 'sumiu', 'ev': ev})
-    # reuniao comecando em ate EM_BREVE (uma vez por evento; recusada nao conta)
+    # reuniao comecando em ate EM_BREVE (uma vez por evento; recusada e cancelada nao contam)
     avisados = set() if fixo else set(st.get('avisados') or [])
     breve = []
     for k, e in atuais.items():
         if k in avisados or e['minha_resposta'] == 'declined' or e['dia_inteiro'] or not e['ini']: continue
+        if e['cancelado_no_titulo']: continue                     # "Cancelado: X" continua na agenda ate voce remover
         if e['org_eu'] and not e['convidados']: continue          # bloco seu sem convidado nao e' reuniao
         ini = dt(e['ini'])
         if ini < agora or ini - agora > EM_BREVE: continue
