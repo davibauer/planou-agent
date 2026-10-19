@@ -2536,6 +2536,11 @@
                           "default": null,
                           "nullable": true
                         },
+                        "backfill": {
+                          "type": "boolean",
+                          "default": null,
+                          "nullable": true
+                        },
                         "deadline": {
                           "type": "string",
                           "format": "date",
@@ -11249,6 +11254,11 @@
                   "default": null,
                   "nullable": true
                 },
+                "backfill": {
+                  "type": "boolean",
+                  "default": null,
+                  "nullable": true
+                },
                 "deadline": {
                   "type": "string",
                   "format": "date",
@@ -11571,6 +11581,11 @@
           },
           "kind": {
             "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "backfill": {
+            "type": "boolean",
             "default": null,
             "nullable": true
           },

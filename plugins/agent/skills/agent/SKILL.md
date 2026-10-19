@@ -206,7 +206,9 @@ consegue, sem cada comportamento em `behaviors`:
   uma limpeza): ao começar, `$PL tarefa nova --title '<o que está fazendo, uma linha>' [--project <sigla>] [--evidence
   <link>]`; a saída traz o PID, e o custo da sessão vai para ela até concluir. Ao terminar, `$PL tarefa concluir <PID>
   --evidence '<link do MR ou resultado, uma linha>' [--note '...'] [--resolution done|no_action|discarded]`. Já feito
-  antes de registrar: `$PL tarefa nova --title '...' --done --evidence '...'`. Mesmo título (ou `--slug`) no mesmo dia é
+  antes de registrar: `$PL tarefa nova --title '...' --done --evidence '...'`; feito em outro dia, com o dia real:
+  `--completed-at AAAA-MM-DD` (ou um instante ISO 8601; vale `--done`, até 30 dias para trás, nunca no futuro), e
+  `$PL tarefa concluir <PID> --completed-at ...` corrige a data de uma que o agente já fechou. Mesmo título (ou `--slug`) no mesmo dia é
   a mesma tarefa, sem duplicar (chave `act:<data>:<slug>`). Worker para ela: `$PL worker start --task <PID> --role
   dev|other --label '...'` e o PID na descrição do `Agent` (o custo dele vai para a tarefa); fecha com `$PL worker end
   <key> --result ...`. Só para o que não veio de fila nem de fonte: tarefa da fila fecha com `fila done`, tarefa de fonte

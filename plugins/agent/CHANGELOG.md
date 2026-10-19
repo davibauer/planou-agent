@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.99.1 (2026-10-19)
+- `tarefa nova` e `tarefa concluir` aceitam `--completed-at` (AAAA-MM-DD ou instante ISO 8601): trabalho feito em dias anteriores entra no Planou concluído no dia real, até 30 dias para trás, e a data de uma tarefa que o agente já fechou pode ser corrigida. Data no futuro é recusada com o motivo.
+
 ## 0.99.0 (2026-10-19)
 - A ata de uma reunião gravada passa a ir sozinha para a pasta `meetings/` do espaço de trabalho da instância dona, no mesmo tick em que fica pronta, sem precisar rodar `--workspace meetings` à mão. A cópia nunca sobrescreve o que já está em `meetings/` (nem a pasta renomeada à mão), não faz nada em instância sem espaço de trabalho e, se falhar, avisa uma vez e tenta de novo em silêncio com espera crescente. A pasta da gravação é lida com prazo, como as outras leituras do drive dos vídeos: um drive que não responde vira o mesmo aviso e nunca trava o agent.
 

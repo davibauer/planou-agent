@@ -795,8 +795,9 @@ def payload(items, now=None, autonomy=None, default_project=None):
             if task:
                 out.append(task)
                 continue
+        backfill = state == 'closed' and bool(completed) and bool(it.get('backfill'))
         if (state == 'closed' and completed and date.fromisoformat(completed) < (now - CLOSED_WINDOW).date()
-                and not _still_open(kt)):
+                and not _still_open(kt) and not backfill):
             # closed long ago: Planou does not create it, and one it already has closed needs nothing. One it still has
             # open (the runner stopped past the window) goes whatever its age, until an answer confirms the close
             continue
@@ -811,6 +812,7 @@ def payload(items, now=None, autonomy=None, default_project=None):
             'priority': _priority(it.get('prio'), due, today),
             'due': due,
             'completed_at': _completed_at(it.get('concluida')) if state == 'closed' and completed else None,
+            **({'backfill': True} if backfill else {}),
             'origins': [{'system': it.get('origem') or None, 'url': link}] if link.startswith(('http://', 'https://')) else [],
             'base_version': kt.get('version'),
         }
@@ -5403,12 +5405,14 @@ def _act_slug(title, slug=None):
     return _act_key(slug) if slug else _act_key(title)
 
 
-def _act_item(title, evidence, note, status, now, prev=None):
+def _act_item(title, evidence, note, status, now, prev=None, done_at=None):
+    """`done_at`: the real close instant (--completed-at, an aware datetime); it goes as completed_at with backfill and
+    stays on later calls (a close without --completed-at keeps it)."""
     it = dict(prev or {})
     iso = now.isoformat()
     if title: it.update(titulo=title, curto=title)
     it.update(status=status, origem='agente', prio=2, ready_reason=ACT_READY, ready_reason_min=ACT_READY)
-    it.setdefault('entrou', iso)
+    it.setdefault('entrou', min(iso, done_at.isoformat(), key=_date_time) if done_at else iso)
     it['planou_origin'] = {'type': 'other', 'label': f'Sessão do agente · {when_label(it["entrou"])}', 'url': None,
                            'author': _S['agent'], 'at': it['entrou']}
     if evidence:
@@ -5418,13 +5422,47 @@ def _act_item(title, evidence, note, status, now, prev=None):
     if _S['confidentiality'] == 'minimum':
         it.pop('link', None)        # al-436: the evidence URL may carry the client's name; it stays local (evidencia)
     if it.get('link'): it['planou_origin']['url'] = it['link']
-    if status in ('Feito', 'Sem ação', 'Descartada'): it['concluida'] = iso
-    else: it.pop('concluida', None)
+    if status in ('Feito', 'Sem ação', 'Descartada'):
+        if done_at: it.update(concluida=done_at.isoformat(), backfill=True)
+        elif not (it.get('backfill') and it.get('concluida')): it['concluida'] = iso
+    else:
+        it.pop('concluida', None); it.pop('backfill', None)
     lines = ['De onde veio: trabalho do agente na sessão (sem fila nem fonte).', f'O que foi feito: {it["titulo"]}']
     if it.get('nota'): lines.append(f'Nota: {it["nota"]}')
     if it.get('evidencia'): lines.append(f'Evidência: {it["evidencia"]}')
     it['planou_description'] = '\n'.join(lines)
     return it
+
+
+ACT_BACKFILL_DAYS = 30        # Planou records past work up to this far back (backfill)
+
+
+def _act_done_at(value, now):
+    """--completed-at: a day (YYYY-MM-DD, local; today = now, an earlier day = that day at 12:00 local) or an ISO 8601
+    instant (without offset = local time). Never in the future, at most ACT_BACKFILL_DAYS back. None when not given."""
+    v = str(value or '').strip()
+    if not v: return None
+    local_now = now.astimezone()
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', v):
+        try:
+            day = date.fromisoformat(v)
+        except ValueError:
+            raise PlanouError(0, 'completed_at', f'--completed-at {v}: data invalida (use AAAA-MM-DD ou um instante ISO 8601)')
+        if day > local_now.date():
+            raise PlanouError(0, 'completed_at', f'--completed-at {v} esta no futuro: diga o dia em que o trabalho terminou')
+        at = now if day == local_now.date() else datetime(day.year, day.month, day.day, 12, tzinfo=local_now.tzinfo)
+    else:
+        try:
+            at = datetime.fromisoformat(v.replace('Z', '+00:00'))
+        except ValueError:
+            raise PlanouError(0, 'completed_at', f'--completed-at {v}: data invalida (use AAAA-MM-DD ou um instante ISO 8601)')
+        if not at.tzinfo: at = at.replace(tzinfo=local_now.tzinfo)
+        if at > now + timedelta(minutes=5):
+            raise PlanouError(0, 'completed_at', f'--completed-at {v} esta no futuro: diga quando o trabalho terminou')
+    if at < now - timedelta(days=ACT_BACKFILL_DAYS):
+        raise PlanouError(0, 'completed_at', f'--completed-at {v}: mais de {ACT_BACKFILL_DAYS} dias atras, o Planou nao '
+                                             'registra trabalho tao antigo')
+    return at
 
 
 def _act_code(ref, now=None):
@@ -5465,11 +5503,15 @@ def _act_send(code, it, now):
             'notes': notes, 'lines': lines}
 
 
-def act_new(title, project=None, evidence=None, note=None, done=False, slug=None, area=None, epic=None, now=None):
+def act_new(title, project=None, evidence=None, note=None, done=False, slug=None, area=None, epic=None, now=None,
+            completed_at=None):
     """`tarefa nova`: opens (or, with `done`, records already closed) a task for the agent's own work. Same title (or
     --slug) the same day = the same task (idempotent). Open: marks it as the current task (the cost of the session goes
-    to it until `tarefa concluir`). Returns (code, answer of _act_send)."""
+    to it until `tarefa concluir`). `completed_at` (--completed-at): work done on an earlier day, recorded closed on that
+    day (implies `done`; the key takes that day). Returns (code, answer of _act_send)."""
     now = now or datetime.now(timezone.utc)
+    done_at = _act_done_at(completed_at, now)
+    done = done or done_at is not None
     title = one_line(title, 200)
     if not title: raise PlanouError(0, 'title', '--title: o que o agente fez ou esta fazendo, numa linha')
     if area and _S['confidentiality'] == 'minimum':
@@ -5477,7 +5519,7 @@ def act_new(title, project=None, evidence=None, note=None, done=False, slug=None
         raise PlanouError(0, 'area', '--area nao vale com confidentiality minimum (viraria nome de epico): tire o --area')
     for t in (title, evidence, note):
         if t and looks_secret(t): raise PlanouError(0, 'secret', 'o texto parece ter um segredo: reescreva sem ele')
-    code = f'{ACT_PREFIX}{now.astimezone().date().isoformat()}:{_act_slug(title, slug)}'
+    code = f'{ACT_PREFIX}{(done_at or now).astimezone().date().isoformat()}:{_act_slug(title, slug)}'
     known = (_load('state.json', {}).get('tasks') or {}).get(code) or {}
     with _locked('actions.json'):
         acts = _load('actions.json', {})
@@ -5486,7 +5528,7 @@ def act_new(title, project=None, evidence=None, note=None, done=False, slug=None
             raise PlanouError(0, 'closed', f'{known.get("pid") or code} ({code}) ja foi fechada hoje: para outro trabalho '
                                            'com o mesmo titulo, diga --slug')
         it = _act_item(title, one_line(evidence, 2000) or None, one_line(note, 1000) or None, 'Feito' if done else 'Fazendo',
-                       now, acts.get(code))
+                       now, acts.get(code), done_at)
         if project: it['project'] = str(project)
         if epic: it['epic'] = str(epic)
         it['uid'] = code[len(ACT_PREFIX):]
@@ -5500,10 +5542,13 @@ def act_new(title, project=None, evidence=None, note=None, done=False, slug=None
     return code, res
 
 
-def act_close(ref, evidence=None, note=None, resolution='done', now=None):
+def act_close(ref, evidence=None, note=None, resolution='done', now=None, completed_at=None):
     """`tarefa concluir`: closes a task `tarefa nova` opened (done, no_action or discarded) with the evidence. Only the
-    agent's own (act:) tasks: a queue task closes with `fila done`, a source task at its origin. Returns (code, answer)."""
+    agent's own (act:) tasks: a queue task closes with `fila done`, a source task at its origin. `completed_at`
+    (--completed-at): when it really closed; on a task already closed it corrects the date (Planou takes it when the
+    agent closed it). Returns (code, answer)."""
     now = now or datetime.now(timezone.utc)
+    done_at = _act_done_at(completed_at, now)
     status = ACT_RESOLUTION.get(str(resolution or 'done').strip().lower())
     if not status: raise PlanouError(0, 'resolution', '--resolution: done, no_action ou discarded')
     for t in (evidence, note):
@@ -5514,7 +5559,7 @@ def act_close(ref, evidence=None, note=None, resolution='done', now=None):
                                         'fecha com `fila done`, tarefa de fonte fecha na origem')
     with _locked('actions.json'):
         acts = _load('actions.json', {})
-        it = _act_item(None, one_line(evidence, 2000) or None, one_line(note, 1000) or None, status, now, acts[code])
+        it = _act_item(None, one_line(evidence, 2000) or None, one_line(note, 1000) or None, status, now, acts[code], done_at)
         acts[code] = it
         _save('actions.json', acts)
     res = _act_send(code, it, now)
@@ -5548,18 +5593,23 @@ def _act_person(code, label, pid, now=None):
 
 
 def _tarefa_acao(a, ap):
-    """tarefa nova --title T [--project P] [--evidence E] [--note N] [--done] [--slug S] [--area A] [--epic E] |
-    tarefa concluir PID|CODIGO [--evidence E] [--note N] [--resolution done|no_action|discarded]."""
+    """tarefa nova --title T [--project P] [--evidence E] [--note N] [--done] [--completed-at D] [--slug S] [--area A]
+    [--epic E] | tarefa concluir PID|CODIGO [--evidence E] [--note N] [--resolution done|no_action|discarded]
+    [--completed-at D]."""
     sub = a.arg[0]
     try:
         if sub == 'nova':
             if len(a.arg) != 1 or not a.title:
-                ap.error("use: tarefa nova --title '<o que foi feito>' [--project P] [--evidence URL] [--note T] [--done] [--slug S]")
-            code, res = act_new(a.title, a.project, a.evidence, _text_arg(a.note) if a.note else None, a.done, a.slug, a.area, a.epic)
+                ap.error("use: tarefa nova --title '<o que foi feito>' [--project P] [--evidence URL] [--note T] [--done] "
+                         "[--completed-at AAAA-MM-DD] [--slug S]")
+            code, res = act_new(a.title, a.project, a.evidence, _text_arg(a.note) if a.note else None, a.done, a.slug, a.area, a.epic,
+                                completed_at=a.completed_at)
         else:
             if len(a.arg) != 2:
-                ap.error('use: tarefa concluir PID|CODIGO [--evidence URL] [--note T] [--resolution done|no_action|discarded]')
-            code, res = act_close(a.arg[1], a.evidence, _text_arg(a.note) if a.note else None, a.resolution or 'done')
+                ap.error('use: tarefa concluir PID|CODIGO [--evidence URL] [--note T] [--resolution done|no_action|discarded] '
+                         '[--completed-at AAAA-MM-DD]')
+            code, res = act_close(a.arg[1], a.evidence, _text_arg(a.note) if a.note else None, a.resolution or 'done',
+                                  completed_at=a.completed_at)
     except PlanouError as e:
         print(f'AVISO (planou): {e.message}', file=sys.stderr)
         return 1
@@ -5815,6 +5865,8 @@ def main(argv=None):
     ap.add_argument('--area', help='tarefa nova: the subject that picks the epic (default: agente)')
     ap.add_argument('--epic', help='tarefa nova: the epic (pid or source_key)')
     ap.add_argument('--resolution', help='tarefa concluir: done (default), no_action or discarded')
+    ap.add_argument('--completed-at', help='tarefa nova|concluir: when the work really closed (YYYY-MM-DD or ISO 8601; '
+                                           'not in the future, up to 30 days back); tarefa nova: implies --done')
     ap.add_argument('--cost-usd', type=float, help='retro votar, daily explicar: the cost, in USD (optional)')
     a = ap.parse_args(argv)
     if a.cmd == 'sugestao':
