@@ -144,7 +144,7 @@ $A --workspace                      # onde está e o que tem
 $A --workspace init                 # cria pastas, CONTEXT.md e README.md (não sobrescreve)
 $A --workspace artifact ARQ [NOME] [--task pN|aN|PID]
                                     # copia com o prefixo de data e imprime o caminho; com --task, anexa na tarefa
-$A --workspace meetings [--dry]     # copia as reuniões transcritas desta instância
+$A --workspace meetings [--dry]     # copia as reuniões antigas desta instância (as novas a fonte gravacoes copia sozinha)
 ```
 
 **Arquivo de uma tarefa vai como anexo dela.** Todo arquivo local que o agent produz para uma tarefa (análise, proposta,

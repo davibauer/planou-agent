@@ -36,6 +36,12 @@ Uma linha por mudança, nunca repetida: `GRAVANDO` -> `FINALIZANDO` -> `TRANSCRE
   repetidas com a mesma causa ficam quietas, com espera crescente entre as tentativas (5 min, dobrando até 6 h, guardada
   no estado em `arquivo_falhas`); quando o vídeo chega ao destino, avisa uma vez que voltou (um aviso por
   destino: só quando a última gravação com falha chega; falha de gravação que sumiu da lista é descartada a cada tick).
+- Ata para o espaço de trabalho: no tick em que a ata fica pronta (e antes de o vídeo ser arquivado), a fonte copia a
+  pasta da reunião para `meetings/YYYY-MM-DD-HHMM-<assunto>/` do espaço de trabalho desta instância. Nunca sobrescreve
+  (pasta com o mesmo prefixo de data e hora, mesmo renomeada à mão, conta como copiada) e não faz nada sem espaço de
+  trabalho criado. A cópia sozinha não acorda a sessão; a primeira falha com uma causa avisa uma vez
+  (`ERRO copiar a ata para meetings/`) e as tentativas seguem quietas com a mesma espera do arquivamento (estado em
+  `copia_falhas`). `--workspace meetings` continua para as reuniões antigas.
 - Nunca transcrever reunião em andamento; o motor só entrega vídeo finalizado.
 - Dono entre agents: o vídeo fica com a instância de maior interseção com a agenda; quem perde larga em silêncio.
 - Primeira rodada: planta a base em silêncio (atas antigas não viram cobrança).

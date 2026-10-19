@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.99.0 (2026-10-19)
+- A ata de uma reunião gravada passa a ir sozinha para a pasta `meetings/` do espaço de trabalho da instância dona, no mesmo tick em que fica pronta, sem precisar rodar `--workspace meetings` à mão. A cópia nunca sobrescreve o que já está em `meetings/` (nem a pasta renomeada à mão), não faz nada em instância sem espaço de trabalho e, se falhar, avisa uma vez e tenta de novo em silêncio com espera crescente. A pasta da gravação é lida com prazo, como as outras leituras do drive dos vídeos: um drive que não responde vira o mesmo aviso e nunca trava o agent.
+
 ## 0.98.0 (2026-10-19)
 - Funcionário novo com pasta de trabalho já nasce com `config/`, `memory/` e `handoff.md` dentro dela, com link no lugar de origem (o `config/` como link de pasta, para a edição da aba Papel continuar funcionando): dá para ler e editar as regras e a memória direto pela pasta de trabalho, sem mover nada à mão. Estado, segredos e cache continuam na pasta da instância, e nada que já exista na pasta de trabalho é sobrescrito. A memória só vai para a pasta de trabalho quando ninguém abriu o Claude Code naquela pasta antes; se já houve sessão lá, ela fica onde está. Sem pasta de trabalho, nada muda.
 

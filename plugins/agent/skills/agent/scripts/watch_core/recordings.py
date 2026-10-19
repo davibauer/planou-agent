@@ -570,10 +570,12 @@ def roteia_acao(s, a, ev, ref, agora, enfileira, acao_add):
 
 
 # ---------------- tick e bloco == GRAVACOES (iguais em todos os agents) ----------------
-def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_JANELA, acao_add=None):
+def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_JANELA, acao_add=None, on_minutes=None):
     """Reuniao da agenda gravada? transcrita? ata escrita? Acoes do usuario na ata viram pendencias 'reuniao', ou acoes
     nos baldes 'aguardando'/'proximas' da daily quando o prazo e' condicional ou distante (classifica_prazo).
     eventos(ini, fim) = reunioes da agenda deste agent; acao_add(s, texto, balde, quem) = daily.acao_add por padrao.
+    on_minutes(x) = chamado a cada tick para cada gravacao com ata pronta deste agent, antes do arquivamento (que renomeia
+    a pasta ata_); o agent copia a ata para o seu espaco de trabalho (PLN0409). Erro dele nunca derruba o tick.
     Um relato por transicao de estado."""
     if acao_add is None:
         from .daily import acao_add
@@ -609,6 +611,9 @@ def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_J
                 if primeira: continue                # ata antiga: base plantada, nao cobra
                 destino = roteia_acao(s, a, ev, ref, agora, enfileira, acao_add)
                 acoes_novas.append((x, dict(a, destino=destino)))
+        if est == 'ata_pronta' and v and on_minutes and not (dry or fixo):
+            try: on_minutes(x)
+            except Exception: pass
         if est == 'ata_pronta' and v and not (dry or fixo):        # .mp4 vai para F:\\Videos; ata_<stem>/ fica
             falhas = st.setdefault('arquivo_falhas', {})
             if v['arquivado']:

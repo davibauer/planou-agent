@@ -14,7 +14,9 @@ CLI (through watch.py):
   watch.py <instance> --workspace meetings [--dry]      copies the meetings already transcribed (ata_* folders of the
                                                         recordings library) that belong to this instance into
                                                         meetings/YYYY-MM-DD-HHMM-<title>/; never moves (watch_core.recordings
-                                                        keeps using the original) and never overwrites
+                                                        keeps using the original) and never overwrites; the
+                                                        recordings source already does this by itself in the tick the
+                                                        minutes get ready (PLN0409), so this is for the backlog
 
 Which instance a meeting belongs to: the owner watch_core.recordings recorded (recording_owners.json, from 21/09/2026 on); otherwise the
 words in config.json "meetings_keywords" of every instance, counted in the minutes' title (x10) and in the start of the
@@ -102,6 +104,7 @@ def artefato(arq, nome=None):
 VIDEOS = os.environ.get('ATA_VIDEOS_DIR') or os.path.expanduser('~/Videos')   # config.json "videos_dir" wins (watch.py)
 from watch_core import config as _wc
 from watch_core.agents import agent_of, same_agent
+from watch_core import slowfs
 DONOS = _wc.file(_wc.RECORDING_OWNERS)
 MINIMO = 3                 # sem a palavra no titulo (10 pontos), a transcricao precisa citar a empresa ao menos 3 vezes
 COPIA = {'ata.md': 'minutes.md', 'transcricao.md': 'transcript.md', 'transcript.json': 'transcript.json',
@@ -130,11 +133,8 @@ def dono(pasta, stem, donos, palavras):
     reais = {k: n for k, n in d.items() if not k.startswith('_')}
     if reais:
         v = max(reais, key=reais.get); return next((i for i, (_, ag, _i) in palavras.items() if same_agent(ag, v) or i == v), None), 'agenda'
-    titulo = ''
-    try: titulo = next((l for l in open(os.path.join(pasta, 'ata.md'), encoding='utf-8') if l.startswith('# ')), '')
-    except OSError: pass
-    titulo = (titulo + ' ' + os.path.basename(pasta)).lower()
-    try: corpo = open(os.path.join(pasta, 'transcricao.md'), encoding='utf-8').read(20000).lower()
+    titulo = (_cabecalho(pasta) + ' ' + os.path.basename(pasta)).lower()
+    try: corpo = slowfs.read_text(os.path.join(pasta, 'transcricao.md'), 20000).lower()   # drive of the videos: deadline
     except OSError: corpo = ''
     pontos = {i: 10 * sum(titulo.count(w) for w in ws) + sum(corpo.count(w) for w in ws) for i, (ws, _, _i) in palavras.items()}
     pontos = {i: n for i, n in pontos.items() if n}
@@ -143,6 +143,82 @@ def dono(pasta, stem, donos, palavras):
     top = sorted(pontos.values(), reverse=True)
     if len(top) > 1 and top[0] == top[1]: return None, f'empate {pontos}'
     return max(pontos, key=pontos.get), f'palavras {pontos}'
+
+
+def _cabecalho(pasta):
+    """The '# ' line of ata.md ('' without one). The ata_ folder lives on the videos drive: read with the slowfs deadline
+    (slowfs.Stuck goes up)."""
+    try: texto = slowfs.read_text(os.path.join(pasta, 'ata.md'), 64 << 10)
+    except OSError: return ''
+    return next((l[2:] for l in texto.splitlines() if l.startswith('# ')), '')
+
+
+def _titulo(pasta, rotulo):
+    if rotulo: return rotulo
+    titulo = _cabecalho(pasta)
+    return re.sub(r'^(ata|minutes|meeting notes)\s*[—:-]\s*', '', titulo.strip(), flags=re.I) or 'reuniao'
+
+
+def _ja_copiada(m, ja):
+    """A meetings/ folder with the same YYYY-MM-DD-HHMM- prefix (even renamed by hand) means already copied."""
+    dia, hh, mm, _ = m.groups()
+    return any(n.startswith(f'{dia}-{hh}{mm}-') for n in ja)
+
+
+def copia(pasta, porque, ja, dry=False):
+    """Copies one transcribed meeting (the ata_ folder `pasta`) to meetings/YYYY-MM-DD-HHMM-<title>/ and returns
+    (stem, title, destination), or None when it is not an ata_ folder or is already there. Never overwrites what is in
+    meetings/ (the person may have edited it) and never leaves half a copy behind: the files go to a hidden temporary
+    folder first, renamed at the end. `ja` = names already in meetings/ (gets the new one). Every read of `pasta` (on
+    the videos drive) goes through slowfs, in a child with a deadline: a drive that does not answer raises slowfs.Stuck
+    and never hangs the runner."""
+    nome = os.path.basename(pasta.rstrip(os.sep))
+    m = TS.match(nome)
+    if not m or _ja_copiada(m, ja): return None
+    dia, hh, mm, rotulo = m.groups()
+    titulo = _titulo(pasta, rotulo)
+    destino = os.path.join(paths.area('meetings'), f'{dia}-{hh}{mm}-{slug(titulo)[:50]}')
+    if dry: return nome[4:4 + 19], titulo.strip()[:70], destino
+    tmp = os.path.join(paths.area('meetings', criar=True), f'.copiando-{os.path.basename(destino)}')
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        os.makedirs(tmp)
+        copiados = slowfs.copy_into(pasta, tmp, COPIA)
+        open(os.path.join(tmp, 'source.md'), 'w', encoding='utf-8').write(
+            f'Original: `{pasta}` (as gravacoes continuam usando esta pasta)\nDono: {porque}\n'
+            + ('' if 'video.txt' in copiados else f'Video: `{nome[4:]}.mp4` (em {VIDEOS} ou F:\\Videos)\n'))
+        os.rename(tmp, destino)
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    ja.append(os.path.basename(destino))
+    return nome[4:4 + 19], titulo.strip()[:70], destino
+
+
+def copia_da_gravacao(workdir):
+    """PLN0409: the recordings source calls this in the tick the minutes get ready (ata.md in the ata_ folder of a
+    recording this instance claimed), before the video is archived. Returns the destination, or None when there is
+    nothing to do: no workspace (not configured or not created with --workspace init), already copied, or a meeting
+    forced into another instance (meetings_include / forced owner). Otherwise the calendar claim of the recordings
+    engine decides: the engine only calls this for a recording this instance claimed (and did not lose), so it is
+    copied even when the keywords, or an owners entry, point to another instance; on an exact tie of the claim both
+    instances keep the recording and both copy it, as the engine already treats both as owners. Raises on a failed
+    copy, slowfs.Stuck included (the source backs off and warns once)."""
+    if not paths.WORKSPACE or not os.path.isdir(paths.WORKSPACE): return None
+    m = TS.match(os.path.basename(workdir.rstrip(os.sep)))
+    if not m: return None
+    area = paths.area('meetings')
+    ja = os.listdir(area) if os.path.isdir(area) else []
+    if _ja_copiada(m, ja): return None                     # steady state: only meetings/ is read, never the videos drive
+    try: donos = json.load(open(DONOS, encoding='utf-8'))
+    except (OSError, ValueError): donos = {}
+    stem = os.path.basename(workdir.rstrip(os.sep))[4:4 + 19]
+    inst, porque = dono(workdir, stem, donos, _palavras())
+    if inst != paths.NOME:
+        if inst and porque in ('meetings_include', 'forcado'): return None
+        porque = 'gravacao reivindicada pela agenda desta instancia'
+    r = copia(workdir, porque, ja)
+    return r and r[2]
 
 
 def reunioes(dry=False):
@@ -157,27 +233,16 @@ def reunioes(dry=False):
         m = TS.match(nome)
         pasta = os.path.join(VIDEOS, nome)
         if not m or not os.path.isdir(pasta) or 'DESCARTAR' in nome: continue
-        dia, hh, mm, rotulo = m.groups()
         stem = nome[4:4 + 19]
-        inst, porque = dono(pasta, stem, donos, palavras)
-        if inst != paths.NOME:
-            if inst is None: fora.append(f'{stem} ({porque})')
-            continue
-        titulo = rotulo
-        if not titulo:
-            try: titulo = next((l[2:] for l in open(os.path.join(pasta, 'ata.md'), encoding='utf-8') if l.startswith('# ')), '')
-            except OSError: titulo = ''
-            titulo = re.sub(r'^(ata|minutes|meeting notes)\s*[—:-]\s*', '', titulo.strip(), flags=re.I) or 'reuniao'
-        destino = os.path.join(paths.area('meetings'), f'{dia}-{hh}{mm}-{slug(titulo)[:50]}')
-        if any(n.startswith(f'{dia}-{hh}{mm}-') for n in ja): continue          # ja copiada (mesmo que renomeada a mao)
-        copiadas.append((stem, titulo.strip()[:70], porque))
-        if dry: continue
-        os.makedirs(destino)
-        for f, novo in COPIA.items():
-            if os.path.exists(os.path.join(pasta, f)): shutil.copy2(os.path.join(pasta, f), os.path.join(destino, novo))
-        open(os.path.join(destino, 'source.md'), 'w', encoding='utf-8').write(
-            f'Original: `{pasta}` (as gravacoes continuam usando esta pasta)\nDono: {porque}\n'
-            + ('' if os.path.exists(os.path.join(pasta, 'video.txt')) else f'Video: `{nome[4:]}.mp4` (em {VIDEOS} ou F:\\Videos)\n'))
+        try:
+            inst, porque = dono(pasta, stem, donos, palavras)
+            if inst != paths.NOME:
+                if inst is None: fora.append(f'{stem} ({porque})')
+                continue
+            r = copia(pasta, porque, ja, dry)
+        except slowfs.Stuck as e:
+            fora.append(f'{stem} ({e})'); continue
+        if r: copiadas.append((r[0], r[1], porque))
     print(f'{paths.NOME}: {len(copiadas)} reuniao(oes) {"a copiar" if dry else "copiada(s)"} para {paths.area("meetings")}')
     for stem, tit, porque in copiadas: print(f'  + {stem} · {tit} · {porque}')
     if fora: print(f'  sem dono (nao copiadas, {len(fora)}): ' + '; '.join(fora))

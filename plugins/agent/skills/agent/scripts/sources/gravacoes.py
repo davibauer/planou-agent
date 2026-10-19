@@ -20,9 +20,14 @@ Other config:
   aviso_agenda_vencida  line printed under == GRAVACOES when the cache expired
   lembrar_horas      business hours until the 1st reminder of an action (default 11)
 
+Minutes into the workspace (PLN0409): in the tick the minutes of a recording this instance claimed get ready, they are
+copied to meetings/ of the instance workspace (workspace.copia_da_gravacao: never overwrites, nothing without a
+workspace). A failed copy warns once per cause and retries quietly with a growing wait (the archive backoff).
+
 In test mode (instance not live) the tick is always dry: no transcription is launched, no video is moved and the
 shared owners file is not written.
 """
+import os
 from datetime import datetime, timezone, timedelta
 
 import core, paths
@@ -45,6 +50,37 @@ def reuniao(e):
     if any(x in titulo for x in NAO_REUNIAO): return False
     d = datetime.fromisoformat(e['fim']) - datetime.fromisoformat(e['ini'])
     return MIN_DUR <= d <= MAX_DUR
+
+
+class _CopiaAta:
+    """on_minutes of the engine: copies the ready minutes to meetings/ of the workspace (PLN0409). A failure never
+    escapes; it is kept in the state (gravacoes.copia_falhas) with the archive backoff (5 min doubling up to 6 h) and
+    warns once per cause."""
+
+    def __init__(self, s):
+        self.s, self.copias, self.avisos, self.vistas = s, [], [], set()
+        self.agora = datetime.now(timezone.utc)
+
+    def __call__(self, x):
+        kg, v = _base(), x['video']
+        falhas = self.s.setdefault('gravacoes', {}).setdefault('copia_falhas', {})
+        self.vistas.add(v['ts'])
+        if kg.espera_arquivo(falhas.get(v['ts']), self.agora): return
+        try:
+            import workspace
+            dst = workspace.copia_da_gravacao(v['workdir'])
+        except Exception as e:
+            erro = f'{type(e).__name__}: {e}'
+            if kg.registra_falha_arquivo(falhas, v['ts'], erro, self.agora):
+                self.avisos.append(f'-- ERRO copiar a ata para meetings/ ({x["ev"]["titulo"]}): {erro}; tenta de novo sozinho, sem novo aviso')
+            return
+        falhas.pop(v['ts'], None)
+        if dst: self.copias.append(dst)
+
+    def fecha(self, r):
+        st = self.s.get('gravacoes') or {}
+        if st.get('copia_falhas'): st['copia_falhas'] = {t: f for t, f in st['copia_falhas'].items() if t in self.vistas}
+        r['copias'], r['copia_avisos'] = self.copias, self.avisos
 
 
 class _Outlook:
@@ -97,7 +133,9 @@ class Fonte(Base):
         """Motor compartilhado (watch_core.recordings)."""
         if not core.LIVE: dry = True                  # modo teste: nunca lanca transcricao, move video nem grava donos.json
         kg = _base()
-        r = kg.tick(s, self.agent(), self.janela, core.enfileira, desde, dry, self.janela_td)
+        copia = None if (dry or desde is not None) else _CopiaAta(s)
+        r = kg.tick(s, self.agent(), self.janela, core.enfileira, desde, dry, self.janela_td, on_minutes=copia)
+        if copia: copia.fecha(r)
         if self.cache: r['agenda_vencida'] = self.agenda.precisa_atualizar(datetime.now(timezone.utc))
         return r
 
@@ -108,7 +146,9 @@ class Fonte(Base):
         return (base() if base else []) + [kg.VIDEOS, kg.ARQUIVO]
 
     def imprime(self, r):
-        extras = [self.aviso] if r.get('agenda_vencida') else []
+        extras = ([self.aviso] if r.get('agenda_vencida') else []) + list(r.get('copia_avisos') or ())
+        if r.get('copias') and (extras or r.get('todas') or r.get('mudancas') or r.get('acoes')):   # copia sozinha nao acorda a sessao
+            extras += [f'-- ata copiada para meetings/: {os.path.basename(d)}' for d in r['copias']]
         return _base().imprime_bloco(r, extras)
 
     def args(self, ap):

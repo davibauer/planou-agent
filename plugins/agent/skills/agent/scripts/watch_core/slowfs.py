@@ -22,6 +22,9 @@ A path that is not on a drive runs the same code in this process, with no child:
   lstat(path)               (size, mtime, is_dir); OSError as os.lstat
   read_text(path, limit)    the first `limit` bytes as text (utf-8); OSError as open()
   load_json(path)           json.loads(read_text(path))
+  copy_into(folder, dst, files)
+                            copies {name: new_name} of `folder` that exist into the local folder `dst` (contents and
+                            mtime) and returns the new names copied; OSError as open() (PLN0409: the minutes to meetings/)
   run(argv, path, secs)     (returncode, stdout) of a command that reads `path` (ffprobe), never waited past `secs`
                             (default: the deadline);
                             (None, '') when a command on a local path runs out of time
@@ -197,7 +200,23 @@ def _read(path, limit=None):
     with open(path, 'rb') as f: return f.read(int(limit or 1 << 20)).decode('utf-8', 'replace')
 
 
-OPS = {'scan': _scan, 'lstat': _lstat, 'read': _read}
+def _copy(path, arg):
+    dst, done = arg['dst'], []
+    for name, new in arg['files'].items():
+        src = os.path.join(path, name)
+        try: st = os.stat(src)
+        except FileNotFoundError: continue
+        with open(src, 'rb') as a, open(os.path.join(dst, new), 'wb') as b:
+            while True:
+                chunk = a.read(1 << 20)
+                if not chunk: break
+                b.write(chunk)
+        os.utime(os.path.join(dst, new), (st.st_atime, st.st_mtime))
+        done.append(new)
+    return done
+
+
+OPS = {'scan': _scan, 'lstat': _lstat, 'read': _read, 'copy': _copy}
 try:                    # the child runs this source with -c: never reads the script (nor imports) from the plugin folder
     with open(os.path.abspath(__file__), encoding='utf-8') as _f: _SRC = _f.read()
 except (NameError, OSError):
@@ -247,6 +266,9 @@ def read_text(path, limit=1 << 20): return _call('read', path, limit)
 
 
 def load_json(path): return json.loads(read_text(path, 64 << 20))
+
+
+def copy_into(folder, dst, files): return _call('copy', folder, {'dst': dst, 'files': files})
 
 
 def run(argv, path, secs=None):
