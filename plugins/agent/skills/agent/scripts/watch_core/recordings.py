@@ -226,6 +226,31 @@ def erro_arquivar(ts):
     return msg or None
 
 
+ESPERA_ARQUIVO_BASE = timedelta(minutes=5)
+ESPERA_ARQUIVO_MAX = timedelta(hours=6)
+
+
+def _causa(erro):
+    linhas = (erro or '').strip().splitlines()
+    return re.sub(r'\d+', '#', linhas[0] if linhas else '')[:160]
+
+
+def espera_arquivo(f, agora):
+    """PLN0406/PLN0408: depois de uma falha de arquivamento, so' tenta de novo quando a espera (crescente) vence."""
+    return bool(f) and agora < datetime.fromisoformat(f['proxima'])
+
+
+def registra_falha_arquivo(falhas, ts, erro, agora):
+    """Guarda a falha e a proxima tentativa (5 min, dobrando ate 6 h). True se vale avisar: nenhuma outra falha com a
+    mesma causa ja foi avisada (um destino fora do ar derruba todas as gravacoes de uma vez; repetida fica quieta)."""
+    causa = _causa(erro)
+    f = falhas.get(ts) or {}
+    n = (f.get('n') or 0) + 1 if f.get('causa') == causa else 1
+    novo = not any(o.get('causa') == causa for o in falhas.values())
+    falhas[ts] = {'causa': causa, 'n': n, 'proxima': (agora + min(ESPERA_ARQUIVO_BASE * 2 ** (n - 1), ESPERA_ARQUIVO_MAX)).isoformat()}
+    return novo
+
+
 def arquiva_video(v, titulo=None, arquivo_existe=True, em_andamento=()):
     """Depois da ata: renomeia com ' - <reuniao>' no fim (pedido de 21/09) e move o .mp4 de VIDEOS para ARQUIVO (o .mp4 e'
     pesado; a pasta ata_ fica, renomeada igual). So depois da ata porque voiceprint.py identify e pronuncia.py leem o
@@ -563,6 +588,9 @@ def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_J
     perde = reivindica(agent, [(x['video']['ts'], sobrepoe(x['ev'], x['video'])) for x in sit if x['video'] and x['video']['dur']], dry or fixo)
     sit = [x for x in sit if not (x['video'] and x['video']['ts'] in perde)]
     out, lancadas, acoes_novas = [], [], []
+    if not (dry or fixo) and st.get('arquivo_falhas'):       # poda: gravacao que sumiu (movida, apagada, fora da janela, de outra instancia) nao deixa falha para tras
+        vivas = {x['video']['ts'] for x in sit if x['estado'] == 'ata_pronta' and x['video']}
+        st['arquivo_falhas'] = {t: f for t, f in st['arquivo_falhas'].items() if t in vivas}
     for x in sit:
         ev, v, est = x['ev'], x['video'], x['estado']
         chave = ev['id']
@@ -580,14 +608,20 @@ def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_J
                 if primeira: continue                # ata antiga: base plantada, nao cobra
                 destino = roteia_acao(s, a, ev, ref, agora, enfileira, acao_add)
                 acoes_novas.append((x, dict(a, destino=destino)))
-        if est == 'ata_pronta' and v and not v['arquivado'] and not (dry or fixo):        # .mp4 vai para F:\\Videos; ata_<stem>/ fica
-            erro = erro_arquivar(v['ts'])
-            if erro: x['erro'] = f'arquivar: {erro}'; out.append(x)
+        if est == 'ata_pronta' and v and not (dry or fixo):        # .mp4 vai para F:\\Videos; ata_<stem>/ fica
+            falhas = st.setdefault('arquivo_falhas', {})
+            if v['arquivado']:
+                if falhas.pop(v['ts'], None) and not falhas: x['recuperado'] = True; out.append(x)       # recuperou: avisa uma vez, quando a ultima falha pendente some (um aviso por destino, nao por gravacao)
             else:
-                try:
-                    dst = arquiva_video(v, ev['titulo'], _ARQ.get('existe', True), _ARQ.get('nomes', ()))
-                    if dst: x['arquivado'] = dst; out.append(x)
-                except Exception as e: x['erro'] = f'arquivar: {type(e).__name__}: {e}'; out.append(x)
+                erro = erro_arquivar(v['ts'])
+                if not erro and not espera_arquivo(falhas.get(v['ts']), agora):
+                    try:
+                        dst = arquiva_video(v, ev['titulo'], _ARQ.get('existe', True), _ARQ.get('nomes', ()))
+                        if dst and v['ts'] not in falhas: x['arquivado'] = dst; out.append(x)     # com falha anterior, o job e' retentativa: quieto
+                    except Exception as e: erro = f'{type(e).__name__}: {e}'
+                if erro:
+                    x['erro'] = f'arquivar: {erro}'
+                    if registra_falha_arquivo(falhas, v['ts'], erro, agora): out.append(x)        # so' a primeira falha com esta causa
         silencio = primeira and est in ('nao_gravada', 'ata_pronta', 'gravando', 'finalizando')
         if est != antes and est != 'sem_video_ainda' and not silencio and x not in out: out.append(x)
         if not (dry or fixo): st['eventos'][chave] = {'estado': est, 'titulo': ev['titulo'], 'ini': ev['ini'], 'video': v['stem'] if v else None, 'visto': agora.isoformat()}
@@ -616,6 +650,7 @@ def imprime_bloco(r, extras=()):
         vid = f' · {v["stem"]}.mp4 ({int(v["dur"] // 60)} min, {v["tam"] / 1e6:.0f} MB)' if v and v['dur'] else (f' · {v["stem"]}.mp4 ({v["tam"] / 1e6:.0f} MB)' if v else '')
         print(f'-- {ROTULO.get(x["estado"], x["estado"])}: {ev["titulo"]} · {quando}{vid}' + (f' · ERRO {x["erro"]}' if x.get('erro') else ''))
         if v and x['estado'] in ('ata_pendente', 'ata_pronta'): print(f'   pasta: {v["workdir"]}')
+        if x.get('recuperado'): print('   ✓ arquivamento do video voltou a funcionar')
         if x.get('arquivado'): print(f'   ✓ video indo para {x["arquivado"]} em segundo plano (ata e transcricao ficam na pasta de origem)')
     for x, a in r['acoes']:
         balde, extra = a.get('destino') or ('pendencia', None)

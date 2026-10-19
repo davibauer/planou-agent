@@ -40,7 +40,7 @@ modelo, e só acorda a sessão quando há conteúdo (SKILL.md do agent). Não ex
    `FONTE RECUPERADA`. As causas típicas de cada fonte (token recusado, sessão do navegador vencida, login do CLI
    vencido, rede) e o conserto estão no `instructions.md`. `-- AGENT PRECISA: ...` = opção marcada numa necessidade do
    agent na página do dia.
-   `== CREDENCIAIS`: o primeiro tick do dia traz o painel; depois só o que mudou. `✗`/`⚠` com `renovar` que é comando
+   `== CREDENCIAIS`: o primeiro tick do dia traz o painel; depois só o que mudou (✗ e ? entre si não contam: credencial já vencida que estoura o tempo da checagem não acorda). `✗`/`⚠` com `renovar` que é comando
    de login: disparar em background e mandar Usuário + Link + Código.
 1. **Blocos**, na ordem das fontes do config, com as strings de sempre (as regras de triagem dependem delas): `== GITHUB`,
    `== JIRA`, `== SLACK`, `== CHAT`, `== E-MAIL`, `== AGENDA`, `== GRAVACOES`, `== PENDENTES` (`-- pN [fonte] ...` lembrete,

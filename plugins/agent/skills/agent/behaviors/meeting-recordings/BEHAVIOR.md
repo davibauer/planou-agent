@@ -32,6 +32,10 @@ Uma linha por mudança, nunca repetida: `GRAVANDO` -> `FINALIZANDO` -> `TRANSCRE
 - `ACAO SUA`: a ação da ata com você como responsável virou pendência `reuniao`; dizer em uma linha e propor o próximo
   passo. Prazo curto entra na fila; o resto vai para aguardando ou próximas.
 - `ERRO`: dizer a causa em uma linha (vídeo sem moov, GPU, run.sh).
+- `ERRO arquivar`: a primeira falha de arquivamento (destino fora do ar, disco sem gravação) avisa uma vez. As
+  repetidas com a mesma causa ficam quietas, com espera crescente entre as tentativas (5 min, dobrando até 6 h, guardada
+  no estado em `arquivo_falhas`); quando o vídeo chega ao destino, avisa uma vez que voltou (um aviso por
+  destino: só quando a última gravação com falha chega; falha de gravação que sumiu da lista é descartada a cada tick).
 - Nunca transcrever reunião em andamento; o motor só entrega vídeo finalizado.
 - Dono entre agents: o vídeo fica com a instância de maior interseção com a agenda; quem perde larga em silêncio.
 - Primeira rodada: planta a base em silêncio (atas antigas não viram cobrança).

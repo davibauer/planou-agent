@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.96.2 (2026-10-19)
+- Painel de credenciais: uma credencial por comando que já está vencida e estoura o tempo da checagem não acorda mais a sessão a cada troca entre ✗ e ?. Só acorda quando passa de válida para não válida e de não válida para válida; o estado mostrado continua o último conhecido.
+- Falha repetida ao arquivar a gravação de uma reunião (disco de destino desconectado ou sem gravação) não acorda mais a sessão a cada tick: avisa na primeira falha, tenta de novo com espera crescente (5 min até 6 h) sem repetir o aviso e avisa uma vez quando o arquivamento volta a funcionar.
+
 ## 0.96.1 (2026-10-19)
 - job-scout: a rotina de vagas encerradas não estoura mais o tempo do tick com funil grande. Cada tick consulta um lote de até 180 s, pela vaga consultada há mais tempo, sem começar consulta que não cabe no que resta (contando tentativas e timeout), e o resto fica para o tick seguinte até cobrir o funil no dia. O progresso é gravado a cada vaga, então um tick interrompido não recomeça do zero, e um limite do LinkedIn (HTTP 429) encerra o lote em vez de gastar o tempo todo.
 

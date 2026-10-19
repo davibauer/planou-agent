@@ -6,6 +6,9 @@ Asked on 26/09/2026 after one day with four of them: the git-dev token near its 
 source broke. Now:
   - first tick of the day: the whole panel (one line per credential);
   - any other tick: only a credential that CHANGED state (ok -> near its date -> expired, or back to ok).
+    Moving between the two not-valid states (expired <-> unknown "?") is not a change: a command that already failed
+    and times out now and then (PLN0400) used to flip x/? every check and wake the session with nothing new. A timeout
+    of a command credential that was expired keeps it expired (last known state, same detail).
 The session reads the block and, for a login that can be started from the terminal (`renovar` looks like a command),
 starts it in the background and sends user + link + code (common rule of the watchers).
 
@@ -92,6 +95,7 @@ class Gancho(Base):
                 est, det = ('ok', 'válida') if r.returncode == 0 else ('vencida', (r.stderr or r.stdout).strip().splitlines()[-1][:120] if (r.stderr or r.stdout).strip() else f'exit {r.returncode}')
             except Exception as e:
                 est, det = '?', f'{type(e).__name__}: {str(e)[:80]}'
+                if c.get('estado') == 'vencida': est, det = 'vencida', c.get('detalhe') or det   # no news: keep last state
             cache[item['nome']] = {'quando': agora.isoformat(), 'estado': est, 'detalhe': det}
             return est, det
         if item.get('json') and not item.get('vence'):
@@ -109,6 +113,12 @@ class Gancho(Base):
         dias = falta.days
         det = f'vence em {dias} dia(s) ({quando})' if dias else f'vence hoje às {fim.astimezone(core.BRT).strftime("%H:%M")}'
         return ('perto' if falta <= aviso else 'ok'), det
+
+    @staticmethod
+    def _mudou(antes, est):
+        """Wake rule: any change, except between the not-valid states (expired, unknown). New credential: always."""
+        if antes is None: return True
+        return est != antes and not (antes in ('vencida', '?') and est in ('vencida', '?'))
 
     def run(self, ctx):
         if not self.itens:
@@ -132,7 +142,7 @@ class Gancho(Base):
                                 'tipo': i.get('tipo') or ('other' if i.get('comando') else 'token'),
                                 'vence': fim.isoformat() if fim else '', 'desde': desde.get(i['nome']) or '',
                                 'comando': bool(i.get('comando')), 'impacto': i.get('impacto') or ''}
-            if est != antes.get(i['nome']): mudou = True
+            if self._mudou(antes.get(i['nome']), est): mudou = True
             marca = {'ok': '✓', 'perto': '⚠', 'vencida': '✗', '?': '?'}[est]
             ren = f' · renovar: {i["renovar"]}' if i.get('renovar') and est != 'ok' else ''
             linhas.append((est, f'   {marca} {i["nome"]}: {det}{ren}'))
@@ -146,7 +156,7 @@ class Gancho(Base):
             st['dia'] = hoje
             return [l for _, l in linhas]
         if mudou:
-            return [l for (est, l), i in zip(linhas, self.itens) if est != antes.get(i['nome'])]
+            return [l for (est, l), i in zip(linhas, self.itens) if self._mudou(antes.get(i['nome']), est)]
         return None
 
     def texto(self, valor):
