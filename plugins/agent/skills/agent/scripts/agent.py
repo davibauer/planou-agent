@@ -131,7 +131,8 @@ class FonteLenta(BaseException):
 
 def teto_tick(cfg):
     """The ceiling the runner gives the heavy tick (runner.sh: TEMPO = min(600, interval - 20)), in seconds.
-    AGENT_TICK_CEILING_S overrides it, for a caller that gives the tick another `timeout` (the tests)."""
+    The runner passes it in AGENT_TICK_CEILING_S (PLN0394: its TEMPO, cut short near the end of the cycle); the formula
+    is only the fallback for a direct run."""
     env = os.environ.get('AGENT_TICK_CEILING_S', '')
     if env.isdigit() and int(env) > 0: return int(env)
     iv = cfg.get('interval_s')

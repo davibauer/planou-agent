@@ -21,8 +21,8 @@ A pasta e' compartilhada por todos os clientes. Duas regras de dono:
 Video AINDA SENDO GRAVADO ou MOVIDO nunca e' aberto, transcrito nem arquivado (PLN0245): "estavel" = tamanho e mtime
 iguais aos do tick anterior E mtime com mais de ESTAVEL_S (60 s; ATA_ESTAVEL_S ou recordings.stable_s), sem .part/.tmp
 ao lado. Tudo o que o tick le nas pastas de video e de arquivo (que costumam morar num drive do Windows, /mnt/<letra>)
-passa por watch_core.slowfs, com prazo e num processo filho: a pasta inteira sai de uma leitura so' de metadados
-(lstat, sem abrir video), a ata.md de uma leitura curta, e o ffprobe roda uma vez por video estavel (a duracao fica no
+passa por watch_core.slowfs, com prazo e num processo filho: a pasta sai de uma leitura so' de metadados (lstat, sem
+abrir video, e so' dos nomes datados dentro da janela: gravacao e pasta ata_ antigas nao custam stat, PLN0412), a ata.md de uma leitura curta, e o ffprobe roda uma vez por video estavel (a duracao fica no
 estado). Prazo estourado vira slowfs.Stuck -> "FONTE QUEBRADA (gravacoes): drive X sem resposta (...)", sem travar o
 tick. O .mp4 vai para a pasta de arquivo num processo destacado (archive_job.py), nunca dentro do tick. Quem transcreve e' o run.sh da skill meeting-minutes (do mesmo plugin; recordings.minutes_dir no config sobrepoe) (whisperx, flock proprio da GPU). A ata (ata.md) e'
 escrita pelo modelo na sessao; este modulo so le a tabela de acoes dela (acoes do usuario viram pendencia 'reuniao').
@@ -137,7 +137,8 @@ def videos(desde, antes=None, duracoes=None, agora=None):
     mtime recente -> dur None ('gravando'); mtime velho -> dur estimada pelo mtime ('finalizando')."""
     duracoes = {} if duracoes is None else duracoes
     agora = (agora or datetime.now(timezone.utc)).timestamp()
-    snap = slowfs.scan(VIDEOS, into='ata_')
+    desde_nome = (desde - timedelta(hours=1)).astimezone(BRT).strftime('%Y-%m-%d %H-%M-%S')   # o nome e' a hora BRT do inicio; 1 h de folga
+    snap = slowfs.scan(VIDEOS, into='ata_', since=desde_nome)
     if snap is None: raise FileNotFoundError(2, 'pasta de videos nao existe', VIDEOS)
     nomes = sorted(snap)
     wds = {f[4:4 + TS_LEN]: f for f in nomes if f.startswith('ata_') and snap[f]['d'] and stem_dt(f[4:])}   # ts -> pasta ata_ (com ou sem ' - reuniao')
@@ -166,7 +167,7 @@ def videos(desde, antes=None, duracoes=None, agora=None):
         if not ini or ini < desde: continue
         ts = stem[:TS_LEN]; vistos.add(ts)
         out.append(item(VIDEOS, f, snap[f], snap, ts, wds.get(ts) or f'ata_{stem}', False))
-    asnap = snap if os.path.abspath(ARQUIVO) == os.path.abspath(VIDEOS) else slowfs.scan(ARQUIVO)
+    asnap = snap if os.path.abspath(ARQUIVO) == os.path.abspath(VIDEOS) else slowfs.scan(ARQUIVO, since=desde_nome)
     arq = {f[:TS_LEN]: f for f, e in (asnap or {}).items() if f.endswith('.mp4') and not e['d'] and stem_dt(f[:-4])}
     _ARQ.clear(); _ARQ.update(existe=asnap is not None, nomes=frozenset(asnap or ()))   # para arquiva_video, sem ler de novo
     for ts, wd in wds.items():                          # ata_<ts>/ cujo .mp4 ja foi para o ARQUIVO: continua contando como gravacao

@@ -627,7 +627,8 @@ while true; do
   # heavy tick: agent.py talks to Planou itself (answers acknowledged, tools, sign of life "tick"). Polled, never a
   # blocking wait (PLN0241): past its limit (and never past the cycle's end) it is left behind
   t0=$(date +%s)
-  timeout -k 20 "$TEMPO" python3 "$V" "${ARGS[@]}" > "$D/tick.tmp" 2>&1 & TICK=$!
+  # PLN0394: the tick's own ceiling (hooks and Planou stop at 9/10 of it) is this TEMPO, already cut by the cycle's end
+  AGENT_TICK_CEILING_S="$TEMPO" timeout -k 20 "$TEMPO" python3 "$V" "${ARGS[@]}" > "$D/tick.tmp" 2>&1 & TICK=$!
   lim=$TICK_STUCK_S; m=$(( TICK_END - $(cycle_elapsed) )); [ "$m" -lt "$lim" ] && lim=$m; [ "$lim" -lt 1 ] && lim=1
   espera "$TICK" "$lim" || abandona_tick
   rc=$ESPERA_RC; TICK=
@@ -648,6 +649,8 @@ while true; do
   # `AVISO (sugestoes): ...` (vai no proximo tick, como o AVISO (planou)) nao acordam sozinhos. Falha do gancho
   # (`LUNCH:`/`PRESENCA: nao consegui setar ...`) continua acordando. Essas linhas vao para o avisos.log e, quando outra
   # coisa acorda, saem junto no tick.out.
+  # `AVISO (tick): sem tempo para ...` (PLN0394: um gancho que estoura o prazo em todo tick acordava em todo tick) tambem
+  # nao acorda sozinho: vai para o avisos.log e sai junto quando outra coisa acorda (fonte lenta acorda como FONTE QUEBRADA).
   # Grouped blocks (PLN0247, see the header): out of tick.tmp into the buffer; DUE= when the buffer must go now
   due=
   if [ "$WAKE" = 1 ]; then
@@ -655,7 +658,7 @@ while true; do
     [ -n "$due" ] && printf '%s\t%s\n' "$(date +%FT%T)" "agrupadas acordam: $due" >> "$D/avisos.log"
   fi
   WAKE_FIRST=
-  QUIET_HOOKS=(-e '^LUNCH: status ' -e '^PRESENCA: \(away\|auto\) no Slack' -e '^AVISO (sugestoes):')
+  QUIET_HOOKS=(-e '^LUNCH: status ' -e '^PRESENCA: \(away\|auto\) no Slack' -e '^AVISO (sugestoes):' -e '^AVISO (tick):')
   n=$(acao "$D/tick.tmp" | grep -v -e '^AVISO (teams):' -e '^AVISO (planou):' -e '^[[:space:]]*$' -e '^== CHAT ([0-9]* msgs\{0,1\} novas\{0,1\} em [0-9]* conversas\{0,1\})$' -e '^[[:space:]]*+[0-9]* msgs\{0,1\} sem mencao em ' -e '^== PRESENCA$' -e '^-- APPEAR OFFLINE' -e '^[·-]* *BUSY ligado' -e '^-- daily republicada no Notion' -e '^== GRAVACOES$' -e '^-- \(NAO GRAVADA\|GRAVANDO\|FINALIZANDO\|TRANSCREVENDO\|AGUARDANDO GPU\)' -e '^ *✓ video movido' "${QUIET_HOOKS[@]}" | wc -c)
   [ -n "$due" ] && n=$(( n + $(wc -c < "$ROOT/data/retido.json" 2>/dev/null || echo 1) ))
   grep "${QUIET_HOOKS[@]}" "$D/tick.tmp" | sed "s/^/$(date +%FT%T)\t/" >> "$D/avisos.log"

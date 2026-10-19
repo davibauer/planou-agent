@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.97.1 (2026-10-19)
+- O `AVISO (tick): sem tempo para ...` sozinho não acorda mais a sessão: vai para o `avisos.log` e sai junto na próxima acordada. Um gancho que passava do prazo em todo tick acordava a sessão em todo tick, e uma fonte lenta já avisada voltava a acordar por causa dele.
+- O prazo dos ganchos e do Planou dentro do tick segue o tempo que o runner dá ao tick, inclusive quando ele é encurtado perto do fim do ciclo; antes o tick podia ser morto antes de chegar ao próprio corte.
+- A checagem das gravações de reunião ficou mais leve no disco do Windows: só as gravações e pastas de ata dentro da janela da agenda são consultadas, e as antigas (que ficam guardadas para sempre na pasta de vídeos e no arquivo) não custam mais nada a cada checagem. Gravação ainda em andamento ou pendente de transcrição dentro da janela continua sendo acompanhada como antes.
+
 ## 0.97.0 (2026-10-19)
 - `fila blocked --ask-first <ação>` avisa o Planou qual ação da autonomia parou o agente (`mark_ready_for_review`, `merge`, `message_people`, `touch_production`, `open_change_request`; repetir a opção ou separar por vírgula). O Planou mostra "O agente parou no limite da autonomia" na tarefa. O comportamento task-queue diz quando mandar.
 

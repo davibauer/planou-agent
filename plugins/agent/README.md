@@ -91,7 +91,8 @@ arquivo próprio (o que ela gravou no `state.json` volta junto com o estado). Fo
 `watch_core/pool.py` (`mapa`), que no corte cancela as chamadas da fila sem esperar as que estão em andamento (o Teams
 usa). Ganchos e Planou rodam com o tempo que sobra do teto (até nove décimos dele): ao estourar, o resto é pulado, sai
 `AVISO (tick): sem tempo para ...` e a saída do tick é impressa assim mesmo, com os itens das fontes, que já estão
-gravados.
+gravados. O teto é o mesmo `timeout` que o runner dá ao tick (ele passa `AGENT_TICK_CEILING_S`, já encurtado perto do
+fim do ciclo). O `AVISO (tick)` sozinho não acorda a sessão: vai para o `avisos.log` e sai junto na próxima acordada.
 
 Tick preso (PLN0241): se mesmo assim o tick pesado ficar preso (estado D, ou sem terminar), o runner não espera por ele
 para sempre. Ele confere o processo por `/proc`, sem `wait` bloqueante, e depois de `RUNNER_TICK_STUCK_S` (padrão: o

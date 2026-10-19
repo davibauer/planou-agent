@@ -13,8 +13,12 @@ On a timeout the child is left behind (a SIGKILL is sent, taken only when the dr
 Stuck, which the tick turns into "FONTE QUEBRADA (<source>): drive X sem resposta (...)" for that source alone.
 A path that is not on a drive runs the same code in this process, with no child: nothing changes for local folders.
 
-  scan(folder, into=None)   {name: {'d': is_dir, 's': size, 'm': mtime}} from lstat (never opens a file); None when the
-                            folder does not exist. Folders whose name starts with `into` also get 'f': their entries
+  scan(folder, into=None, since=None)
+                            {name: {'d': is_dir, 's': size, 'm': mtime}} from lstat (never opens a file); None when the
+                            folder does not exist. Folders whose name starts with `into` also get 'f': their entries.
+                            With `since` ('YYYY-MM-DD HH-MM-SS', PLN0412) only names dated from it on (the name itself, or
+                            after `into`) get the lstat and the 'f'; every other name comes back as {'d': is_dir} alone
+                            (d_type from the directory listing, no stat): an old recording or ata_ folder costs nothing
   lstat(path)               (size, mtime, is_dir); OSError as os.lstat
   read_text(path, limit)    the first `limit` bytes as text (utf-8); OSError as open()
   load_json(path)           json.loads(read_text(path))
@@ -153,7 +157,12 @@ def spawn(argv, secs, stdout=None):
 
 
 # ---------------- the operations (run here for a local path, in the child for a path on a drive) ----------------
+_DATED = re.compile(r'\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}')
+
+
 def _scan(path, into=None):
+    since = None
+    if isinstance(into, dict): into, since = into.get('into'), into.get('since')
     try:
         it = os.scandir(path)
     except (FileNotFoundError, NotADirectoryError):
@@ -161,6 +170,12 @@ def _scan(path, into=None):
     out = {}
     with it:
         for e in it:
+            if since:
+                key = e.name[len(into):] if into and e.name.startswith(into) else e.name
+                if not _DATED.match(key) or key[:19] < since:
+                    try: out[e.name] = {'d': e.is_dir(follow_symlinks=False)}
+                    except OSError: pass
+                    continue
             try: st = e.stat(follow_symlinks=False)
             except OSError: continue
             d = e.is_dir(follow_symlinks=False)
@@ -222,7 +237,7 @@ def _call(op, path, arg=None):
     return res['ok']
 
 
-def scan(path, into=None): return _call('scan', path, into)
+def scan(path, into=None, since=None): return _call('scan', path, {'into': into, 'since': since} if since else into)
 
 
 def lstat(path): return tuple(_call('lstat', path))
