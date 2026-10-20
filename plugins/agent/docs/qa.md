@@ -21,7 +21,8 @@ regra que refaz o próprio Makefile também. O script de ambiente e o docker com
 rodam sozinhos: viram a pergunta "achei scripts/x.sh (ou compose.yaml), posso usar?", que no compose avisa o que dá
 acesso ao host (privileged, docker.sock, caminho do host...), e com o OK da pessoa a sessão roda
 `repo_discovery.py <instância> <dono/repo> --approve <arquivo>@<sha12>` (vale para aquele sha256, que no compose cobre
-também o override e o `.env`; mudou, pergunta de novo). O compose com `include:`/`extends:`, `build` fora do
+também o override e o `.env`; mudou, pergunta de novo). Com compose e também um alvo ou script permitido, a pergunta
+oferece os dois, e a escolha da pessoa pelo segundo fica guardada com `--prefer devserver`. O compose com `include:`/`extends:`, `build` fora do
 repositório ou `env_file` que não seja amostra nem vira candidato. Como o ambiente roda na branch da PR, o `qa_env.py` relê a worktree antes de rodar e, se a branch
 muda um comando descoberto (script aprovado com outro sha256, alvo ou script virando outra coisa), sai 4 com a
 pergunta sem rodar nada. O Makefile roda com `make -r` e não vale com `GNUmakefile`/`makefile` ao lado; o package.json

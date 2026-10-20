@@ -81,7 +81,13 @@ script de ambiente, docker compose da raiz, alvo de Makefile (`up`, `dev`, `star
   com nome de app (web, app, front...) ou a primeira que não é de banco, citada na pergunta. Aprovado, roda com
   `-f <arquivo>` e projeto `qa-<pid>` próprio; se uma porta fixa dele já responde na máquina (ou, com nome fixo de
   container ou volume, outro QA do mesmo projeto está no ar), o `up` sai 1 sem subir nada e cita o PID do outro. Um
-  aviso que não existia quando a pessoa aprovou (regra nova, mesmo sha256) faz a pergunta voltar.
+  aviso que não existia quando a pessoa aprovou (regra nova, mesmo sha256) faz a pergunta voltar. Se o repositório
+  também tem um servidor de desenvolvimento permitido (alvo de Makefile ou script do package.json que passa na lista,
+  abaixo), a pergunta oferece os dois, cada um com o seu comando: com a escolha da pessoa (nunca pela recomendada),
+  `python3 $S/scripts/repo_discovery.py <instância> <dono/repo> --prefer devserver` fica guardado no estado por
+  repositório e o `qa_env.py` sobe pelo servidor de desenvolvimento sem perguntar (relido e conferido na lista a cada
+  leitura; sumiu ou saiu da lista, a pergunta volta; o `--approve` do compose ou `--prefer compose` desfaz a escolha), e
+  a conferência da branch compara o comando escolhido.
 - Makefile: lido inteiro, e qualquer linha de topo que não seja regra ou `NOME = literal` sem `$` recusa o arquivo
   (include, define, export, override, SHELL, `.RECIPEPREFIX`, `.ONESHELL`, condicionais, `$(shell ...)`, variável de
   alvo, receita na mesma linha, `\` numa receita). A receita do alvo, linha a linha, segue o comando simples da lista;

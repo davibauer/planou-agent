@@ -188,6 +188,7 @@ def compose_busy(e, src, pid):
     The other runs of this instance on the same repository are named. None when free (or not a compose)."""
     cand = ((e or {}).get('found') or {}).get('env_script') or {}
     if cand.get('kind') != 'compose' or src.get('env_up') in (None, 'config'): return None
+    if repo_discovery.chosen(e): return None         # the person chose the dev server: the compose does not run
     others = []
     d = os.path.join(paths.CACHE_DIR, 'qa')
     for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:

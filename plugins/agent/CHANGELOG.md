@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.101.0 (2026-10-20)
+- QA: quando o repositório tem docker compose e também um servidor de desenvolvimento permitido (alvo de Makefile ou script do package.json, como o vite), a pergunta de aprovação oferece os dois, cada um com o seu comando. A escolha pelo servidor de desenvolvimento (`repo_discovery.py <instância> <dono/repo> --prefer devserver`) fica guardada por repositório: o ambiente de teste sobe por ele sem perguntar, sempre conferido na lista de permitidos, e a PR que muda esse comando volta a perguntar. Sem escolha guardada, nada muda.
+
 ## 0.100.2 (2026-10-19)
 - travel-agent: um hotel sem checkin ou checkout no config não derruba mais os cards dos planos (antes virava AVISO em todo tick); ele aparece como "(sem datas)", sem preço, e a reserva dele ainda conta
 - travel-agent: um card adotado por `card.code` que esta instância nunca sincronizou fecha uma vez quando o plano já entra pausado ou comprado, em vez de ficar aberto no Planou

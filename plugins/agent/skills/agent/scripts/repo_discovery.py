@@ -11,6 +11,7 @@ it. The person's config always wins: `repos` when it has entries, the environmen
 
   python3 repo_discovery.py <instance> <pr_url | repository URL | owner/name> [--project PFX] [--refresh]
   python3 repo_discovery.py <instance> <owner/name> --approve <script>@<sha256 prefix>
+  python3 repo_discovery.py <instance> <owner/name> --prefer devserver|compose
   python3 repo_discovery.py <instance> show
 
 Only GitHub, and only an owner the instance trusts (review of PLN0345): the account of the instance's gh and its
@@ -42,7 +43,11 @@ Sources of the environment, in this order:
      candidate with include: or extends:, a build context outside the repository, an env_file that is not a sample
      (.env.example, .env.test, .env.sample) nor absent, or no published port. Approved: its own project name per task
      (`-p "$QA_PROJECT"`) and the URL from the published port of the app (a service named web, app, front...; else
-     the first one that is not a database, cache, broker or mail port: NOT_APP_PORTS; PLN0351);
+     the first one that is not a database, cache, broker or mail port: NOT_APP_PORTS; PLN0351). With a compose
+     candidate, the dev server of steps 3 and 4 (same allowlist) is read too, as an alternative
+     (found['devserver'], PLN0376): the question offers both, and `--prefer devserver` keeps the person's choice per
+     repository (entry['prefer']); with it the dev server runs, read and checked again on every discovery, and
+     `--approve` of the compose clears it. A chosen dev server that is gone or off the allowlist is a question again;
   3. a Makefile target (env-up, qa-up, up, dev, start, serve, run), run in the background by qa_env.py (the URL is the
      first http(s) URL in its log). The Makefile is read whole after joining backslash continuations: any top-level
      line that is neither a plain rule nor `NAME = literal` without `$` refuses the file (include, define, export,
@@ -725,9 +730,13 @@ def discover(root, base=None):
         if code == 0 and out.strip().startswith('origin/'): base = out.strip()[7:]
     if base and REF_RE.fullmatch(base) and '..' not in base: put('base', (base, 'origin/HEAD'))
     pkgs = packages(root)
-    env_pkg, env = None, None
+    env_pkg, env, dev, dev_pkg = None, None, None, None
     script = env_script(root, docs) or compose(root)
-    if script: found['env_script'] = script
+    if script:
+        found['env_script'] = script
+        if script.get('kind') == 'compose':      # the alternative the person may prefer (PLN0376), same allowlist
+            dev = makefile(root)
+            if not dev: dev_pkg, dev = package_env(root, pkgs)
     else:
         env = makefile(root)
         if not env: env_pkg, env = package_env(root, pkgs)
@@ -739,13 +748,23 @@ def discover(root, base=None):
     if pw is not None:
         put('node_dir', (os.path.normpath(os.path.join(pw, 'node_modules')), os.path.join(pw, 'package.json')
                          if pw != '.' else 'package.json'))
-    rel = pw if pw is not None else env_pkg
-    pkg = dict(pkgs).get(rel) if rel is not None else None
-    if rel is not None and not package_block(root, rel, pkg or {}, dict(pkgs).get('.')):
-        install = runner_of(root, rel)[1]
-        put('setup', (in_dir(rel, install), (os.path.join(rel, 'package.json') if rel != '.' else 'package.json')
-                      + ' (lock)'))
+    setup = setup_of(root, pkgs, pw if pw is not None else env_pkg)
+    if setup: put('setup', setup)
+    if dev:       # its own setup: the compose path keeps today's (never the dev server's package install)
+        value, source, mode = dev['env_up']
+        found['devserver'] = {'value': value, 'source': source, 'mode': mode}
+        dsetup = setup_of(root, pkgs, pw if pw is not None else dev_pkg)
+        if dsetup: found['devserver']['setup'] = {'value': dsetup[0], 'source': dsetup[1]}
     return found
+
+
+def setup_of(root, pkgs, rel):
+    """(install command, source) of the package at `rel` by its lock file, always with --ignore-scripts; None for
+    no package or a blocked one."""
+    pkg = dict(pkgs).get(rel) if rel is not None else None
+    if rel is None or package_block(root, rel, pkg or {}, dict(pkgs).get('.')): return None
+    return (in_dir(rel, runner_of(root, rel)[1]),
+            (os.path.join(rel, 'package.json') if rel != '.' else 'package.json') + ' (lock)')
 
 
 # the warnings the question had before PLN0351: an approval saved without its warnings saw at most these
@@ -764,6 +783,11 @@ def unseen_warnings(cand, ok):
     return [w for w in warnings_of(cand) if w not in seen]
 
 
+def chosen(entry):
+    """The person chose the dev server over the compose for this repository (--prefer devserver, PLN0376)."""
+    return ((entry or {}).get('prefer') or {}).get('env') == 'devserver'
+
+
 def apply_approval(entry):
     """The environment of an approved script: env_up/env_down (and env_url) from it when the person approved this
     sha256 for this repository; while not approved, no environment (the question). Idempotent."""
@@ -772,6 +796,15 @@ def apply_approval(entry):
     if not cand: return entry
     for k in ENV_KEYS:
         if k != 'setup': found.pop(k, None)
+    if (found.get('setup') or {}).get('devserver'): found.pop('setup')     # put by a choice undone since
+    if cand.get('kind') == 'compose' and chosen(entry):
+        dev = found.get('devserver')
+        if not dev: return entry          # the chosen dev server is gone or off the allowlist: the question (fail closed)
+        at = (entry.get('prefer') or {}).get('at')
+        found['env_up'] = {'value': dev['value'], 'source': f'{dev["source"]} (escolhido pela pessoa em {at}, no lugar '
+                                                            f'de {cand["value"]})', 'mode': dev.get('mode') or 'background'}
+        if dev.get('setup') and not found.get('setup'): found['setup'] = {**dev['setup'], 'devserver': True}
+        return entry
     ok = (entry.get('approved') or {}).get(cand['value'])
     if ok and ok.get('sha256') == cand['sha256'] and not unseen_warnings(cand, ok):
         src = f'{cand["value"]} (aprovado pela pessoa em {ok.get("at")}, sha256 {cand["sha256"][:12]})'
@@ -837,6 +870,7 @@ def resolve(cfg, ref, project=None, refresh=False):
         entry = {'slug': slug, 'url': url, 'kind': kind, 'path': tilde(path), 'worktrees': WORKTREES,
                  'sha': sha, 'rules_version': RULES_VERSION, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'found': found,
                  'projects': list((old or {}).get('projects') or []), 'approved': dict((old or {}).get('approved') or {})}
+        if (old or {}).get('prefer'): entry['prefer'] = dict(old['prefer'])      # the person's choice survives a new read
     apply_approval(entry)
     if project and project not in entry['projects']: entry['projects'].append(project)
     st['repos'][slug] = entry
@@ -860,6 +894,7 @@ def remember(path):
     entry = {'slug': slug, 'url': url, 'kind': kind, 'path': tilde(path), 'worktrees': WORKTREES, 'sha': sha.strip(),
              'rules_version': RULES_VERSION, 'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'found': discover(path),
              'projects': list((old or {}).get('projects') or []), 'approved': dict((old or {}).get('approved') or {})}
+    if (old or {}).get('prefer'): entry['prefer'] = dict(old['prefer'])
     apply_approval(entry)
     st['repos'][slug] = entry
     save_state(st)
@@ -951,6 +986,31 @@ def approve(cfg, ref, spec):
         raise Failed(2, f'{rel} mudou desde a pergunta (sha256 agora {cand["sha256"][:12]}): pergunte de novo')
     entry.setdefault('approved', {})[rel] = {'sha256': cand['sha256'], 'at': time.strftime('%Y-%m-%dT%H:%M:%S'),
                                              'warnings': warnings_of(cand)}
+    entry.pop('prefer', None)          # the latest act wins: approving the compose is choosing it (PLN0376)
+    apply_approval(entry)
+    st = load_state()
+    st['repos'][entry['slug']] = entry
+    save_state(st)
+    return entry
+
+
+def prefer(cfg, ref, choice):
+    """Records the person's choice between the compose candidate and the allowlisted dev server of the repository
+    `ref` (PLN0376): "devserver" runs the dev server, without asking, while it passes the allowlist; "compose" undoes
+    it (the compose still needs its --approve)."""
+    entry = resolve(cfg, ref)
+    found = entry.get('found') or {}
+    cand = found.get('env_script')
+    if not cand or cand.get('kind') != 'compose':
+        raise Failed(2, f'{entry["slug"]} nao tem docker compose candidato: nao ha entre o que escolher')
+    if choice == 'devserver':
+        dev = found.get('devserver')
+        if not dev:
+            raise Failed(2, f'{entry["slug"]} nao tem servidor de desenvolvimento na lista de permitidos (alvo de '
+                            f'Makefile ou script dev/start do package.json): so o compose')
+        entry['prefer'] = {'env': 'devserver', 'value': dev['value'], 'at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+    else:
+        entry.pop('prefer', None)
     apply_approval(entry)
     st = load_state()
     st['repos'][entry['slug']] = entry
@@ -964,13 +1024,19 @@ def branch_check(entry, wt, used):
     changed by the PR, or a Makefile/package.json/compose the PR turns into something else, never runs unchecked."""
     if not used: return None
     tmp = apply_approval({'slug': entry.get('slug'), 'found': discover(wt, base='main'),
-                          'approved': dict(entry.get('approved') or {})})
+                          'approved': dict(entry.get('approved') or {}),
+                          **({'prefer': dict(entry['prefer'])} if entry.get('prefer') else {})})
     got = {k: v['value'] for k, v in tmp['found'].items()}
     diff = sorted(k for k, v in used.items() if got.get(k) != v)
     if not diff: return None
     cand = tmp['found'].get('env_script') or tmp['found'].get('candidate')
     what = ''
-    if cand and cand.get('sha256'):
+    if chosen(entry):       # the command compared is the chosen dev server, never the compose
+        dev = tmp['found'].get('devserver') or tmp['found'].get('candidate')
+        dev = (dev['source'], dev['value']) if dev else (make_candidate(wt) or package_candidate(wt, packages(wt)) or (None,))[::-1]
+        what = (f' (na branch, o servidor de desenvolvimento escolhido vira {dev[0]}: "{dev[1]}")' if dev[0]
+                else ' (na branch, o servidor de desenvolvimento escolhido sumiu ou saiu da lista de permitidos)')
+    elif cand and cand.get('sha256'):
         what = f' (na branch, {cand["value"]} tem sha256 {cand["sha256"][:12]}, diferente do aprovado)'
     elif cand:
         what = f' (na branch: {cand["source"]}: "{cand["value"]}")'
@@ -990,7 +1056,14 @@ def question(entry):
         if cand.get('shared'):
             warn += (f' Dois testes ao mesmo tempo colidem ou misturam dados: {", ".join(cand["shared"])}.')
         where = f'porta {cand["port"]}' + (f' do servico {cand["service"]}' if cand.get('service') else '')
-        return (f'Achei {cand["value"]} em {slug} (sha256 {cand["sha256"][:12]}, cobre {", ".join(cand["covers"])}), com '
+        dev = (entry.get('found') or {}).get('devserver')
+        if dev:          # the two options, each with its own command (PLN0376)
+            warn += (f' Ou, sem docker, pelo servidor de desenvolvimento {dev["source"]}: "{dev["value"]}" (na lista de '
+                     f'permitidos, so em loopback); para guardar essa escolha da pessoa (nunca pela recomendada): python3 '
+                     f'$S/scripts/repo_discovery.py <instancia> {slug} --prefer devserver.')
+        gone = ('O servidor de desenvolvimento escolhido sumiu ou saiu da lista de permitidos na branch principal. '
+                if chosen(entry) and not dev else '')
+        return (gone + f'Achei {cand["value"]} em {slug} (sha256 {cand["sha256"][:12]}, cobre {", ".join(cand["covers"])}), com '
                 f'{where} publicada: posso subir o ambiente de teste com docker compose desse arquivo?{warn} '
                 f'Com o OK da pessoa (nunca pela recomendada): python3 $S/scripts/repo_discovery.py <instancia> {slug} '
                 f'--approve {cand["value"]}@{cand["sha256"][:12]}')
@@ -1019,6 +1092,8 @@ def describe(entry):
              f'{entry.get("at")}; estado em {tilde(state_path())})']
     for k, v in (entry.get('found') or {}).items():
         extra = f'  [candidato: precisa do OK da pessoa, sha256 {v["sha256"][:12]}]' if k == 'env_script' else ''
+        if k == 'devserver':
+            extra = '  [escolhido pela pessoa]' if chosen(entry) else '  [alternativa ao compose: --prefer devserver]'
         lines.append(f'  {k}: {v["value"]}  <- {v["source"]}' + ('  [em segundo plano]' if v.get('mode') else '') + extra)
     if not (entry.get('found') or {}).get('env_up'):
         lines.append('PERGUNTAR: ' + question(entry))
@@ -1031,7 +1106,10 @@ def main(argv=None):
     ap.add_argument('ref', help='link da PR, URL do repositorio, dono/nome, ou "show"')
     ap.add_argument('--project')
     ap.add_argument('--refresh', action='store_true')
-    ap.add_argument('--approve', metavar='SCRIPT@SHA', help='registra o OK da pessoa para o script candidato')
+    one = ap.add_mutually_exclusive_group()
+    one.add_argument('--approve', metavar='SCRIPT@SHA', help='registra o OK da pessoa para o script candidato')
+    one.add_argument('--prefer', choices=('devserver', 'compose'),
+                     help='escolha da pessoa entre o compose candidato e o servidor de desenvolvimento permitido')
     a = ap.parse_args(argv)
     paths.instance(a.instance)
     if a.ref == 'show':
@@ -1043,7 +1121,8 @@ def main(argv=None):
         import schema
         try: cfg = schema.load(paths.CONFIG)
         except schema.ConfigError: cfg = {}
-        entry = approve(cfg, a.ref, a.approve) if a.approve else resolve(cfg, a.ref, a.project, a.refresh)
+        entry = (approve(cfg, a.ref, a.approve) if a.approve else prefer(cfg, a.ref, a.prefer) if a.prefer
+                 else resolve(cfg, a.ref, a.project, a.refresh))
     except Failed as e:
         print(f'DESCOBERTA: {e}', file=sys.stderr)
         return e.code
