@@ -167,7 +167,10 @@ def videos(desde, antes=None, duracoes=None, agora=None):
         if not ini or ini < desde: continue
         ts = stem[:TS_LEN]; vistos.add(ts)
         out.append(item(VIDEOS, f, snap[f], snap, ts, wds.get(ts) or f'ata_{stem}', False))
-    asnap = snap if os.path.abspath(ARQUIVO) == os.path.abspath(VIDEOS) else slowfs.scan(ARQUIVO, since=desde_nome)
+    try:
+        asnap = snap if os.path.abspath(ARQUIVO) == os.path.abspath(VIDEOS) else slowfs.scan(ARQUIVO, since=desde_nome)
+    except OSError:                                     # disco de arquivo fora (ex.: drive desmontado): so nao arquiva; o resto segue
+        asnap = None
     arq = {f[:TS_LEN]: f for f, e in (asnap or {}).items() if f.endswith('.mp4') and not e['d'] and stem_dt(f[:-4])}
     _ARQ.clear(); _ARQ.update(existe=asnap is not None, nomes=frozenset(asnap or ()))   # para arquiva_video, sem ler de novo
     for ts, wd in wds.items():                          # ata_<ts>/ cujo .mp4 ja foi para o ARQUIVO: continua contando como gravacao

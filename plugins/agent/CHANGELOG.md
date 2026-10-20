@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.102.1 (2026-10-20)
+- A fonte de gravações não cai mais quando o disco de arquivo está fora do ar (por exemplo, um drive desmontado): as gravações da pasta principal continuam aparecendo e só o arquivamento fica de lado até o disco voltar.
+
 ## 0.102.0 (2026-10-20)
 - meeting-minutes: ata ao vivo pelas faixas do OBS (faixa 2 = você, faixa 3 = os outros). Com `"live": {"enabled": true}` no config.json do meeting-minutes, o vigia transcreve trechos de 5 a 10 min durante a gravação em modo leve e, quando a gravação para, só o resto: a ata fica pendente logo depois da reunião. Sem diarização: a faixa diz quem fala. Na bateria ou com a GPU ocupada o trecho fica para depois da reunião. Os WAVs de cada trecho são apagados na hora. `live.py status` mostra o andamento. Desligado por padrão.
 
