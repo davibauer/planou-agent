@@ -7,5 +7,6 @@
   "user_name": "",
   "user_aliases": [],
   "phoneme_model": "vitouphy/wav2vec2-xls-r-300m-timit-phoneme",
-  "videos_dir": "~/Videos"
+  "videos_dir": "~/Videos",
+  "live": {"enabled": false}
 }

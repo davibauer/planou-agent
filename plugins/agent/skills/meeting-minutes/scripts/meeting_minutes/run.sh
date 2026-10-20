@@ -40,6 +40,11 @@ LANGARG=""; [ -n "$LANGCODE" ] && LANGARG="--language $LANGCODE"
 COMPUTE="${ATA_COMPUTE_TYPE:-float16}"
 BATCH="${ATA_BATCH_SIZE:-$BATCH}"
 
+# Modo faixas (live.py, config "live"): com o OBS gravando 3 faixas (1 = mix, 2 = só o microfone do usuário, 3 = só o
+# áudio do desktop), a faixa diz quem fala e não há diarização. O que o vigia já transcreveu AO VIVO durante a gravação
+# não é refeito: aqui entra só o resto. Sem modo ao vivo ou com menos de 3 faixas: o caminho de sempre (mix + diarização).
+MODE="$(python3 "$SKILL_DIR/live.py" mode "$VIDEO" 2>/dev/null || echo mix)"
+
 # Trabalha em disco Linux (WSL): o disco do Windows montado é lento para os WAV intermediários.
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
@@ -58,10 +63,20 @@ if ! flock -n 8; then
   flock 8
 fi
 
-echo "[2/4] Transcrevendo + diarizando na GPU (~1 min por 6 min de áudio)…"
-whisperx "$TMP/audio.wav" --model "$MODEL" $LANGARG --diarize --hf_token "$HF_TOKEN" \
-  --compute_type "$COMPUTE" --batch_size "$BATCH" --output_dir "$TMP/out" --output_format json \
-  --print_progress True 2>&1 | grep -viE "^\s*$|tensorflow|warn" || true
+if [ "$MODE" = "tracks" ]; then
+  echo "[2/4] Transcrevendo as faixas 2 (você) e 3 (os outros), sem diarização…"
+  mkdir -p "$TMP/out"
+  if ! python3 "$SKILL_DIR/live.py" finish "$VIDEO" "$TMP/out/audio.json"; then
+    echo "      ⚠️  modo faixas falhou; volto para o mix com diarização."
+    MODE=mix; rm -f "$TMP/out/audio.json"
+  fi
+fi
+if [ "$MODE" != "tracks" ]; then
+  echo "[2/4] Transcrevendo + diarizando na GPU (~1 min por 6 min de áudio)…"
+  whisperx "$TMP/audio.wav" --model "$MODEL" $LANGARG --diarize --hf_token "$HF_TOKEN" \
+    --compute_type "$COMPUTE" --batch_size "$BATCH" --output_dir "$TMP/out" --output_format json \
+    --print_progress True 2>&1 | grep -viE "^\s*$|tensorflow|warn" || true
+fi
 [ -f "$TMP/out/audio.json" ] || { echo "❌ whisperx não gerou saída."; exit 1; }
 cp "$TMP/out/audio.json" "$WD/transcript.json"
 exec 8>&-   # libera a GPU: o resto (prosódia) é CPU
@@ -86,6 +101,7 @@ DUR=$(printf '%dh%02dmin' $((SECS/3600)) $((SECS%3600/60)))
 echo "[3/4] Gerando transcrição e estatísticas de locutores…"
 python3 "$SKILL_DIR/make_transcript.py" "$WD" "$BASE" "$DATA" "$DUR"
 
+if [ "${ATA_EXTRAS:-1}" = "1" ]; then   # ATA_EXTRAS=0 só nos testes (sem parselmouth/torch)
 echo "[4/5] Medindo prosódia (pitch/semitons, ritmo, pausas, muletas)…"
 python3 "$SKILL_DIR/prosody.py" "$WD" "$TMP/audio.wav" || echo "⚠️ prosódia falhou; ata segue sem ela."
 
@@ -95,6 +111,7 @@ echo "[5/5] Impressão de voz por locutor (voiceprint p/ reconhecer quem é quem
 CUDA_VISIBLE_DEVICES="" python3 "$SKILL_DIR/voiceprint.py" embed "$VIDEO" "$WD" \
   || echo "⚠️ voiceprint falhou (não bloqueia a ata)."
 
+fi
 echo ""
 echo "✅ Insumos prontos em: $WD"
 echo "   • transcricao.md  → transcrição diarizada (leia para escrever a ata)"

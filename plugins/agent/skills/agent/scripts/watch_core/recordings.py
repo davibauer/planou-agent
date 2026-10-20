@@ -430,6 +430,32 @@ def lanca_transcricao(path):
     return p.pid
 
 
+def live_ligado():
+    """Modo ao vivo do meeting-minutes: "live": {"enabled": true} (ou "live": true) no config.json dele."""
+    try:
+        with open(os.path.join(MM_HOME, 'config.json'), encoding='utf-8') as f: c = json.load(f)
+    except (OSError, ValueError): return False
+    live = c.get('live')
+    return (live.get('enabled') is True) if isinstance(live, dict) else live is True
+
+
+def lanca_live(vids):
+    """Gravacao ainda aberta (dur None: OBS escrevendo) com o modo ao vivo ligado -> um passo do live.py da skill
+    meeting-minutes, destacado (o tick nao espera a GPU). O live.py tem trava propria, confere bateria e GPU livre e le
+    so' as faixas 2 e 3 ja escritas (Hybrid MP4); o resto e a juncao ficam para o run.sh, que este modulo ja lanca.
+    Devolve o pid ou None."""
+    gravando = [v['path'] for v in vids if v.get('dur') is None and not v.get('arquivado')]
+    live = os.path.join(ATA_SKILL, 'live.py')
+    if not gravando or not os.path.exists(live) or not live_ligado(): return None
+    os.makedirs(os.path.join(MM_HOME, 'state'), exist_ok=True)
+    log = open(os.path.join(MM_HOME, 'state', 'live-run.log'), 'a')
+    env = dict(os.environ)
+    if LANGUAGE: env['ATA_LANG'] = LANGUAGE
+    p = subprocess.Popen([sys.executable, live, 'tick', *gravando], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                         start_new_session=True, cwd=ATA_SKILL, env=env)
+    return p.pid
+
+
 def gpu_ocupada():
     lock = os.environ.get('ATA_GPU_LOCK', '/tmp/ata-reuniao-whisperx.lock')
     if not os.path.exists(lock): return False
@@ -588,6 +614,9 @@ def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_J
     duracoes = dict(st.get('duracoes') or {})
     vids = videos(ini - timedelta(hours=1), None if fixo else (st.get('tamanhos') or {}), duracoes, agora)
     sit = situacao(evs, vids, agora, {} if fixo else st.get('tamanhos') or {})
+    if not (dry or fixo):
+        try: lanca_live(vids)                 # ata ao vivo (meeting-minutes live.py): nunca derruba o tick
+        except Exception: pass
     perde = reivindica(agent, [(x['video']['ts'], sobrepoe(x['ev'], x['video'])) for x in sit if x['video'] and x['video']['dur']], dry or fixo)
     sit = [x for x in sit if not (x['video'] and x['video']['ts'] in perde)]
     out, lancadas, acoes_novas = [], [], []

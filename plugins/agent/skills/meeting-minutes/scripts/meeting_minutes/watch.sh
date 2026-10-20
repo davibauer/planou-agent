@@ -6,9 +6,9 @@
 #   watch.sh --backfill   -> processa tudo que falta agora (nao espera estabilidade)
 #   watch.sh --dry-run    -> so mostra o que faria
 #
-# "Video finalizado" = tem moov atom (o OBS so escreve o indice do MP4 quando voce
-# PARA a gravacao) E o tamanho parou de crescer. Os dois juntos, porque a pasta e
-# sincronizada pelo Google Drive: um arquivo pode chegar pela metade ja com moov.
+# "Video finalizado" = o ffprobe le a duracao E o tamanho parou de crescer. Os dois juntos: com "Hybrid MP4"
+# (OBS desde 17/10/2026) o arquivo e legivel DURANTE a gravacao (MP4 fragmentado), entao so o tamanho parado diz
+# que acabou; e a pasta pode vir sincronizada pelo Google Drive, com arquivo chegando pela metade.
 #
 # NAO escreve a ata: isso exige saber quem e quem, que e julgamento do Claude na
 # sessao. Aqui roda so o que e deterministico (a parte lenta de GPU).
@@ -26,6 +26,11 @@ CORRUPT_AFTER_H=6               # sem moov e mais velho que isso = OBS morreu, n
 
 mkdir -p "$STATE" "$SIZES"; touch "$SKIP"
 MODE="${1:-}"
+
+# Ata ao vivo (live.py, config "live"; desligado = sai na hora): gravação ainda crescendo -> transcreve o próximo
+# trecho das faixas 2 e 3. Fora da pausa e da trava abaixo de propósito: o PAUSED segura o backfill, não a reunião de
+# agora. Em segundo plano: o live.py tem trava própria e pula o passo com a GPU ocupada ou na bateria.
+[ "$MODE" = "--dry-run" ] || python3 "$SKILL_DIR/live.py" tick >/dev/null 2>&1 &
 
 # Pausa: enquanto state/PAUSED existir, NINGUEM processa — nem o cron, nem o
 # FileSystemWatcher, nem o backfill. Retomar: rm state/PAUSED (ou resume.sh).

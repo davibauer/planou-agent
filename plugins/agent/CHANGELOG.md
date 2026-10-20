@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.102.0 (2026-10-20)
+- meeting-minutes: ata ao vivo pelas faixas do OBS (faixa 2 = você, faixa 3 = os outros). Com `"live": {"enabled": true}` no config.json do meeting-minutes, o vigia transcreve trechos de 5 a 10 min durante a gravação em modo leve e, quando a gravação para, só o resto: a ata fica pendente logo depois da reunião. Sem diarização: a faixa diz quem fala. Na bateria ou com a GPU ocupada o trecho fica para depois da reunião. Os WAVs de cada trecho são apagados na hora. `live.py status` mostra o andamento. Desligado por padrão.
+
 ## 0.101.0 (2026-10-20)
 - QA: quando o repositório tem docker compose e também um servidor de desenvolvimento permitido (alvo de Makefile ou script do package.json, como o vite), a pergunta de aprovação oferece os dois, cada um com o seu comando. A escolha pelo servidor de desenvolvimento (`repo_discovery.py <instância> <dono/repo> --prefer devserver`) fica guardada por repositório: o ambiente de teste sobe por ele sem perguntar, sempre conferido na lista de permitidos, e a PR que muda esse comando volta a perguntar. Sem escolha guardada, nada muda.
 

@@ -3,9 +3,10 @@
 
 ~/.config/meeting-minutes/            (MEETING_MINUTES_HOME moves it)
   config.json         whisper_model, language, hf_token_path, audio_stream, batch_size, user_name, user_aliases,
-                      phoneme_model, videos_dir (OBS folder; env ATA_VIDEOS_DIR wins). Missing = config-example.json
+                      phoneme_model, videos_dir (OBS folder; env ATA_VIDEOS_DIR wins), live (live minutes from the OBS
+                      tracks, see live.py; off by default). Missing = config-example.json
   speaker_refs.json   {"Name": [["ata_<stem>", "SPEAKER_NN"], ...]} voices already named in past minutes (xmatch.py)
-  state/              watcher state (PAUSED, skip.tsv, sizes/, logs) and voices/ (voice catalog: biometric data,
+  state/              watcher state (PAUSED, skip.tsv, sizes/, logs), live/ (live.py offsets and log) and voices/ (voice catalog: biometric data,
                       never leaves the machine)
 
 CLI (for the shell scripts):  mm_config.py home | config | state | voices | get <key> [default]

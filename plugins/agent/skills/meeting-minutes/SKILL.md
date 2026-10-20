@@ -37,11 +37,15 @@ bash "$M/run.sh" "<CAMINHO_DO_VIDEO>"
 
 Roda **em segundo plano** — ~1 min de GPU por 6 min de áudio (large-v2, GPU de 8 GB). Tudo local: nenhum áudio sai da máquina. Requer `whisperx`, `ffmpeg`, GPU NVIDIA e token HuggingFace (`hf_token_path` do config, padrão `~/.cache/huggingface/token`); instalação no README do plugin.
 
+**Modo faixas (ata ao vivo, quando ligado):** com `"live": {"enabled": true}` no `config.json` e o vídeo de 17/10/2026 em diante (`tracks_from`) com 3 faixas de áudio (OBS: 1 = mix, 2 = só o microfone do usuário, 3 = só o áudio do desktop), o `run.sh` não diariza: transcreve a faixa 2 como o usuário (`user_name`) e a 3 como `OUTROS`, e só o trecho que o vigia ainda não transcreveu durante a gravação (ver *Ata ao vivo* abaixo). Vídeo com menos de 3 faixas, ou falha no modo faixas: o caminho de sempre.
+
 Idioma **detectado automaticamente** (não presuma português — confira `Idioma detectado` no topo do `transcricao.md`). Vídeo com várias faixas de áudio (OBS): usa a faixa 0 (o mix), que é o certo para diarização; só mexa em `audio_stream` se alguma voz sumir.
 
 ### 2. Descobrir quem é quem — **antes** de escrever qualquer coisa
 
 O whisperx entrega `SPEAKER_00`, `SPEAKER_01`… Uma ata com "SPEAKER_01 ficou responsável por X" é inútil, e a análise de oratória fica **errada** se você medir o locutor errado. Então:
+
+**No modo faixas** (`transcript.json` com `"source": {"mode": "tracks"}`) o usuário é o locutor `user_name`, garantido pela faixa do microfone: pule a impressão de voz para ele. Os outros vêm juntos como `OUTROS` (sem diarização, de propósito): separe quem é quem pelo conteúdo (nomes citados, quem responde a quem) e, no que não der, use o papel ou "a confirmar". Sem fone, a voz dos outros pode vazar para o microfone: fala de `OUTROS` repetida no locutor do usuário é vazamento, não fala dele. Nunca faça `voiceprint.py add-ref` do locutor `OUTROS`: ele junta várias vozes e estragaria a referência.
 
 **Primeiro, a impressão de voz (determinística) — não o nome citado.** Rode:
 ```bash
@@ -123,15 +127,25 @@ Caminho do `ata.md`, o que foi decidido e as ações com prazo. A oratória (2�
 
 ## Automação (já roda sozinha)
 
-Opcional, no Windows com WSL: o **FileSystemWatcher** (`watch-fs.ps1`, desta pasta, iniciado no logon com `-Cmd <caminho do watch.sh no WSL>`) dispara ~45 s depois que o OBS para de gravar; um **cron de 5 min** com `watch.sh` é a rede de segurança. Com o work-watch, a fonte de gravações dele já dispara o `run.sh` e esta automação pode ficar pausada. Ambos chamam `watch.sh`, que só processa vídeo **finalizado** (tem *moov atom* — o OBS só escreve o índice do MP4 ao parar a gravação) e com tamanho estável.
+Opcional, no Windows com WSL: o **FileSystemWatcher** (`watch-fs.ps1`, desta pasta, iniciado no logon com `-Cmd <caminho do watch.sh no WSL>`) dispara ~45 s depois que o OBS para de gravar; um **cron de 5 min** com `watch.sh` é a rede de segurança. Com o work-watch, a fonte de gravações dele já dispara o `run.sh` e esta automação pode ficar pausada. Ambos chamam `watch.sh`, que só processa vídeo **finalizado**: o ffprobe lê a duração e o tamanho parou de crescer (com "Hybrid MP4" o arquivo é legível durante a gravação, então quem diz que acabou é o tamanho parado).
 
 Ou seja: **quando o usuário abrir a sessão, a transcrição + prosódia da reunião nova provavelmente já está pronta.** Veja `~/.config/meeting-minutes/state/pendentes.txt` — lista as transcrições sem `ata.md`. A ata e a oratória continuam sendo escritas por você (passos 2–5), de propósito.
+
+### Ata ao vivo (faixas do OBS)
+
+Desligada por padrão. Liga com `"live": {"enabled": true}` no `~/.config/meeting-minutes/config.json` (desliga com `false`). Com ela ligada, durante a gravação o vigia (o tick de gravações do work-watch, a cada ~5 min, ou o `watch.sh`) chama `live.py tick`, que lê o que o OBS já escreveu (o "Hybrid MP4" fica legível durante a gravação) e transcreve as faixas 2 e 3 em trechos de 5 a 10 min, em modo leve (mesmo modelo, `int8`, lote 4, sem diarização), deixando 30 s de margem do fim. Quando a gravação para, o `run.sh` de sempre transcreve só o resto, junta tudo no `transcript.json` e a ata fica pendente na hora. Os WAVs de cada trecho ficam numa pasta temporária e são apagados no fim do trecho.
+
+- **Fallback para depois da reunião:** o trecho é pulado (e feito no fim pelo `run.sh`) na bateria, com a GPU ocupada por outro `run.sh` (mesma trava) com menos de `min_free_mb` (4000) livres ou mais de `max_gpu_util` (80%) de uso na GPU (copiloto, navegador; um trecho de 6 min das duas faixas usou ~3,4 GB e 43 s em 20/10), e com o arquivo ainda ilegível.
+- **Estado:** `~/.config/meeting-minutes/state/live/<gravação>.json` (até onde cada faixa foi) e `live/live.log` (um passo por linha); nunca dentro de `ata_<nome>/`. `python3 "$M/live.py" status` mostra o que está em andamento.
+- **Ajustes** (chave `live`): `chunk_s` (300), `max_chunk_s` (600), `margin_s` (30), `min_free_mb` (4000), `max_gpu_util` (80), `tracks_from` (`2026-10-17`: gravação mais antiga, com outras faixas, segue no mix), `compute_type` (int8), `batch_size` (4), `user_track` (`0:a:1`), `others_track` (`0:a:2`), `others_label` (`OUTROS`).
+- O `state/PAUSED` segura o backfill, não a reunião de agora: o modo ao vivo só obedece à própria chave.
 
 | comando | para quê |
 |---|---|
 | `bash "$M/pause.sh"` | pausa tudo (cron, watcher e backfill): cria `state/PAUSED` |
 | `bash "$M/resume.sh"` | retoma de onde parou (pula o que já tem `transcript.json`) |
 | `bash "$M/watch.sh" --dry-run` | mostra o que o cron faria agora, sem rodar |
+| `python3 "$M/live.py" status` | ata ao vivo: ligada ou não e até onde cada faixa foi |
 | `bash "$M/rerun_prosody.sh"` | recalcula `oratoria.json` em todas as pastas (após mudar o `prosody.py`) |
 
 **Se nada estiver processando, cheque `~/.config/meeting-minutes/state/PAUSED` antes de sair caçando bug.**
