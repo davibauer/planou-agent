@@ -24,6 +24,7 @@ def evaluate(history, cfg, fstate, today=None):
     window = cfg.get('window_days', 30)
     start = (dt.date.fromisoformat(today) - dt.timedelta(days=window)).isoformat()
     recent = [h['rate'] for h in history if h['date'] >= start]
+    if not recent: return []                      # every rate is older than the window: nothing to compare with
     rate, cur, home = history[-1]['rate'], cfg.get('currency', 'USD'), cfg.get('home', 'BRL')
     low, avg = min(recent), sum(recent) / len(recent)
     target, step = cfg.get('target'), cfg.get('min_step_pct', 0.5) / 100

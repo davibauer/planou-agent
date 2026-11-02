@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.102.2 (2026-11-02)
+- Dólar: o aviso não quebra mais (`min() arg is an empty sequence`) quando todas as cotações do histórico são mais velhas que a janela de dias; fica em silêncio até chegar uma cotação nova.
+
 ## 0.102.1 (2026-10-20)
 - A fonte de gravações não cai mais quando o disco de arquivo está fora do ar (por exemplo, um drive desmontado): as gravações da pasta principal continuam aparecendo e só o arquivamento fica de lado até o disco voltar.
 
