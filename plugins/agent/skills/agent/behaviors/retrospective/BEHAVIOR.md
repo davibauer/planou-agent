@@ -9,8 +9,9 @@ when: a saida do == PLANOU traz -- CERIMONIA retro (contribuicao, votacao ou ata
 ---
 # retrospective: a retro do projeto no Planou (contribuição, votação e ata)
 
-Vale para todo agente ligado ao Planou: quem convida é o Planou (Cerimônias do projeto), então não precisa ligar nada no
-config. O evento chega no `== PLANOU` como `-- CERIMONIA`. `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou
+Vale para todo agente ligado ao Planou: quem convida é o Planou, então não precisa ligar nada no config. A tela de Cerimônias saiu do Planou
+(PLN0441): um evento de cerimônia só chega se uma estiver configurada (hoje nenhuma), e quando chegar o comportamento
+vale como está. O evento chega no `== PLANOU` como `-- CERIMONIA`. `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou
 --agent <instância>"`. Substitui a weekly-retro do chief-of-staff para os agentes ligados ao Planou.
 
 ## Contribuição (`-- CERIMONIA retro #N de ABC: contribuicao ate HH:MM`)
@@ -115,7 +116,7 @@ JSON
 ```
 
 `ATA ENVIADA` lista os PIDs das ações (com a métrica e o valor de partida que o Planou mediu): elas nascem no Backlog do projeto e só andam quando o usuário aprovar. Diga ao
-usuário em uma linha que a ata está em Cerimônias do projeto, com os PIDs. Não comece as ações e não as marque como
+usuário em uma linha que a ata foi enviada, com os PIDs. Não comece as ações e não as marque como
 "o agente pode fazer". Nunca edite o `instructions.md` de um agente: a lição com `agent_id` já é a proposta.
 
 ## Ferramentas e ações do papel

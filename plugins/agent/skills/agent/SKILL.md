@@ -109,9 +109,10 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
   - `-- CERIMONIA refinement #N de <sigla>: sugestoes ate HH:MM` (convidado) e `-- CERIMONIA LISTA refinement ...`
     (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/backlog-refinement/BEHAVIOR.md` (vale sem
     ligar no config): `refino ver`, sugestões de estimativa, quebra, selo e pergunta de escopo com o motivo por
-    `refino sugerir` e a lista final por `refino lista`; nada muda na tarefa antes de o usuário aprovar em Cerimônias. A
-    resposta da pergunta chega como `-- ESCOPO <PID> respondida`: o próprio Planou registra a resposta como comentário
-    e devolve a tarefa para A fazer; o agente não comenta nem move de novo.
+    `refino sugerir` e a lista final por `refino lista`; nada muda na tarefa antes de o usuário aprovar (a tela de
+    Cerimônias saiu do Planou na PLN0441 e hoje não há onde aprovar a lista). A resposta da pergunta chega
+    como `-- ESCOPO <PID> respondida`: o próprio Planou registra a resposta como comentário e devolve a tarefa para A
+    fazer; o agente não comenta nem move de novo.
   - `-- CERIMONIA daily #N de <sigla>: explicar N tarefas Impedidas ate HH:MM` (com uma linha por tarefa logo abaixo):
     a daily do projeto no Planou, cuja ata sai dos dados; o agente só explica as tarefas dele que estão Impedidas.
     Seguir `behaviors/daily/BEHAVIOR.md` (vale sem ligar no config; o heartbeat declara `ceremony_daily`): uma linha

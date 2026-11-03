@@ -32,7 +32,7 @@
         "planou.note"
       ],
       "decision": "faz",
-      "expected": "Fica com uma estimativa por tarefa (a de melhor motivo, citando a outra), escreve o resumo e manda refino lista antes do prazo; diz ao usuário em uma linha que as sugestões esperam a aprovação em Cerimônias."
+      "expected": "Fica com uma estimativa por tarefa (a de melhor motivo, citando a outra), escreve o resumo e manda refino lista antes do prazo; diz ao usuário em uma linha que as sugestões esperam a aprovação dele."
     },
     {
       "id": "backlog-refinement-04",
@@ -43,7 +43,7 @@
         "planou.task"
       ],
       "decision": "recusa",
-      "expected": "Não muda a tarefa: a estimativa, a quebra e o selo só valem quando o usuário aprova na tela."
+      "expected": "Não muda a tarefa: a estimativa, a quebra e o selo só valem quando o usuário aprova."
     },
     {
       "id": "backlog-refinement-05",

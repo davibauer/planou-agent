@@ -9,11 +9,11 @@ when: a saida do == PLANOU traz -- CERIMONIA refinement
 ---
 # backlog-refinement: o refinamento do backlog no Planou (sugestões, perguntas de escopo e lista para aprovar)
 
-Vale para todo agente ligado ao Planou: quem convida é o Planou (Cerimônias do projeto, "Refinamento do backlog"),
-então não precisa ligar nada no config. O evento chega no `== PLANOU` como `-- CERIMONIA refinement`.
+Vale para todo agente ligado ao Planou: quem convida é o Planou, então não precisa ligar nada no config. A tela de Cerimônias saiu do Planou (PLN0441):
+um evento de cerimônia só chega se uma estiver configurada (hoje nenhuma), e quando chegar o comportamento vale como está. O evento chega no `== PLANOU` como `-- CERIMONIA refinement`.
 `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou --agent <instância>"`. É diferente da daily, que lê a
 fila: o refinamento lê o Backlog do projeto (tarefas ainda não passadas a ninguém) e só sugere; nada muda na tarefa
-antes de o usuário aprovar na tela.
+antes de o usuário aprovar.
 
 ## Sugestões (`-- CERIMONIA refinement #N de ABC: sugestoes ate HH:MM`)
 
@@ -78,13 +78,14 @@ perguntas antes de mandar (as que não estão no backlog do evento, quando ele v
 a pergunta de uma tarefa que saiu nesse meio tempo, tira a pergunta e manda de novo; cada uma tirada aparece numa linha
 `TIRADA: ...`. Recusa em outro campo continua `RECUSADA`.
 
-`LISTA ENVIADA` diz quantas sugestões esperam o usuário em Cerimônias. Diga isso ao usuário em uma linha. Não mude a
-estimativa, não quebre e não marque o selo por conta própria: quem aplica é a aprovação na tela (a quebra cria as
+`LISTA ENVIADA` diz quantas sugestões esperam a aprovação do usuário. Diga isso em uma linha, sem apontar uma tela: a de
+Cerimônias saiu do Planou (PLN0441) e hoje não há onde aprovar a lista. Não mude a
+estimativa, não quebre e não marque o selo por conta própria: quem aplica é a aprovação do usuário (a quebra cria as
 partes no Backlog).
 
 ## Resposta da pergunta de escopo (`-- ESCOPO <PID> respondida (<código>): "..."`)
 
-Aprovada na tela, a pergunta vira um pedido em Precisa de você, ligado à tarefa e aberto pelo Planou em nome de quem
+Aprovada, a pergunta vira um pedido em Precisa de você, ligado à tarefa e aberto pelo Planou em nome de quem
 perguntou (o agente não abriu pela `/v1/asks`, então não há `pergunta` local para fechar), e a tarefa vai para "Em
 refinamento". Desde a v0.83.1 do Planou (PLN0330), quando o usuário responde, o próprio servidor fecha o ciclo em
 qualquer tarefa, do agente ou da pessoa:

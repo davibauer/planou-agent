@@ -9,8 +9,9 @@ when: a saida do == PLANOU traz -- CERIMONIA daily
 ---
 # daily: a daily do projeto no Planou (explicar o que está Impedido)
 
-Vale para todo agente ligado ao Planou: quem convida é o Planou (Cerimônias do projeto, card "Daily"), então não
-precisa ligar nada no config; o runner já declara a capacidade `ceremony_daily` no heartbeat. O evento chega no
+Vale para todo agente ligado ao Planou: quem convida é o Planou, então não precisa ligar nada no config. A tela de
+Cerimônias saiu do Planou (PLN0441): um evento de cerimônia só chega se uma estiver configurada (hoje nenhuma), e quando
+chegar o comportamento vale como está; o runner já declara a capacidade `ceremony_daily` no heartbeat. O evento chega no
 `== PLANOU` como `-- CERIMONIA daily`. `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou --agent <instância>"`.
 
 A ata da daily o Planou monta sozinho, a partir dos dados (o que andou, o que concluiu, o que travou, o custo, os
@@ -53,8 +54,8 @@ quando o JSON não traz os dois.
 
 `ENVIADAS: N explicacoes (...; reuniao done)` quer dizer que a daily fechou com a sua parte. `RECUSADA` diz o que
 corrigir (PID fora do evento, texto vazio ou longo, credencial): corrija e mande de novo, tudo junto. `FECHADA`: a
-daily já fechou (prazo, teto ou a pessoa fechou); nada a mandar. Não precisa avisar o usuário: a ata está em
-Cerimônias do projeto.
+daily já fechou (prazo, teto ou a pessoa fechou); nada a mandar. Não precisa avisar o usuário: o Planou monta a ata
+sozinho (a tela de Cerimônias saiu na PLN0441).
 
 ## Ferramentas e ações do papel
 

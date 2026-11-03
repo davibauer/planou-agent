@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.105.3 (2026-11-02)
+- Os textos do agent não mandam mais o usuário aprovar ou configurar "em Cerimônias": a tela saiu do Planou (PLN0441), um evento de cerimônia só chega se uma estiver configurada (hoje nenhuma) e, quando chegar, o comportamento vale como está. Só texto, sem mudança de código.
+
 ## 0.105.2 (2026-11-02)
 - A CI dos plugins passa a instalar as dependências dos testes (`requirements-test.txt`: pyyaml, aiohttp e numpy), e os testes do meeting-copilot que dependiam de aiohttp e numpy deixam de ser pulados.
 
