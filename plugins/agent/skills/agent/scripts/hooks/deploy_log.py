@@ -147,12 +147,12 @@ class Gancho(Base):
     def announced(self, q, line):
         """True for a deploy line the session closed with `--release-queue done` (PLN0155, PLN0482): by the minute of the
         line inside the window of any done, or by the branches of "(lote: a, b; ...)" when the done named them all and the
-        line was logged up to hold_h before the start mark (never after the done)."""
+        line was logged up to min(hold_h, 1 h) before the start mark (never after the done)."""
         rel = parse(line)
         t = _when(rel and rel['deployed_at'])
         if not t: return False
         lote = lote_branches(line)
-        slack = timedelta(hours=self.hold_h)
+        slack = timedelta(hours=min(self.hold_h, 1.0))     # a lote line is logged just before the start mark, not hours
         for w in self.windows(q):
             since, at = _when(w.get('since')), _when(w.get('at'))
             if not (since and at): continue

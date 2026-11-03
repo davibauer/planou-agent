@@ -2787,11 +2787,13 @@ def discover_pr_checks(pr_url, timeout=20):
     still prints the JSON, so the output is read whatever the exit code."""
     if not pr_url: return None
     try:
-        import repo_discovery
-    except ImportError:         # run as a module from elsewhere: the skill's scripts folder is the parent of watch_core
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        import repo_discovery
-    env = repo_discovery.gh_env(_agent_config())        # the instance's gh account (its GH_CONFIG_DIR), not ours
+        try:
+            import repo_discovery
+        except ImportError:     # run as a module from elsewhere: the skill's scripts folder is the parent of watch_core
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            import repo_discovery
+        env = repo_discovery.gh_env(_agent_config())    # the instance's gh account (its GH_CONFIG_DIR), not ours
+    except ImportError: return None
     if not shutil.which('gh', path=env.get('PATH')): return None
     try:
         r = procgroup.run(['gh', 'pr', 'checks', str(pr_url), '--json', 'bucket,state'], timeout, text=True, env=env,

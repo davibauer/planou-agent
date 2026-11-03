@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.107.2 (2026-11-03)
+- O aviso de CI da PR (`--pr-checks` descoberto pelo `gh`) nunca derruba o comando: se o módulo de descoberta não carrega, o campo só fica de fora.
+- O aviso de deploy casa as branches do lote com folga de no máximo 1 h antes do início da integração (antes era o `hold_h` inteiro), então um deploy manual das mesmas branches horas antes continua acordando a sessão.
+
 ## 0.107.1 (2026-11-03)
 - Corrigido: o aviso de deploy (`== DEPLOY NOVO`) acordava a sessão por releases que ela já tinha fechado com `--release-queue done` quando o runner lia o log depois de dois `done` seguidos, porque só a janela do último ficava guardada. Agora o `done` guarda o histórico das janelas (`released_log`, com as branches) e o gancho reconhece a linha por qualquer uma delas, ou pelas branches do `lote:` (texto depois da lista ou versão diferente da planejada não atrapalham).
 
