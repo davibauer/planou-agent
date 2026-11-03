@@ -90,10 +90,20 @@ senioridade, formato, remoto).
 
 Alertas de vaga do próprio LinkedIn que a busca pública não traz, e e-mail de empresa em que o usuário aplicou.
 
-1. `python3 $J/scout.py --gmail` imprime o cursor e as queries (`alertas`, `humano`, e `respostas` quando há candidatura
-   em andamento).
+1. `python3 $J/scout.py --gmail` imprime o cursor e as queries (`alertas`, `humano`, `confirmacoes`, e `respostas` quando
+   há candidatura em andamento), **uma por linha**, cada uma só `from:<um remetente>` ou uma palavra solta mais
+   `after:AAAA/MM/DD`. Rode **cada linha como está** em `search_threads`, sem juntar com OR, sem aspas, sem `-subject:`,
+   sem `subject:` e sem trocar a data por epoch (o conector dá erro ou volta vazio). O filtro por assunto e remetente é
+   seu: descarte o que não interessa olhando assunto e remetente do resultado. Rode **só a consulta que fica entre o
+   rótulo e o `#`** (o `#` e o que vem depois é comentário para você, não vai na query). A data
+   já tem 1 dia de folga; thread repetida não faz mal (o script deduplica). Se alguma query der erro, tente de novo uma
+   vez; se continuar, registre `FONTE QUEBRADA (gmail): <query> · <erro>` e **não marque o cursor** (passo 4).
 2. Alertas: `search_threads` com a query; para cada thread, `get_thread` em texto puro, gravar num arquivo temporário e
    `python3 $J/scout.py --gmail body < arquivo`. O que ele imprime em `== GMAIL` entra no julgamento acima.
+   Nas consultas `humano`, ignore e-mail de remetente noreply/no-reply, newsletter ou marketing e o que tem descadastro
+   (`List-Unsubscribe`, "unsubscribe"/"cancelar inscrição") quando visível, e leia no máximo 10 resultados por consulta
+   (o conector não tem filtro de categoria confirmado). Em `respostas` a palavra é só um pedaço do nome da empresa:
+   confira a empresa no remetente/assunto antes de aceitar.
 3. `humano` e `respostas`: não julgar nem responder. Uma linha por e-mail para a sessão (formato abaixo).
 3b. `confirmacoes` (e-mail automático do LinkedIn "<nome>, your application was sent to <empresa>" ou "sua candidatura foi
    enviada para <empresa>"): `get_message` em texto puro, gravar num arquivo com as linhas `From:`, `Subject:` e `Date:`
@@ -102,8 +112,9 @@ Alertas de vaga do próprio LinkedIn que a busca pública não traz, e e-mail de
    imprime `== APLICADAS`. Empresa sem vaga no funil entra como entrada nova já `aplicado` (origem gmail); empresa com mais
    de uma vaga e sem título no e-mail sai como `?? ambigua`, sem mudar nada. Repetir o mesmo e-mail não muda nada. Copiar
    as linhas `== APLICADAS` e `??` para o relatório (o usuário confirma as ambíguas e as sem título).
-4. No fim, **sempre** `python3 $J/scout.py --gmail mark <epoch>` com o epoch que o passo 1 mostrou (senão o próximo tick
-   relê). Não marcar como lido, não arquivar, não responder.
+4. No fim, `python3 $J/scout.py --gmail mark <epoch>` com o epoch que o passo 1 mostrou (senão o próximo tick
+   relê), **só se TODAS as queries do passo 1 rodaram sem erro**. Se alguma falhou ou não rodou, não marque: o próximo
+   tick refaz com a mesma janela. Não marcar como lido, não arquivar, não responder.
 
 ## Registrar
 

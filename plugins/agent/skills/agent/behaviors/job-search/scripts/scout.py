@@ -292,13 +292,14 @@ def print_boards(r):
     return jb.print_block(r['jobs'], r['errors'])
 
 # ---------------- Gmail (LinkedIn job alerts in personal Gmail; the call is the model's, via connector) ----------------
-GMAIL_SENDERS = 'from:(jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com)'
-GMAIL_HUMAN = ('-from:linkedin.com -from:glassdoor.com -from:indeed.com -category:promotions -category:social -category:updates '
-               'subject:(recruiter OR "talent acquisition" OR opportunity OR oportunidade OR vaga OR interview OR entrevista OR "contract role")')
+# The connector only accepts simple queries: ONE sender (from:x) or ONE loose word, plus after:YYYY/MM/DD (epoch in after: comes back
+# empty; OR, parentheses, -subject: and quoted phrases give "Internal error"/"unsupported operator"). Anything that would be an
+# exclusion or subject filter is done by the judge on the thread's subject/sender (JUDGE.md), not in the query.
+GMAIL_ALERT_SENDERS = ('jobalerts-noreply@linkedin.com', 'jobs-noreply@linkedin.com')
+GMAIL_CONFIRM_SENDERS = ('jobs-noreply@linkedin.com', 'jobs-listings@linkedin.com')
+GMAIL_HUMAN_WORDS = ('recruiter', 'recrutador', 'opportunity', 'oportunidade', 'vaga', 'interview', 'entrevista')
 
 APPLIED_LIST_URL = 'https://www.linkedin.com/my-items/saved-jobs/?cardType=APPLIED'   # no job link in the e-mail: the list of applications
-GMAIL_CONFIRM = ('from:(jobs-noreply@linkedin.com OR jobs-listings@linkedin.com) '
-                 'subject:("your application was sent to" OR "sua candidatura foi enviada para")')
 CONFIRM_SUBJECT = re.compile(r'(?:your application was sent to|sua candidatura foi enviada para)\s+(.+?)\s*$', re.I)
 CONFIRM_BOILER = ('view job', 'ver vaga', 'your application', 'sua candidatura', 'applied on', 'candidatou', 'next steps', 'we wish', 'good luck',
                   'boa sorte', 'unsubscribe', 'this email', 'este e-mail', 'linkedin corporation', 'you are receiving')
@@ -384,25 +385,59 @@ def gmail_applied(s, text, now=None):
     remember()
     print(f'== APLICADAS (e-mail de confirmacao do LinkedIn; vaga nao estava no funil, registrei como nova)\n-- {label} · aplicou em {day}' + ('' if c['title'] else ' · sem titulo no e-mail: conferir com o usuario'))
 
+def gmail_after(cursor_epoch):
+    """after: date for the connector (YYYY/MM/DD in the user's time zone), one day before the cursor so nothing is lost;
+    repeated threads are dropped later (jobs.seen/gmail.seen in gmail_body, idempotent gmail_applied)."""
+    return (datetime.fromtimestamp(int(cursor_epoch), timezone.utc).astimezone(BRT) - timedelta(days=1)).strftime('%Y/%m/%d')
+
+GMAIL_MAX_COMPANIES = 15
+# articles, prepositions, legal suffixes and generic words that say nothing about WHICH company it is
+GMAIL_GENERIC = frozenset('''the a an o os as de do da dos das of and e inc ltda sa llc ltd corp co company empresa grupo group banco bank tech technology technologies solutions services servicos holding brasil brazil'''.split())
+
+def gmail_company_word(name):
+    """The most distinctive word of the company name for a loose Gmail query: the longest one (4+ letters) that is not an
+    article/preposition/legal suffix/generic word; first wins a tie. Nothing qualifies: the longest word overall."""
+    words = [re.sub(r'[^\w.-]', '', w).strip('.-') for w in re.split(r'[\s/&,]+', name or '')]
+    words = [w for w in words if w]
+    good = [w for w in words if len(w) >= 4 and w.lower() not in GMAIL_GENERIC]
+    pool = good or sorted(words, key=len, reverse=True)[:1]
+    return max(pool, key=len) if pool else ''
+
+def gmail_queries(cursor_epoch, companies=()):
+    """[(label, query)]: every query is a single sender or a single word + after:YYYY/MM/DD; one per line."""
+    d = gmail_after(cursor_epoch)
+    qs = [('alertas', f'from:{x} after:{d}') for x in GMAIL_ALERT_SENDERS]
+    qs += [('humano', f'{w} after:{d}') for w in GMAIL_HUMAN_WORDS]
+    qs += [('confirmacoes', f'from:{x} after:{d}') for x in GMAIL_CONFIRM_SENDERS]
+    seen = set()
+    for e in companies:
+        w = gmail_company_word(e)
+        if w and w.lower() not in seen:             # dedupe by the final query, not by company
+            seen.add(w.lower()); qs.append(('respostas', f'{w} after:{d}'))
+            if len(seen) >= GMAIL_MAX_COMPANIES: break
+    return qs
+
 def gmail_cursor(s, mark=None):
-    """Prints the cursor (epoch) and the two queries ready for the connector; --gmail mark <epoch> advances the cursor."""
+    """Prints the cursor (epoch) and the simple queries for the connector (one per line); --gmail mark <epoch> advances the cursor."""
     st = s.setdefault('gmail', {'cursor': None, 'seen': []})
     now = datetime.now(timezone.utc)
     if mark:
         st['cursor'] = int(mark); print(f'gmail: cursor = {st["cursor"]}'); return
     cur = st.get('cursor') or int((now - timedelta(hours=24)).timestamp())
     print(f'cursor={cur}')
-    print(f'alertas: {GMAIL_SENDERS} -subject:"your application was sent to" -subject:"sua candidatura foi enviada para" after:{cur}')
-    print(f'humano:  newer_than:2d after:{cur} {GMAIL_HUMAN}')
-    print(f'confirmacoes: {GMAIL_CONFIRM} after:{cur}   # e-mail "your application was sent to X": get_message em texto puro (com From, Subject, Date) e python3 scout.py --gmail applied < arquivo')
     an = (s.get('jobs') or {}).get('tracked') or {}
     emps = sorted({re.sub(r'[,.]? (inc|ltda|s\.?a|llc|ltd|corp|co)\.?$', '', v.get('company', ''), flags=re.I).strip()
                    for v in an.values() if v.get('status') in IN_PROGRESS and v.get('company')})
-    if emps:
-        names = ' OR '.join(f'"{e}"' for e in emps[:15])
-        print(f'respostas: after:{cur} -from:linkedin.com -category:promotions ({names})   '
-              '# resposta de empresa em que voce aplicou: convite de entrevista -> status=entrevista; retorno -> respondeu; recusa -> perdido')
-    print(f'marcar depois: python3 scout.py --gmail mark {int(now.timestamp())}')
+    if len(emps) > GMAIL_MAX_COMPANIES:
+        print(f'# aviso: {len(emps)} empresas em andamento; so as {GMAIL_MAX_COMPANIES} primeiras (ordem alfabetica) viram consulta de respostas')
+    notes = {'alertas': '# alerta do LinkedIn: get_thread -> --gmail body; descartar assunto "your application was sent to" / "sua candidatura foi enviada para"',
+             'humano': '# e-mail humano: ler no maximo 10 resultados; ignorar noreply/newsletter/marketing, descadastro (List-Unsubscribe) e linkedin/glassdoor/indeed',
+             'confirmacoes': '# so assunto "your application was sent to X" / "sua candidatura foi enviada para X": get_message em texto puro (From, Subject, Date) -> --gmail applied < arquivo',
+             'respostas': '# resposta de empresa em que voce aplicou (palavra solta pode casar outra empresa: conferir a empresa no remetente/assunto): convite -> entrevista; retorno -> respondeu; recusa -> perdido'}
+    shown = set()
+    for label, q in gmail_queries(cur, emps):
+        print(f'{label}: {q}' + (f'   {notes[label]}' if label not in shown else '')); shown.add(label)
+    print(f'marcar depois: python3 scout.py --gmail mark {int(now.timestamp())}   # SO se TODAS as queries acima rodaram sem erro')
 
 def gmail_triage(s, subjects):
     """For each subject 'X is hiring a Y' / 'X is hiring for a Y role': gatekeeper + already seen (company+title). Marks them seen."""

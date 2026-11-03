@@ -2721,6 +2721,7 @@ def _queue_entry(ref):
 
 
 PROGRESS_STATES = ('started', 'in_review', 'done', 'blocked', 'handoff')
+DONE_RESOLUTIONS = ('done', 'no_action', 'discarded')
 
 # How old the project states may be when `fila done` decides between done and handoff: fresh, so an owner the person
 # just set on a column is not missed (a missed one would close the task instead of passing it on).
@@ -2765,7 +2766,8 @@ def _ask_first(values):
     return out or None
 
 
-def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None, ask_first=None):
+def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None, ask_first=None,
+             resolution=None):
     """POST /agent/tasks/{id}/progress for a task of the agent's queue (ref: pid, task_id or source_key; empty = the only
     one). started when the work begins; in_review with the draft PR (pr_url); done concludes the task; blocked with a
     note opens a decision in "Precisa de você" (the note never goes up under "minimum"). Returns the server answer.
@@ -2781,6 +2783,11 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     (what is left, on every step); done without hours sends remaining_h 0. completed_h is never sent: Planou measures it
     from the cost turns tied to the task (watch_core.turns, through the current-task marker set here). An hour the
     person changed stays hers (`ignored_fields` in the answer).
+
+    Discard (PLN0434): `resolution` discarded or no_action on a done never becomes a handoff: the task concludes at once,
+    from whatever column it sits in, instead of walking the review and release columns. Planou's progress route has no
+    resolution field (QueueProgressRequest: state, pr_url, note, hours, ask_first), so it is not sent: the server closes
+    the task with resolution done (AgentQueue.ProgressAsync, case done). The caller says so.
 
     `ask_first` (blocked only): the autonomy actions that made the agent stop (ASK_FIRST_ACTIONS); Planou then shows
     "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too."""
@@ -2810,7 +2817,11 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         if ask_first: b['ask_first'] = ask_first
         return b
 
-    sent = 'handoff' if state == 'done' and owns_a_column(entry, now) else state
+    if resolution is not None and resolution not in DONE_RESOLUTIONS:
+        raise PlanouError(0, 'resolution', f'--resolution: {", ".join(DONE_RESOLUTIONS)}')
+    if resolution and state != 'done': raise PlanouError(0, 'resolution', '--resolution so vale com `fila done`')
+    discarding = state == 'done' and resolution in ('discarded', 'no_action')
+    sent = 'handoff' if state == 'done' and not discarding and owns_a_column(entry, now) else state
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     # queue.json is read under its lock only after the answer: the runner may note events meanwhile (no lock over HTTP)
     try:
@@ -4639,6 +4650,8 @@ def _fila(a, ap):
             return 0
         print(f'DEVOLVIDA: {pid} voltou para {ps or "a coluna do dev"} ({who}) como retrabalho, {pr}; nao esta mais com o agente.')
         return 0
+    if a.resolution and (sub != 'done' or a.resolution not in DONE_RESOLUTIONS):
+        ap.error('--resolution (done|no_action|discarded) so vale com `fila done`')
     if sub not in PROGRESS_STATES + ('tempo',):
         ap.error('use: fila ver | fila started|in_review|done|blocked|handoff|refinar [PID] [--pr-url URL] [--note TEXTO] '
                  '[--estimate-h H] [--remaining-h H] | fila tempo [PID] --remaining-h H [--estimate-h H] | '
@@ -4670,7 +4683,10 @@ def _fila(a, ap):
             res = update_time(ref, a.remaining_h, a.estimate_h)
         else:
             res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h,
-                           ask_first=a.ask_first)
+                           ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None)
+            if sub == 'done' and a.resolution in ('discarded', 'no_action'):
+                print(f'AVISO (planou): a rota da fila do Planou nao recebe resolucao: {res.get("pid") or ref or "a tarefa"} '
+                      f'foi concluida direto (sem handoff), mas com a resolucao done, nao {a.resolution}.', file=sys.stderr)
             if sub == 'blocked' and paused():
                 tid, entry = _queue_entry(res.get('pid') or ref)
                 pause_hold(res.get('task_id') or tid, res.get('pid') or (entry or {}).get('pid'), (entry or {}).get('title'))

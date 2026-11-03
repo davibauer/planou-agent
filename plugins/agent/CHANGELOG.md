@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.103.1 (2026-11-02)
+- Gmail do juiz de vagas: o `scout.py --gmail` agora imprime consultas simples, uma por linha (`from:<remetente>` ou uma palavra solta, mais `after:AAAA/MM/DD` com 1 dia de folga no fuso do usuário), sem OR, aspas, `-subject:` nem epoch, que o conector recusava ou devolvia vazio. O filtro por assunto passa para o juiz, e o cursor do Gmail só é marcado se todas as consultas rodaram sem erro.
+- `fila done --resolution discarded|no_action` conclui a tarefa na hora, de qualquer coluna, em vez de passá-la adiante (handoff) pelas colunas de revisão e release. A rota da fila do Planou ainda não recebe a resolução: a tarefa fecha como done e o comando avisa.
+
 ## 0.103.0 (2026-11-02)
 - `backlog.py`: num projeto autônomo, a tarefa que fica no Backlog sobe com o selo `agent_can_do` {value, reason}, como em qualquer projeto, e não mais só com a linha "Um agente pode fazer: ..." na descrição. Desde a PLN0157 a vaga livre do Planou entrega a tarefa selada ao dono da coluna A fazer ou do projeto, não ao agente de produto que a criou, então o selo não precisa mais ser segurado (PLN0440).
 - Comando novo `agent.py <instância> --suggestions selar <PID|sug-chave> "<motivo>"`: a sessão do agente dono do projeto tria a sugestão e manda só o `agent_can_do` {value: true, reason} da tarefa, para a vaga livre do Planou poder puxá-la. Recusa sem enviar nada um título `Decidir:`, título ou assunto que fale de custo, pagamento, conta, segredo, credencial, cliente ou produção (lista curta no código), motivo com cara de segredo, sugestão ainda não criada ou apagada pela pessoa. `selar <PID> -` tira o selo; o "+1" nunca reenvia o selo. `--suggestions` mostra "(selada: ...)" nas que têm selo.
