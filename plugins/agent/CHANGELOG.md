@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.106.1 (2026-11-03)
+- Ação sua da ata com prazo "a definir" (ou condição sem pessoa nomeada) agora vai para A fazer, sem data, em vez de Aguardando. Aguardando fica só para ação que espera outra pessoa nomeada; prazo com data segue como antes.
+
 ## 0.106.0 (2026-11-02)
 - Provisionador: atualização da cópia do instalador parada há mais de 24 h com versão nova publicada (mudança local, commit local, outra branch ou remote, avanço recusado) vira um alerta médio no Planou com o motivo, os arquivos e a versão em uso contra a disponível, repetido no máximo uma vez por dia; quando volta a andar, um alerta baixo "atualização voltou" (PLN0452).
 

@@ -407,16 +407,25 @@ def _data_do_prazo(prazo, ref):
     return None
 
 
-def classifica_prazo(prazo, acao='', ref=None):
+def _e_o_usuario(quem, aliases):
+    """O nome achado no prazo e' o proprio usuario? (apelido dentro do nome ou o nome dentro do apelido: "Fulano" x "fulano silva")"""
+    q = (quem or '').strip().lower()
+    return bool(q) and any(a and (a in q or q in a) for a in aliases)
+
+
+def classifica_prazo(prazo, acao='', ref=None, aliases=None):
     """Para onde vai uma acao sua da ata: ('pendencia', None) | ('aguardando', quem) | ('proximas', data ou None).
-    `ref` = date da reuniao (a distancia conta dela, nao do tick: ata escrita dias depois classifica igual)."""
+    `ref` = date da reuniao (a distancia conta dela, nao do tick: ata escrita dias depois classifica igual).
+    Prazo condicional/em aberto so' vai para 'aguardando' quando espera OUTRA pessoa nomeada; sem nome (ou o nome e' o
+    proprio usuario) a acao e' dele e vai para a fazer, sem data (PLN0457)."""
     prazo, acao = (prazo or '').strip(), (acao or '').strip()
     ref = ref or datetime.now(BRT).date()
     cond = next((m for txt in (prazo, acao) for p in PRAZO_CONDICIONAL for m in [re.search(p, txt, re.I)] if m), None)
     indef = any(re.search(p, prazo, re.I) for p in PRAZO_INDEFINIDO)
     if cond or indef:
         quem = next((m.group(1) for txt in (prazo, acao) for p in PRAZO_QUEM for m in [re.search(p, txt)] if m), None)
-        return 'aguardando', quem or 'a definir'
+        if quem and not _e_o_usuario(quem, aliases or _cfg_aliases()): return 'aguardando', quem
+        return 'pendencia', None
     d = _data_do_prazo(prazo, ref) if prazo else None
     if d and (d[0] - ref).days > PRAZO_DISTANTE_DIAS: return 'proximas', d[1]
     return 'pendencia', None
