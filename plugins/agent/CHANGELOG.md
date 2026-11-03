@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.107.3 (2026-11-03)
+- Alerta que o Planou cancelou por expirar (3 dias sem resposta, motivo "expirou") e cujo problema continua volta a ser aberto, uma vez por dia no máximo, com chave nova (`<ref>@<dia>`); antes o plugin achava que ele ainda estava aberto e o aviso nunca voltava. Cancelado pela pessoa continua sem reabrir.
+
 ## 0.107.2 (2026-11-03)
 - O aviso de CI da PR (`--pr-checks` descoberto pelo `gh`) nunca derruba o comando: se o módulo de descoberta não carrega, o campo só fica de fora.
 - O aviso de deploy casa as branches do lote com folga de no máximo 1 h antes do início da integração (antes era o `hold_h` inteiro), então um deploy manual das mesmas branches horas antes continua acordando a sessão.
