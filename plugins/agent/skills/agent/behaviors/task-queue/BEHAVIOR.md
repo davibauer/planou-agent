@@ -79,6 +79,8 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    custo da tarefa. Estimativa que a pessoa mudou é dela: o `ignored_fields` da resposta diz; não insistir.
    **A cada avanço** (worker voltou, etapa concluída, escopo mudou): `$PL fila tempo <PID> --remaining-h <H>` (o que
    falta, em horas; manda o estado atual de novo, sem mudar nada). Tarefa em `blocked` leva o tempo no próximo passo.
+   Com `--pr-url`, o `fila ...` lê a CI da PR sozinho (`gh pr checks`) e manda `pr_checks` (passed|failed|running; sem `gh` ou
+   com erro, o campo fica de fora). Quando a CI terminar, quem está com a tarefa manda de novo `$PL fila tempo <PID> --pr-checks passed|failed`.
    **Todo worker que volta** (pronto, parcial ou falhou), antes de qualquer outro `fila ...` por ele: mandar o uso
    que a sessão recebeu na volta dele (tokens do subagente, ferramentas usadas, duração em ms):
    `$PL fila worker <PID> --role dev --tokens <N> --steps <ferramentas> --duration-ms <ms> --result feito|parcial|falhou
@@ -206,6 +208,8 @@ sai dos turnos.
 
 `-- FILA SAIU <PID>` ou `PARE: ...` na saída de um `fila ...` (a tarefa não está mais com o agente): parar o worker
 dela (TaskStop), não abrir nem atualizar PR por ela e contar ao usuário em uma linha o que ficou feito (branch, PR).
+Depois do TaskStop, mandar `$PL fila worker <PID> --role dev --tokens <N> --steps <ferramentas> --duration-ms <ms> --key <key> --result parcial`
+(a entrega continua aceita para a tarefa que já esteve na fila) para o custo do worker parado subir.
 `ESPERE: ...` (409 `not_in_queue` de uma tarefa em refinamento): esperar a resposta, sem parar nem começar nada.
 
 ## Fila vazia e tarefas novas

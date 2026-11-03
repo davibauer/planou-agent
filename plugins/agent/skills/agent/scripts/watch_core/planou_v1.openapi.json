@@ -2474,6 +2474,12 @@
                                   "type": "string",
                                   "format": "date",
                                   "nullable": true
+                                },
+                                "until": {
+                                  "type": "string",
+                                  "format": "date",
+                                  "default": null,
+                                  "nullable": true
                                 }
                               },
                               "default": null,
@@ -3121,6 +3127,16 @@
                     ],
                     "type": "string",
                     "description": "só com state=done; ausente = done",
+                    "nullable": true
+                  },
+                  "pr_checks": {
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "running"
+                    ],
+                    "type": "string",
+                    "description": "checks da CI da PR; ausente = sem mudança",
                     "nullable": true
                   }
                 }
@@ -10228,6 +10244,16 @@
             "type": "string",
             "description": "só com state=done; ausente = done",
             "nullable": true
+          },
+          "pr_checks": {
+            "enum": [
+              "passed",
+              "failed",
+              "running"
+            ],
+            "type": "string",
+            "description": "checks da CI da PR; ausente = sem mudança",
+            "nullable": true
           }
         }
       },
@@ -11212,6 +11238,12 @@
                           "type": "string",
                           "format": "date",
                           "nullable": true
+                        },
+                        "until": {
+                          "type": "string",
+                          "format": "date",
+                          "default": null,
+                          "nullable": true
                         }
                       },
                       "default": null,
@@ -11542,6 +11574,12 @@
                     "type": "string",
                     "format": "date",
                     "nullable": true
+                  },
+                  "until": {
+                    "type": "string",
+                    "format": "date",
+                    "default": null,
+                    "nullable": true
                   }
                 },
                 "default": null,
@@ -11749,6 +11787,12 @@
           "since": {
             "type": "string",
             "format": "date",
+            "nullable": true
+          },
+          "until": {
+            "type": "string",
+            "format": "date",
+            "default": null,
             "nullable": true
           }
         },

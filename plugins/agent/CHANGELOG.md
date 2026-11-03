@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.107.0 (2026-11-03)
+- `fila started|in_review|done|blocked|handoff|tempo` aceitam `--pr-checks passed|failed|running` (Planou 0.114.1): o ícone da CI aparece na linha Entrega. Com `--pr-url` e sem `--pr-checks`, o plugin lê a CI da PR com `gh pr checks`; sem `gh` ou com erro, o campo não vai e o comando não falha.
+- O comportamento task-queue manda a CI de novo com `fila tempo <PID> --pr-checks ...` quando ela termina e, depois do TaskStop de uma tarefa que saiu, registra o worker parado com `fila worker ... --result parcial` para o custo não se perder.
+- Contrato do Planou sincronizado (0.114.1).
+
 ## 0.106.3 (2026-11-03)
 - Gravações: as ações de ata suas que a regra antiga deixou em Aguardando sem ninguém para esperar (quem vazio, "a definir" ou você mesmo) passam uma única vez para A fazer, sem data e sem lembrete novo, e o sync deixa de reenviá-las como Aguardando ao Planou. As que esperam outra pessoa nomeada e as já fechadas ficam como estão. O runner registra uma linha "ações de ata reclassificadas: N" por instância (PLN0470).
 

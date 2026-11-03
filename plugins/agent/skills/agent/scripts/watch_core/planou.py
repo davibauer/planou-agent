@@ -177,7 +177,7 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
   python3 -m watch_core.planou --agent job-scout key set | status | active |
       heartbeat PHASE [--next-heavy EPOCH] [--session-id ID] |
       poll [--next-heavy EPOCH] [--poll-s 90] [--wait 50] | cursor-commit | ack-delivered | events | ack SEQ | tarefa [PID | -] |
-      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] |
+      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] |
       fila tempo [PID] --remaining-h H [--estimate-h H] | fila refinar [PID] --note TEXT|- |
       fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--model M] [--key K] [--phases-from ARQ] |
       fila worker-start PID [--task PID2 ...] --role dev|integrator|other --label TEXT |
@@ -270,8 +270,10 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import stat
+import subprocess
 import sys
 import time
 import unicodedata
@@ -285,6 +287,7 @@ from . import column_roles
 from . import config
 from . import deadlines as _deadlines
 from . import fileio
+from . import procgroup
 
 VERSION = '0.26.0'
 TIMEOUT_S = 10
@@ -2766,8 +2769,45 @@ def _ask_first(values):
     return out or None
 
 
+PR_CHECKS = ('passed', 'failed', 'running')
+
+
+def _pr_checks(value):
+    """The CI state of the PR as Planou takes it (0.114.1, PLN0475), or None when not given."""
+    if value is None or value == '': return None
+    v = str(value).strip().lower()
+    if v not in PR_CHECKS: raise PlanouError(0, 'pr_checks', f'--pr-checks: {", ".join(PR_CHECKS)}')
+    return v
+
+
+def discover_pr_checks(pr_url, timeout=20):
+    """The CI state of a PR read with `gh pr checks <url> --json bucket,state`: any fail/cancel -> failed, else any
+    pending -> running, else (all pass or skipping) -> passed. None when there is no gh, no checks, a timeout or any
+    error: the field is then simply not sent and the command goes on. gh exits non-zero while checks fail or pend but
+    still prints the JSON, so the output is read whatever the exit code."""
+    if not pr_url: return None
+    try:
+        import repo_discovery
+    except ImportError:         # run as a module from elsewhere: the skill's scripts folder is the parent of watch_core
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import repo_discovery
+    env = repo_discovery.gh_env(_agent_config())        # the instance's gh account (its GH_CONFIG_DIR), not ours
+    if not shutil.which('gh', path=env.get('PATH')): return None
+    try:
+        r = procgroup.run(['gh', 'pr', 'checks', str(pr_url), '--json', 'bucket,state'], timeout, text=True, env=env,
+                          stdin=subprocess.DEVNULL)     # a timeout stops the children of gh too
+        rows = json.loads(r.stdout or '[]')
+    except (OSError, subprocess.SubprocessError, ValueError): return None
+    if not isinstance(rows, list) or not rows: return None
+    buckets = [str((x or {}).get('bucket') or '').lower() for x in rows if isinstance(x, dict)]
+    if not buckets: return None
+    if any(b in ('fail', 'cancel') for b in buckets): return 'failed'
+    if any(b == 'pending' or not b for b in buckets): return 'running'
+    return 'passed'
+
+
 def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None, ask_first=None,
-             resolution=None):
+             resolution=None, pr_checks=None):
     """POST /agent/tasks/{id}/progress for a task of the agent's queue (ref: pid, task_id or source_key; empty = the only
     one). started when the work begins; in_review with the draft PR (pr_url); done concludes the task; blocked with a
     note opens a decision in "Precisa de você" (the note never goes up under "minimum"). Returns the server answer.
@@ -2791,6 +2831,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
 
     `ask_first` (blocked only): the autonomy actions that made the agent stop (ASK_FIRST_ACTIONS); Planou then shows
     "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too."""
+    pr_checks = _pr_checks(pr_checks)       # any state (Planou 0.114.1): the CI state shown on the delivery line
     ask_first = _ask_first([ask_first] if isinstance(ask_first, str) else ask_first)
     if ask_first and state != 'blocked': raise PlanouError(0, 'ask_first', '--ask-first so vale com `fila blocked`')
     if state not in PROGRESS_STATES: raise PlanouError(0, 'state', f'estado {state}: use {", ".join(PROGRESS_STATES)}')
@@ -2815,6 +2856,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         b = {k: v for k, v in {'state': sent, 'pr_url': pr_url, 'note': note}.items() if v}
         b.update({k: v for k, v in {'estimate_h': estimate_h, 'remaining_h': rem}.items() if v is not None})
         if ask_first: b['ask_first'] = ask_first
+        if pr_checks: b['pr_checks'] = pr_checks
         if resolution and sent == 'done': b['resolution'] = resolution
         return b
 
@@ -2943,17 +2985,19 @@ def request_changes(text, ref=None, pr_url=None, now=None, to=None):
 TIME_STATES = ('started', 'in_review')
 
 
-def update_time(ref=None, remaining_h=None, estimate_h=None, now=None):
+def update_time(ref=None, remaining_h=None, estimate_h=None, now=None, pr_checks=None):
     """`fila tempo`: sends the hours of a task without changing its state (the progress route needs one, so it resends
     the task's current state: started or in_review; a blocked task would rewrite its question, a task not started yet
     has no work to count). Returns the server answer."""
-    if remaining_h is None and estimate_h is None: raise PlanouError(0, 'hours', 'diga --remaining-h e/ou --estimate-h')
+    pr_checks = _pr_checks(pr_checks)
+    if remaining_h is None and estimate_h is None and not pr_checks:
+        raise PlanouError(0, 'hours', 'diga --remaining-h e/ou --estimate-h (ou --pr-checks)')
     tid, entry = _queue_entry(ref)
     _wait_changes(tid, entry, ref)
     st = (entry or {}).get('state') or 'started'
     if st not in TIME_STATES:
         raise PlanouError(0, 'state', f'a tarefa esta em {st}: o tempo vai com o proximo passo (fila started|in_review|done)')
-    return progress(st, ref, now=now, estimate_h=estimate_h, remaining_h=remaining_h)
+    return progress(st, ref, now=now, estimate_h=estimate_h, remaining_h=remaining_h, pr_checks=pr_checks)
 
 
 DELIVERY_ROLES = {'dev': 'dev', 'integrator': 'integrator', 'integrador': 'integrator'}
@@ -4657,7 +4701,7 @@ def _fila(a, ap):
         ap.error('--resolution (done|no_action|discarded) so vale com `fila done`')
     if sub not in PROGRESS_STATES + ('tempo',):
         ap.error('use: fila ver | fila started|in_review|done|blocked|handoff|refinar [PID] [--pr-url URL] [--note TEXTO] '
-                 '[--estimate-h H] [--remaining-h H] | fila tempo [PID] --remaining-h H [--estimate-h H] | '
+                 '[--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] | fila tempo [PID] --remaining-h H [--estimate-h H] [--pr-checks passed|failed|running] | '
                  'fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--key K] [--phases-from ARQ] | '
                  'fila worker-start PID [--task PID2 ...] --role dev|integrator|other --label TEXTO | '
                  'fila ajuste PID --text TEXTO [--pr-url URL] [--to author|previous]')
@@ -4683,10 +4727,11 @@ def _fila(a, ap):
                   'worker novo, nunca da sessao nem do worker que entregou', file=sys.stderr)
     try:
         if sub == 'tempo':
-            res = update_time(ref, a.remaining_h, a.estimate_h)
+            res = update_time(ref, a.remaining_h, a.estimate_h, pr_checks=a.pr_checks)
         else:
+            checks = _pr_checks(a.pr_checks) or (discover_pr_checks(a.pr_url) if a.pr_url else None)
             res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h,
-                           ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None)
+                           ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None, pr_checks=checks)
             if sub == 'blocked' and paused():
                 tid, entry = _queue_entry(res.get('pid') or ref)
                 pause_hold(res.get('task_id') or tid, res.get('pid') or (entry or {}).get('pid'), (entry or {}).get('title'))
@@ -5853,6 +5898,7 @@ def main(argv=None):
     ap.add_argument('--no-free-text', action='store_true', help='options only, no free answer')
     ap.add_argument('--code'); ap.add_argument('--severity'); ap.add_argument('--reason')
     ap.add_argument('--pr-url', help='fila in_review: the draft PR; fila ajuste: the PR to send back (default: the task\'s)')
+    ap.add_argument('--pr-checks', help='fila: CI of the PR (passed|failed|running); with --pr-url and without this, read from gh')
     ap.add_argument('--note', help="fila: note for the person (blocked: what the agent needs); '-' reads stdin")
     ap.add_argument('--ask-first', action='append', help='fila blocked: the autonomy action(s) that stopped the agent '
                     '(mark_ready_for_review, merge, message_people, touch_production, open_change_request); repeat or use commas')
