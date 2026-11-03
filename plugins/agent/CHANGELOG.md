@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.106.3 (2026-11-03)
+- Gravações: as ações de ata suas que a regra antiga deixou em Aguardando sem ninguém para esperar (quem vazio, "a definir" ou você mesmo) passam uma única vez para A fazer, sem data e sem lembrete novo, e o sync deixa de reenviá-las como Aguardando ao Planou. As que esperam outra pessoa nomeada e as já fechadas ficam como estão. O runner registra uma linha "ações de ata reclassificadas: N" por instância (PLN0470).
+
 ## 0.106.2 (2026-11-03)
 - Textos: `pergunta --auto` e a renovação de token não são mais descritos como "alerta baixo" em Precisa de você. Desde o Planou 0.109.0 o "Decidi: ..." vira comentário na tarefa, e sem tarefa vira um alerta que expira em 3 dias.
 - O refinamento do backlog não cita mais a tela de Cerimônias ao enviar a lista: "LISTA ENVIADA: <n> sugestoes; a aprovacao fica com a pessoa."

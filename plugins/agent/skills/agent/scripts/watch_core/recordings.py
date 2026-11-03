@@ -431,6 +431,32 @@ def classifica_prazo(prazo, acao='', ref=None, aliases=None):
     return 'pendencia', None
 
 
+
+# PLN0470: one-off migration of the ata actions routed by the old rule (before PLN0457) to 'aguardando' with nobody else
+# to wait for (quem empty, "a definir" or the user himself). The sync kept resending them as Aguardando to Planou, so a
+# move there was undone on the next tick. They become the user's own to-do with no date: balde 'proximas' (A fazer), same
+# task code, no new reminder. Actions waiting on another named person and closed actions are left alone.
+MIGRACAO_PLN0470 = 'migrada_pln0470'
+_QUEM_VAZIO = ('', 'a definir', '?')
+
+
+def migra_acoes_ata_pln0470(s, aliases=None):
+    """Runs once per instance state (marker in s['gravacoes']). Returns how many actions were reclassified, or None when
+    it had already run."""
+    st = s.setdefault('gravacoes', {'eventos': {}, 'tamanhos': {}, 'acoes': []})
+    if st.get(MIGRACAO_PLN0470): return None
+    aliases = aliases or _cfg_aliases()
+    n = 0
+    for a in s.get('acoes') or []:
+        if a.get('status') != 'aberta' or a.get('balde') != 'aguardando' or '(ata ' not in (a.get('texto') or ''): continue
+        quem = (a.get('quem') or '').strip()
+        if quem.lower() not in _QUEM_VAZIO and not _e_o_usuario(quem, aliases): continue
+        a['balde'], a['quem'], a[MIGRACAO_PLN0470] = 'proximas', None, True
+        n += 1
+    st[MIGRACAO_PLN0470] = datetime.now(timezone.utc).isoformat()
+    return n
+
+
 def lanca_transcricao(path):
     """run.sh em background (nohup); o proprio run.sh faz flock da GPU. Devolve o pid."""
     os.makedirs(os.path.join(MM_HOME, 'state'), exist_ok=True)
@@ -620,6 +646,10 @@ def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_J
     primeira = 'gravacoes' not in s and desde is None
     st = s.setdefault('gravacoes', {'eventos': {}, 'tamanhos': {}, 'acoes': []})
     fixo = desde is not None
+    migradas = None
+    if not (dry or fixo):
+        migradas = migra_acoes_ata_pln0470(s)
+        if migradas is not None: print(f'ações de ata reclassificadas: {migradas}', file=sys.stderr)
     agora = datetime.now(timezone.utc)
     ini = (desde if desde is not None else agora - janela)
     evs = eventos(ini, agora)
@@ -677,7 +707,8 @@ def tick(s, agent, eventos, enfileira, desde=None, dry=False, janela=GRAVACOES_J
         st['duracoes'] = {v['ts']: duracoes[v['ts']] for v in vids if v['ts'] in duracoes}
         corte = (agora - timedelta(days=7)).isoformat()
         st['eventos'] = {k: e for k, e in st['eventos'].items() if e.get('visto', '') >= corte}
-    return {'mudancas': out, 'lancadas': lancadas, 'acoes': acoes_novas, 'todas': sit if fixo else [], 'base': primeira}
+    return {'mudancas': out, 'lancadas': lancadas, 'acoes': acoes_novas, 'todas': sit if fixo else [], 'base': primeira,
+            'migradas_pln0470': migradas}
 
 
 ROTULO = {'nao_gravada': 'NAO GRAVADA', 'gravando': 'GRAVANDO (video ainda aberto — nao transcreve)', 'finalizando': 'FINALIZANDO (espera o tamanho parar)',
