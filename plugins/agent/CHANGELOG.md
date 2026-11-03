@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.106.0 (2026-11-02)
+- Provisionador: atualização da cópia do instalador parada há mais de 24 h com versão nova publicada (mudança local, commit local, outra branch ou remote, avanço recusado) vira um alerta médio no Planou com o motivo, os arquivos e a versão em uso contra a disponível, repetido no máximo uma vez por dia; quando volta a andar, um alerta baixo "atualização voltou" (PLN0452).
+
 ## 0.105.4 (2026-11-02)
 - Corrigido o atraso entre tentativas de arquivar uma gravação que falha: depois de dezenas de falhas seguidas o cálculo estourava (OverflowError) e travava a atualização automática do plugin; agora o atraso para de crescer no teto de 6 h (PLN0451).
 

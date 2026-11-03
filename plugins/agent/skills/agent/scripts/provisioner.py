@@ -42,6 +42,9 @@ one (other untracked files do not count; the rule is watch_core/self_update.py, 
 also reports to Planou as plugin_self_update). Any other
 git copy (a clone of development such as ~/src/claude-plugins) is never touched: one log line per reason, kept in
 data/update.json until the reason changes. After the swap, the same as the archive: restart on it (75), the canary.
+PLN0452: held back (a git_skip reason, or a refused swap or fast-forward) for more than a day with a newer release out,
+one Planou alert (medium) with the reason, the files, the version in use and the one out, at most once a day while it
+lasts, and a low "voltou" when it moves again; through watch_core.planou.raise_alert under a local agent's key.
 
 Adopted agents (PLN0188): every pass also sends Planou the inventory of the machine (the agents of
 ~/.config/team/agents.json and the agent plugin's instances missing from it, through team_agents) with the state of
@@ -1294,14 +1297,19 @@ def git(root, *args, timeout=None):
         raise Fail(str(e))
 
 
-def git_skip_reason(root):
-    """Why the git clone `root` is not updated here (the log words), or None when it may be: the shared rule of
-    watch_core.self_update.git_skip, against GIT_REPO read now."""
+def git_skip_code(root):
+    """Why the git clone `root` is not updated here (a code of watch_core.self_update.REASONS), or None when it may be:
+    the shared rule of watch_core.self_update.git_skip, against GIT_REPO read now."""
     from watch_core import self_update as su
     try:
-        code = su.git_skip(root, repo=GIT_REPO)
+        return su.git_skip(root, repo=GIT_REPO)
     except su.GitError as e:
         raise Fail(str(e))
+
+
+def git_skip_reason(root):
+    """git_skip_code in the log words."""
+    code = git_skip_code(root)
     return GIT_SKIP_TEXT.get(code, code) if code else None
 
 
@@ -1361,11 +1369,174 @@ def unpack(archive, dest):
             os.chmod(target, 0o755 if m.mode & 0o111 else 0o644)
 
 
+# ---------------------------------------------------------------- update held back (PLN0452)
+# 20/10 to 02/11/2026 the installer's clone had a changed tracked file and no new version reached the agents for 13
+# days: the reason was only in this log and in the heartbeat. Now, held back for STUCK_ALERT_AFTER_S with a newer
+# release out, one Planou alert (medium), again at most every STUCK_REPEAT_S, and a low one when it moves again.
+
+STUCK_ALERT_AFTER_S = 24 * 3600
+STUCK_REPEAT_S = 24 * 3600
+STUCK_FILES_MAX = 5
+STUCK_HINT = {
+    'local_changes': 'veja a mudanca com `git -C {copy} diff` e desfaca (`git -C {copy} checkout -- <arquivo>`) ou '
+                     'guarde (`git -C {copy} stash`)',
+    'local_commits': 'leve o commit local para outro lugar e volte a copia para a main do origin '
+                     '(`git -C {copy} log origin/main..HEAD` mostra qual e)',
+    'other_branch': 'volte a copia para a main (`git -C {copy} switch main`)',
+    'other_remote': 'aponte o origin para o davibauer/planou-agent (`git -C {copy} remote -v` mostra o atual)',
+    'untracked_conflict': 'tire o arquivo nao rastreado do caminho (a versao nova traz um com o mesmo nome)',
+    'not_own_repo': 'a pasta precisa ser o repositorio do plugin, nao uma subpasta de outro',
+    'no_git': 'instale o git ou reinstale pelo instalador por arquivo',
+}
+
+
+def short_path(p):
+    home = os.path.expanduser('~')
+    return '~' + p[len(home):] if p == home or p.startswith(home + os.sep) else p
+
+
+def short_text(text):
+    """`text` (a reason, often git's own output) with the home folder written as ~, as short_path does to a path."""
+    home = os.path.expanduser('~').rstrip(os.sep)
+    if not home: return text
+    # the home itself as a whole path: not inside another path (/mnt/backup/home/u, /var/root) nor a longer name (/home/u2)
+    return re.sub(r'(?<![\w.~/-])' + re.escape(home) + r'(?![\w.-])', '~', text)
+
+
+def held_files(root, code):
+    """The repo-relative files behind a git_skip code (at most STUCK_FILES_MAX), [] when it names none or git fails."""
+    from watch_core import self_update as su
+    try:
+        if code == 'local_changes':
+            c, out = su.git(root, 'diff', '--name-only', 'HEAD', timeout=30)
+        elif code == 'local_commits':
+            c, out = su.git(root, 'log', '--name-only', '--format=', 'HEAD', '--not', '--remotes=origin', timeout=30)
+        elif code == 'untracked_conflict':
+            c, out = su.git(root, 'ls-files', '--others', '--exclude-standard', timeout=30)
+            c2, tree = su.git(root, 'ls-tree', '-r', '--name-only', f'refs/remotes/origin/{GIT_BRANCH}', timeout=30)
+            if c2 != 0: return []
+            out = '\n'.join(sorted(set(out.splitlines()) & set(tree.splitlines())))
+        else:
+            return []
+    except su.GitError:
+        return []
+    if c != 0: return []
+    seen = []
+    for f in out.splitlines():
+        f = f.strip()
+        if f and f not in seen: seen.append(f)
+    return seen[:STUCK_FILES_MAX]
+
+
+def alert_agents(names):
+    """The instances that may send the update alert, in the order tried: `planou` first, then the ones this
+    provisioner created, then the others alphabetically. Never a work-watch-* (a company's agent) and never one whose
+    "planou.confidentiality" is "minimum": the alert would go out under a company's identity and land in its cache."""
+    from watch_core import planou as pl
+    names = sorted(n for n in names if not n.startswith('work-watch'))
+    names.sort(key=lambda n: (n != 'planou', not isinstance(marker(n), dict)))
+    out = []
+    for n in names:
+        try:
+            pc = pl.agent_settings(instance_root(n), n) or {}
+        except Exception:
+            continue
+        if (pc.get('confidentiality') or 'title') == 'minimum': continue
+        out.append(n)
+    return out
+
+
+def send_update_alert(title, severity, context, ref):
+    """One Planou alert about the update, through watch_core.planou.raise_alert under the key of an agent of this
+    computer (the provisioner's own credential has no /asks), chosen by alert_agents: the first one whose Planou is on;
+    a 401/403 tries the next one. True when Planou took it; False (tried again on the next round) when no instance can
+    send or Planou did not answer. Never raises: a failure here must not stop the update nor the provisioner.
+    configure_agent leaves watch_core.planou's global state (_S) on that agent; nothing else the provisioner uses
+    (self_update, rollout, team_agents) calls watch_core.planou today, so it contaminates nothing; keep it that way."""
+    try:
+        from watch_core import planou as pl
+        try:
+            names = [n for n in os.listdir(agent_base()) if os.path.isfile(key_file(n))]
+        except OSError:
+            names = []
+        for n in alert_agents(names):
+            try:
+                pl.configure_agent(n, instance_root(n))
+                if not pl.active(): continue
+                pl.raise_alert(title[:300], 'plugin_update', severity, context[:4000], None, ref)
+                return True
+            except pl.PlanouError as e:
+                if e.status in (401, 403): continue          # a revoked key: the next agent may still send
+                log(f'aviso: alerta da atualizacao fica para a proxima volta (Planou: {one_line(e.message, 120)})')
+                return False
+            except (OSError, ValueError):
+                continue
+    except Exception as e:                                   # never the message: it may carry what was sent
+        log(f'aviso: alerta da atualizacao fica para a proxima volta (erro {type(e).__name__})')
+        return False
+    log('aviso: alerta da atualizacao fica para a proxima volta (nenhum agente deste computador pode mandar)')
+    return False
+
+
+def update_held(st, now, reason, code, files, copy, disk, latest):
+    """The update did not happen for `reason` (git_skip of the clone, or a refused swap). Keeps since when it started
+    (a new reason keeps the start) and, with a newer release `latest` than `disk` and STUCK_ALERT_AFTER_S gone, sends
+    the medium alert, again at most every STUCK_REPEAT_S. Without a newer release nothing is held back: no alert, and
+    the "voltou" one when an alert went out. Changes st; the caller writes it."""
+    from watch_core import rollout as ro
+    reason = short_text(reason)
+    s = st.get('stuck') if isinstance(st.get('stuck'), dict) else {}
+    s.setdefault('since', int(now))
+    s.update(reason=reason, files=list(files or []))
+    st['stuck'] = s
+    if now - float(s['since']) < STUCK_ALERT_AFTER_S: return
+    if not latest or not disk or ro.vkey(latest) <= ro.vkey(disk):
+        if s.get('alerted_at') and update_back(st, now, disk): st['stuck'] = {'since': s['since'], 'reason': reason,
+                                                                              'files': s['files']}
+        return
+    s.update(version=disk, available=latest)
+    if s.get('alerted_at') and now - float(s['alerted_at']) < STUCK_REPEAT_S: return
+    days = int((now - float(s['since'])) // 86400)
+    title = (f'Atualizacao do plugin agent parada ha {days} dia{"s" if days != 1 else ""} em {computer_name()}: '
+             f'{disk} em uso, {latest} disponivel')
+    hint = STUCK_HINT.get(code)
+    ctx = '\n'.join([
+        f'Motivo: {reason}.',
+        'Arquivo: ' + (', '.join(s['files']) if s['files'] else 'nenhum arquivo especifico') + '.',
+        f'Copia: {copy}.',
+        f'Versao em uso: {disk}; disponivel: {latest}. Nenhum agente deste computador recebe versao nova enquanto isso durar.',
+        (f'Para destravar: {hint.format(copy=copy)}. ' if hint else '') +
+        'O provisionador avanca sozinho na volta seguinte (ate 30 min) e avisa quando voltar.'])
+    ref = f'plugin-update-stuck-{s["since"]}-{time.strftime("%Y-%m-%d", time.localtime(now))}'
+    if send_update_alert(title, 'medium', ctx, ref):
+        s['alerted_at'], s['alerts'] = int(now), int(s.get('alerts') or 0) + 1
+        log(f'atualizacao parada ha {days} dia(s) ({reason}): alerta mandado ao Planou')
+
+
+def update_back(st, now, disk):
+    """The update moves again (done, or nothing newer to bring): the low "voltou" alert when the medium one went out
+    for this stretch. True when nothing more is owed (st['stuck'] may go); False keeps it for the next round."""
+    s = st.get('stuck') if isinstance(st.get('stuck'), dict) else None
+    if not s or not s.get('alerted_at'): return True
+    title = f'Atualizacao do plugin agent voltou em {computer_name()}: {disk} em uso'
+    ctx = (f'A copia do instalador estava parada desde {time.strftime("%d/%m %H:%M", time.localtime(float(s["since"])))} '
+           f'({s.get("reason")}). Agora esta em {disk} e segue a versao publicada sozinha. Nada a fazer.')
+    if not send_update_alert(title, 'low', ctx, f'plugin-update-back-{s["since"]}'): return False
+    log('atualizacao voltou a andar: alerta baixo mandado ao Planou')
+    return True
+
+
+def update_ok(st, now, disk):
+    """Nothing held back any more: st['stuck'] goes once the "voltou" alert (if owed) went out."""
+    if 'stuck' in st and update_back(st, now, disk): st.pop('stuck', None)
+
+
 def auto_update(cfg, now=None, force=False):
     """Brings the installer's copy to the latest release when it is newer (see the docstring at the top): the archive
     copy by the release's .tar.gz, the installer's git clone by a fast-forward to the release tag (PLN0352). Returns
     the new version, or None. Reads the release at most every update_every_s; a failure is logged and tried on the
-    next round. Another git copy (development) is never touched: one log line per reason."""
+    next round. Another git copy (development) is never touched: one log line per reason. PLN0452: held back for a
+    day with a newer release out, Planou gets an alert (update_held)."""
     from watch_core import self_update as su
     copy = su.kind(live_dir(), cfg.get('auto_update'))       # the same rule the heartbeat reports (PLN0353)
     if copy in ('disabled', 'development'): return None
@@ -1378,29 +1549,65 @@ def auto_update(cfg, now=None, force=False):
     if not isinstance(st, dict): st = {}
     if not force and now - float(st.get('checked_at') or 0) < int(cfg['update_every_s']): return None
     st['checked_at'] = int(now)
+    base = str(cfg['releases_url']).rstrip('/')
+    _plugin, disk = ro.plugin_info(live_dir())
     if clone:
-        why = git_skip_reason(clone)
+        code = git_skip_code(clone)
+        why = GIT_SKIP_TEXT.get(code, code) if code else None
         said = st.get('git_skip')
         if why:
             st['git_skip'] = why
-            write_atomic(path, json.dumps(st))
             if said != why: log(f'atualizacao sozinha: copia git em {clone} fica como esta ({why})')
+            stuck = st.get('stuck') if isinstance(st.get('stuck'), dict) else {}
+            latest = None
+            if now - float(stuck.get('since') or now) >= STUCK_ALERT_AFTER_S:
+                # only a day into it: the release is read to know whether something newer is held back
+                try:
+                    tag = latest_release(base)
+                    latest = tag[1:] if tag else None
+                except (urllib.error.URLError, OSError, ValueError):
+                    write_atomic(path, json.dumps(st))
+                    return None                      # unknown is not "nothing newer": the state stays as it was
+            update_held(st, now, why, code, held_files(clone, code), short_path(clone), disk, latest)
+            write_atomic(path, json.dumps(st))
             return None
         st.pop('git_skip', None)
     write_atomic(path, json.dumps(st))
-    _plugin, disk = ro.plugin_info(live_dir())
-    base = str(cfg['releases_url']).rstrip('/')
     tag = latest_release(base)
-    if not tag or not disk or ro.vkey(tag[1:]) <= ro.vkey(disk): return None
-    if clone:
-        sha = git_update(clone, tag)
-        _plugin, now_disk = ro.plugin_info(live_dir())
-        if now_disk != tag[1:]:
-            raise Fail(f'a copia git foi para {tag} mas o plugin.json diz {now_disk}')
-        st['updated'] = {'from': disk, 'to': tag[1:], 'at': int(now), 'how': 'git'}
+    if not tag or not disk or ro.vkey(tag[1:]) <= ro.vkey(disk):
+        if 'stuck' in st:
+            update_ok(st, now, disk)
+            write_atomic(path, json.dumps(st))
+        return None
+    try:
+        new = update_clone(clone, tag, disk) if clone else update_archive(root, base, tag)
+    except Fail as e:
+        update_held(st, now, one_line(str(e), 200), None, [], short_path(clone or root), disk, tag[1:])
         write_atomic(path, json.dumps(st))
-        log(f'plugin agent atualizado sozinho: {disk} -> {tag[1:]} (copia git, fast-forward ate a tag {tag}, {sha[:12]})')
-        return tag[1:]
+        raise
+    # the record of the update first: the "voltou" alert after it can never lose it
+    st['updated'] = dict({'from': disk, 'to': tag[1:], 'at': int(now)}, **({'how': 'git'} if clone else {}))
+    write_atomic(path, json.dumps(st))
+    log(f'plugin agent atualizado sozinho: {disk} -> {tag[1:]} ' +
+        (f'(copia git, fast-forward ate a tag {tag}, {new[:12]})' if clone else '(arquivo da versao conferido pelo SHA-256)'))
+    if 'stuck' in st:
+        update_ok(st, now, tag[1:])
+        write_atomic(path, json.dumps(st))
+    return tag[1:]
+
+
+def update_clone(clone, tag, disk):
+    """The fast-forward of the installer's clone to `tag`; the commit, or Fail."""
+    from watch_core import rollout as ro
+    sha = git_update(clone, tag)
+    _plugin, now_disk = ro.plugin_info(live_dir())
+    if now_disk != tag[1:]:
+        raise Fail(f'a copia git foi para {tag} mas o plugin.json diz {now_disk}')
+    return sha
+
+
+def update_archive(root, base, tag):
+    """The archive copy swapped for the release `tag`, checked by its .sha256; Fail leaves the copy as it was."""
     url = f'{base}/download/{tag}/planou-agent-{tag}.tar.gz'
     work = tempfile.mkdtemp(prefix='.planou-update.', dir=os.path.dirname(root))
     try:
@@ -1429,10 +1636,7 @@ def auto_update(cfg, now=None, force=False):
             raise
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    st['updated'] = {'from': disk, 'to': tag[1:], 'at': int(now)}
-    write_atomic(path, json.dumps(st))
-    log(f'plugin agent atualizado sozinho: {disk} -> {tag[1:]} (arquivo da versao conferido pelo SHA-256)')
-    return tag[1:]
+    return ''
 
 
 def try_update(cfg):

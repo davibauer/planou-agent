@@ -292,6 +292,26 @@ serviço reinicia na versão nova (75), o canário testa e libera, os outros seg
 `git pull` ou com o gancho `tag_pull`. O `.sha256` vem da mesma Release: confere que o arquivo
 chegou inteiro e certo, não quem o publicou.
 
+**Atualização parada vira alerta no Planou (PLN0452).** De 20/10 a 02/11/2026 o clone do instalador ficou 13 dias sem
+avançar por uma mudança local num arquivo rastreado, e ninguém viu: o motivo só estava no log do provisionador e no
+heartbeat. Agora, quando a cópia do instalador não avança (um dos motivos acima, ou o avanço recusado: tag fora do
+`origin`, fast-forward impossível, `.sha256` que não confere) há mais de 24 h e existe versão nova publicada, o
+provisionador manda **um** alerta ao Planou (severidade média) com o motivo, os arquivos (até 5, caminho dentro do
+repositório), a pasta da cópia (com `~`), a versão em uso e a disponível, e como destravar. Enquanto durar, repete no
+máximo uma vez a cada 24 h. Quando volta a andar (atualizou, ou não há mais versão parada), manda um alerta baixo
+"atualização voltou", só se o médio tinha saído. Sem versão nova, nada. Durante as primeiras 24 h o clone parado
+continua sem ler a Release; depois disso ela é lida a cada `update_every_s` para saber se há versão parada.
+
+O provisionador não tem rota de alerta com a credencial dele: o alerta sai pelo `watch_core.planou.raise_alert`, com
+a chave de um agente deste computador: a instância `planou` se existir e estiver ligada; senão, primeiro as que o
+provisionador criou, depois as outras, nunca uma `work-watch-*` nem uma com `planou.confidentiality` = `"minimum"` (o
+alerta sairia com a identidade de um agente de empresa). Uma chave recusada (401/403) passa para a próxima elegível.
+Sem nenhuma, ou com o Planou fora do ar, tenta de novo na volta seguinte. O envio nunca derruba a atualização nem o
+provisionador (qualquer erro vira uma linha no log, sem o conteúdo), e o registro da atualização (`updated` e o log)
+é gravado antes do alerta "voltou". O motivo vai com a home trocada por `~`, também quando é a saída do git. O estado fica em
+`data/update.json` (`stuck`: desde quando, motivo, arquivos, versões e quando alertou). Nada de dado de cliente vai no
+alerta: só caminhos do repositório do plugin, versões e o nome do computador.
+
 ## Configuração
 
 `~/.config/agent-provisioner/config.json` (todas as chaves são opcionais):
