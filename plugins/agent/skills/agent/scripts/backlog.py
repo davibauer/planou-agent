@@ -20,12 +20,14 @@ Plan (JSON, keys in English; texts in the instance language):
 What goes up, per task (source_key `<agent>:meta-<goal>-<code>`, so a rerun never duplicates):
 - title (with `Decidir: ` when `decide`), priority 1..4, description with "O que", "Por quê", "Pronto quando", the goal;
 - `blocked_by` with the source keys of the same plan (Planou resolves them after the whole batch exists) or PIDs;
-- `agent_can_do` {value, reason} (never on a `Decidir:` task);
+- `agent_can_do` {value, reason}: never on a decision (`decide`, or a title `Decidir:`/`Decide:`/`Decisao:`) nor on a
+  task whose title or "what" is about cost, billing, account, secret, credential, client, production or deploy
+  (watch_core.suggestions.seal_refusal, the same refusal as the suggestions): the plan is refused;
 - no state: the task is born in Backlog for the person to approve. Only in an autonomous project, a task with
   `ready_reason` goes to `todo` (and to `column`, when given: a column owned by another agent sends it to that agent's
-  queue). In an autonomous project a backlog task goes WITHOUT `agent_can_do`: Planou's idle pull hands a backlog task
-  with the seal to the agent that follows it, and that is this agent (the one that created it), not the one who builds
-  it; the seal then goes as a line of the description.
+  queue). The seal goes as `agent_can_do` in every project, a backlog task of an autonomous project too (PLN0440): since
+  PLN0157 Planou's idle pull hands a sealed backlog task to the owner of the A fazer column or of the project (the one
+  who builds it), not to the agent that follows it, so the seal no longer needs to be held back as a line of text.
 
 Limits: at most `behavior_config.backlog-planning.max_tasks` tasks per goal (default 8; `--max` after the person's OK), the
 texts are checked for secrets, the plan is refused under `"confidentiality": "minimum"` and in test mode (`--dry`
@@ -41,6 +43,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from watch_core import planou as P   # noqa: E402
+from watch_core.suggestions import seal_refusal   # noqa: E402
 
 DEFAULT_MAX = 8
 CODE_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
@@ -88,7 +91,6 @@ def description(t, goal):
     if t.get('done_when'):
         lines.append('Pronto quando:')
         lines += [f'- {d}' for d in t['done_when']]
-    if t.get('_seal_note'): lines.append(t['_seal_note'])
     lines.append(f'Meta: {goal["ref"]}' + (f' ({goal["title"]})' if goal.get('title') else '') + '.')
     return '\n'.join(lines)
 
@@ -143,6 +145,10 @@ def validate(plan, known_codes=(), max_tasks=DEFAULT_MAX):
         deps = [str(d).strip() for d in deps if str(d).strip()]
         can = t.get('agent_can_do')
         if decide and can: err.append(f'{where}: uma decisão da pessoa ("decide") não leva "agent_can_do"')
+        elif isinstance(can, str) and can.strip() and (no_seal := seal_refusal(full, what)):
+            # the same refusal as the suggestions (PLN0440): a decision without "decide", cost, account, secret, client,
+            # production or deploy work never takes the seal
+            err.append(f'{where}: "agent_can_do" recusado: {no_seal}; use "agent_can_do": false')
         if can is True: err.append(f'{where}: "agent_can_do": diga o motivo curto (texto), ou false')
         if can not in (None, False, True) and not isinstance(can, str): err.append(f'{where}: "agent_can_do" é um texto ou false')
         ready = _one(t.get('ready_reason'))
@@ -222,14 +228,12 @@ def build(plan, agent, autonomy, now):
     codes = {t['code'] for t in plan['tasks']}
     for t in plan['tasks']:
         out_of_backlog = bool(t['ready_reason']) and autonomy == 'autonomous'
-        if t['agent_can_do'] and autonomy == 'autonomous' and not out_of_backlog:
-            t['_seal_note'] = f'Um agente pode fazer: {t["agent_can_do"]}.'
         x = {'source_key': f'{prefix}-{t["code"]}', 'source_id': f'{g["ref"]}/{t["code"]}', 'title': t['title'],
              'priority': t['priority'], 'origin': origin, 'description': description(t, g)[:DESCRIPTION_MAX]}
         if project: x['project'] = project
         if t['depends_on']:
             x['blocked_by'] = [f'{prefix}-{d}' if d in codes or not PID_RE.match(d) else d.upper() for d in t['depends_on']]
-        if t['agent_can_do'] and not t.get('_seal_note'): x['agent_can_do'] = {'value': True, 'reason': t['agent_can_do']}
+        if t['agent_can_do']: x['agent_can_do'] = {'value': True, 'reason': t['agent_can_do']}
         elif t['agent_can_do'] is False: x['agent_can_do'] = {'value': False, 'reason': None}
         if t['estimate_h'] is not None: x['estimate_h'] = t['estimate_h']
         if epic_ref: x['epic'] = epic_ref

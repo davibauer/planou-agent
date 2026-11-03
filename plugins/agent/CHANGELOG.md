@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.103.0 (2026-11-02)
+- `backlog.py`: num projeto autônomo, a tarefa que fica no Backlog sobe com o selo `agent_can_do` {value, reason}, como em qualquer projeto, e não mais só com a linha "Um agente pode fazer: ..." na descrição. Desde a PLN0157 a vaga livre do Planou entrega a tarefa selada ao dono da coluna A fazer ou do projeto, não ao agente de produto que a criou, então o selo não precisa mais ser segurado (PLN0440).
+- Comando novo `agent.py <instância> --suggestions selar <PID|sug-chave> "<motivo>"`: a sessão do agente dono do projeto tria a sugestão e manda só o `agent_can_do` {value: true, reason} da tarefa, para a vaga livre do Planou poder puxá-la. Recusa sem enviar nada um título `Decidir:`, título ou assunto que fale de custo, pagamento, conta, segredo, credencial, cliente ou produção (lista curta no código), motivo com cara de segredo, sugestão ainda não criada ou apagada pela pessoa. `selar <PID> -` tira o selo; o "+1" nunca reenvia o selo. `--suggestions` mostra "(selada: ...)" nas que têm selo.
+- BEHAVIOR.md do suggestion-intake e do backlog-planning dizem a regra nova do selo.
+- `selar` manda o título guardado e o `base_version` (o `/v1/agent/sync` recusava o item sem título). Conflito (a pessoa mexeu na tarefa) não grava nada, nem a versão nova; um segundo `selar` da mesma tarefa é recusado, para não repor o selo que a pessoa tirou.
+- A recusa do selo é uma função só (`watch_core.suggestions.seal_refusal`), usada pelas sugestões e pelo `backlog.py`: decisão (`Decidir:`, `Decide:`, `Decisão:`) e palavras inteiras, sem acento, com plural simples, de custo, cost, orçamento, preço, pagamento, payment, pay, cobrança, fatura, faturamento, billing, invoice, conta, account, segredo, secret, senha, password, token, chave, key, credencial, credential, cliente, client, customer, produção, production, prod e deploy. O "selar" não olha mais `ignored_fields` para o selo (o Planou nunca o põe lá). "product" e "produto" não recusam. No `backlog.py` o plano com selo nessas tarefas é recusado.
+
 ## 0.102.2 (2026-11-02)
 - Dólar: o aviso não quebra mais (`min() arg is an empty sequence`) quando todas as cotações do histórico são mais velhas que a janela de dias; fica em silêncio até chegar uma cotação nova.
 

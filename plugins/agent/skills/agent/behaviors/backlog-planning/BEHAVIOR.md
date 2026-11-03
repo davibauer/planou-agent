@@ -81,10 +81,12 @@ Escrever o plano num arquivo (JSON, formato em `scripts/backlog.py`) na pasta `d
   pronta: pedido explícito, sem decisão pendente, escopo fechado) nasce em A fazer. Com `"column": "<estado>"` ela
   nasce nessa coluna; se a coluna tem dono (o dev), vai para a fila dele (a linha `COLUNA ...` diz o dono). Sem dono,
   fica com a pessoa. Fora de projeto autônomo o `ready_reason` é ignorado e a tarefa fica no Backlog (o comando avisa).
-  - Cuidado do projeto autônomo: a vaga livre do Planou puxa do Backlog as tarefas com selo para o agente que **as
-    acompanha**, e quem acompanha é quem criou (este agente), não o dev. Por isso, num projeto autônomo, a tarefa que
-    fica no Backlog vai sem o selo, com a linha "Um agente pode fazer: ..." na descrição. Para o dev pegar sozinho, use
-    `ready_reason` e `column` com a coluna dele.
+  - Selo no projeto autônomo (PLN0440): a tarefa que fica no Backlog vai com o selo (`agent_can_do`) como em qualquer
+    projeto. Desde a PLN0157 a vaga livre do Planou entrega a tarefa selada do Backlog ao dono da coluna A fazer ou do
+    projeto (o dev), não a este agente. Nunca selar decisão nem tarefa de custo, cobrança, conta, segredo, credencial,
+    cliente, produção ou deploy: o comando recusa o plano (`"agent_can_do" recusado`), com a mesma lista das
+    sugestões, inclusive título `Decidir:`/`Decide:` sem `"decide": true`. Nesse caso use `"agent_can_do": false`.
+    Para o dev pegar já, sem esperar a vaga, use `ready_reason` e `column`.
 - Plano mudou antes da aprovação (a pessoa comentou): editar o arquivo e rodar com `--update` (reenvia título,
   descrição, prioridade, dependências e selo das já criadas, sem mexer no estado; o que a pessoa mudou à mão vale).
   Tarefa nova no plano é criada normalmente. Tarefa que saiu do plano não se apaga: dizer à pessoa.

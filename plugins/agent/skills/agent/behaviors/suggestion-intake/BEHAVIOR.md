@@ -51,11 +51,27 @@ entram nele. O "+1" nunca troca o épico, e a pessoa pode mudar o épico na tela
 - `sem epico (a pessoa apagou o epico da area)`: não recriar; se a área precisa de épico, perguntar à pessoa qual usar.
 
 - `== SUGESTOES (n)`: uma linha ao usuário por tarefa nova (`-- nova PLNxxxx: ...`) ou "+1", sem pedir nada. A tarefa
-  fica no backlog: quem aprova é a pessoa. Não começar uma sugestão por conta própria; ela entra na fila como as outras.
+  nasce no backlog. Não começar uma sugestão por conta própria; ela entra na fila como as outras.
+- **Triagem e selo (PLN0440, delegação de 02/11):** a sessão do agente dono do projeto tria cada sugestão nova. Quando
+  um agente faz sozinho (escopo fechado, sem decisão da pessoa, sem acesso novo, critério de pronto que se confere),
+  selar: `$A --suggestions selar <PID|sug-chave> "<motivo curto>"`. Vai o `agent_can_do` {value, reason} com o título
+  guardado aqui (o Planou exige; título que a pessoa mudou continua o dela) e o `base_version`, e a vaga livre do
+  Planou pode puxá-la para o dono da coluna A fazer ou do projeto. Nunca selar decisão (`Decidir:`, `Decide:`,
+  `Decisão:`) nem o que fala de custo, orçamento, preço, cobrança, fatura, billing, invoice, pagamento, payment,
+  conta, account, segredo, secret, senha, password, token, chave, key, credencial, cliente, client, customer, produção,
+  prod ou deploy: o comando recusa sem enviar nada
+  (a mesma lista do backlog-planning), e essas ficam com a pessoa. `selar <PID> -` tira o selo.
+  - "a pessoa mexeu na tarefa ... nada mudou": ela mudou a tarefa depois do último envio daqui. Nada fica gravado,
+    nem a versão nova, então selar de novo dá o mesmo aviso: conferir com a pessoa, não insistir.
+  - O selo vai uma vez: o "+1" não o reenvia e um segundo `selar` é recusado ("ja selada"), então o selo que a pessoa
+    tirou no Planou fica tirado. Limite: o Planou não diz quem tirou o selo; a proteção é o `base_version`. Depois de
+    um "+1" que voltou em conflito a versão daqui se atualiza, mas o "ja selada" ainda segura. Só `selar <PID> -`
+    daqui libera selar de novo. Sem selo, a tarefa espera a pessoa aprovar.
 - `-- limite: ...`: um agent passou de 3 sugestões no dia; a de fora fica só na caixa. Nada a fazer.
 - `-- ... a pessoa apagou essa sugestao`: não recriar.
 - `AVISO (sugestoes)`: o Planou não respondeu; as linhas esperam o próximo tick, nada se perde.
-- `$A --suggestions`: tarefas criadas e o que espera na caixa. A caixa nunca é editada à mão.
+- `$A --suggestions`: tarefas criadas (com "(selada: ...)" nas que têm selo) e o que espera na caixa. A caixa nunca é
+  editada à mão.
 - Sugestão com dado de cliente que tenha passado: editar a tarefa no Planou para generalizar e avisar o usuário.
 
 ## Ferramentas e ações do papel

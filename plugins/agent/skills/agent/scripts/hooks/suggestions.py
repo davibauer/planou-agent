@@ -33,8 +33,19 @@ the lines wait: the file is never truncated (other agents append to it), only th
 Prints `== SUGESTOES (n)` with one line per task created or +1, and `AVISO (sugestoes)` once for a failure.
 
 CLI: agent.py <instance> --suggestions   the tasks created so far and what is still waiting in the inbox
+     agent.py <instance> --suggestions selar <PID|sug-key> "<reason>"   the session of the agent that owns the project
+         triaged the suggestion and an agent can do it (PLN0440): one sync of that task with only
+         `agent_can_do` {value: true, reason}, the title the state keeps (the sync requires it; a title the person
+         set stays hers in Planou) and `base_version`, so Planou's idle slot can pull it. Refused, with nothing sent,
+         by watch_core.suggestions.seal_refusal (a `Decidir:`/`Decide:`/`Decisao:` title, or a title or subject about
+         cost, billing, account, secret, credential, client, production or deploy: those stay with the person), for a
+         reason that looks like a secret, a task not created yet, deleted by the person or already sealed here.
+         `selar <PID|sug-key> -` sends `agent_can_do: false` (the seal comes off). A `conflict` (the person changed the
+         task after the version kept here) writes nothing, not even the new version: the person's change wins. The
+         seal goes once: a later +1 never sends it again and a second `selar` is refused, so a seal the person removed
+         in Planou stays removed (Planou does not say who removed it; base_version is the only guard).
 """
-import copy, hashlib, json, os
+import copy, hashlib, json, os, sys
 from datetime import datetime, timezone
 
 import core, paths
@@ -176,7 +187,8 @@ class Gancho(Base):
             counted[e['agent']] = counted.get(e['agent'], 0) + 1
             t = st['tasks'].get(e['key'])
             if t is None:
-                t = {'title': _short(e['title'], 200), 'reporter': e['agent'], 'description': description(e),
+                t = {'title': _short(e['title'], 200), 'subject': _short(e.get('subject'), 120) if e.get('subject') else None,
+                     'reporter': e['agent'], 'description': description(e),
                      'priority': int(e.get('priority') or 3) if str(e.get('priority') or 3).isdigit() else 3,
                      'plus': [], 'pid': None, 'version': None, 'created': False}
                 self.place(picker, t, e)
@@ -313,16 +325,22 @@ class Gancho(Base):
     # ------------------------------------------------------------ CLI
 
     def args(self, ap):
-        ap.add_argument('--suggestions', action='store_true', help='sugestoes dos agentes: tarefas criadas e o que espera')
+        ap.add_argument('--suggestions', nargs='*', metavar='ARG', default=None,
+                        help='sugestoes dos agentes: tarefas criadas e o que espera; selar PID|sug-chave "motivo" '
+                             '(a triagem: um agente pode fazer; "-" tira o selo)')
 
     def cli(self, a, ctx):
-        if not getattr(a, 'suggestions', False): return False
+        args = getattr(a, 'suggestions', None)
+        if args is None: return False
+        if args[:1] == ['selar']: return self.seal(args[1:], ctx)
+        if args: raise SystemExit('uso: --suggestions | --suggestions selar PID|sug-chave "motivo" | --suggestions selar PID|sug-chave -')
         st = ctx.s.get('suggestions') or {}
         entries, _ = self.new_lines(st.get('offset', 0))
         tasks = st.get('tasks') or {}
         print(f'{len(tasks)} sugestao(oes) no Planou; {len(entries)} esperando na caixa ({self.path()})')
         for t in tasks.values():
             flag = ' (apagada)' if t.get('deleted') else ' (descricao da pessoa)' if t.get('frozen') else ''
+            if t.get('seal') and not t.get('deleted'): flag += f' (selada: {t["seal"]})'
             epic = f'; epico {t.get("epic_title")}' if t.get('epic_title') else ''
             print(f'-- {t.get("pid") or "?"} P{t.get("priority")}: {t.get("title")} (de {t.get("reporter")}; '
                   f'+{len(t.get("plus") or [])}{epic}){flag}')
@@ -336,4 +354,84 @@ class Gancho(Base):
         for e in own.values():
             flag = ' (apagado pela pessoa)' if e.get('deleted') else '' if e.get('created') else ' (ainda nao criado)'
             print(f'-- epico {e.get("pid") or "?"}: {e.get("title")} (criado aqui; areas: {", ".join(e.get("areas") or []) or "-"}){flag}')
+        return True
+
+
+    # ------------------------------------------------------------ the seal (PLN0440)
+
+    @staticmethod
+    def subject_of(t):
+        if t.get('subject'): return t['subject']
+        for line in str(t.get('description') or '').splitlines():
+            if line.startswith('Assunto: '): return line[len('Assunto: '):]
+        return ''
+
+    @classmethod
+    def seal_problem(cls, t):
+        """Why this suggestion task never takes the seal ('' = it can): the shared refusal of watch_core.suggestions."""
+        from watch_core.suggestions import seal_refusal
+        return seal_refusal(t.get('title'), cls.subject_of(t))
+
+    def seal(self, args, ctx):
+        if len(args) < 2: raise SystemExit('uso: --suggestions selar PID|sug-chave "motivo"  (ou "-" para tirar o selo)')
+        ref, reason = args[0].strip(), ' '.join(args[1:]).strip()
+        # read outside the lock only to decide; the write below reads the state again under core.state_lock()
+        tasks = (ctx.s.get('suggestions') or {}).get('tasks') or {}
+        key = ref[4:] if ref.lower().startswith('sug-') else ref
+        if key not in tasks:
+            key = next((k for k, t in tasks.items() if str(t.get('pid') or '').upper() == ref.upper()), None)
+        if not key: raise SystemExit(f'{ref}: nao e uma sugestao desta instancia (ver --suggestions)')
+        t = tasks[key]
+        name = t.get('pid') or f'sug-{key}'
+        if t.get('deleted'): raise SystemExit(f'{name}: a pessoa apagou essa sugestao; nada enviado')
+        if not t.get('created') or not t.get('pid'):
+            raise SystemExit(f'{name}: ainda nao foi criada no Planou (vai no proximo tick); selar depois')
+        off = reason == '-'
+        if not off:
+            if not reason: raise SystemExit('diga o motivo curto de um agente poder fazer')
+            why = self.seal_problem(t)
+            if why: raise SystemExit(f'{name}: {why}; nada enviado')
+            if t.get('seal'):
+                raise SystemExit(f'{name}: ja selada aqui ("{t["seal"]}"); nada enviado. Se a pessoa tirou o selo no '
+                                 'Planou, fica tirado')
+            p = _planou()
+            if p and p.looks_secret(reason): raise SystemExit(f'{name}: o motivo parece ter um segredo: reescreva sem ele')
+            reason = _short(reason, 200)
+        else:
+            p = _planou()
+        if not p: raise SystemExit(f'{name}: Planou desligado (ou modo teste, ou sem chave): nada enviado')
+        project = self.project or p._S.get('project')
+        # the sync requires the title: the one kept here (a title the person set stays hers, Planou skips it); no
+        # description, priority, state or reporter, and base_version so a change of the person wins (conflict)
+        body = {'source_key': f'{_name()}:sug-{key}', 'title': _short(t.get('title'), 200),
+                'agent_can_do': {'value': False, 'reason': None} if off else {'value': True, 'reason': reason}}
+        if t.get('version') is not None: body['base_version'] = t['version']
+        if project: body['project'] = project
+        try:
+            _, res = p._call('POST', '/agent/sync', {'agent': _name(), 'generated_at': _now().isoformat(), 'tasks': [body]})
+        except p.PlanouError as ex:
+            raise SystemExit(f'{name}: o Planou nao respondeu ({str(ex.message if getattr(ex, "status", 0) else ex)[:200]}); '
+                             'nada mudou, tentar de novo')
+        r = next((x for x in (res or {}).get('tasks') or [] if x.get('source_key') == body['source_key']), {})
+        if r.get('result') == 'ignored':
+            raise SystemExit(f'{name}: a pessoa apagou essa sugestao no Planou; nada feito')
+        if r.get('result') == 'conflict':
+            # nothing saved, not even the new version: a second selar conflicts again, so the change of the person
+            # (the seal she removed, the title she wrote) is never overwritten from here
+            raise SystemExit(f'{name}: a pessoa mexeu na tarefa no Planou depois do ultimo envio daqui; nada mudou. '
+                             'Conferir a tarefa com ela')
+        if r.get('result') not in ('created', 'updated', 'unchanged'):
+            raise SystemExit(f'{name}: o Planou recusou ({r.get("result")}: {r.get("reason") or "sem motivo"})')
+        # only this task's seal and version, on the state read again under the lock: the runner may have saved the
+        # offset and the other tasks in the meantime
+        with core.state_lock():
+            s = core.load_state()
+            cur = ((s.get('suggestions') or {}).get('tasks') or {}).get(key)
+            if cur is not None:
+                if off: cur.pop('seal', None)
+                else: cur['seal'] = reason
+                if r.get('version') is not None: cur['version'] = r['version']
+                core.save_state(s)
+        print(f'{name}: selo tirado' if off else f'{name}: selada ("um agente pode fazer": {reason}); '
+              'a vaga livre do Planou pode puxar')
         return True

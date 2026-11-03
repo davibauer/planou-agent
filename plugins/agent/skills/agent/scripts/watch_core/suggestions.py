@@ -72,6 +72,32 @@ def norm(text):
     return ' '.join(re.sub(r'[^a-z0-9]+', ' ', t).split())
 
 
+# The seal "um agente pode fazer" (agent_can_do, PLN0440) never goes on a decision of the person or on work about cost,
+# billing, account, secret, credential, client, production or deploy: those stay with the person, whatever the triage
+# says. One list for every path that seals (the suggestions hook and backlog.py). Whole words of the normalized text
+# (no accents, lower case), each with its simple plural; "prod" refuses, "product" and "produto" do not.
+SEAL_DECISION_HEADS = ('decidir', 'decide', 'decisao')
+SEAL_REFUSED = ('custo', 'cost', 'orcamento', 'preco', 'pagamento', 'pagar', 'payment', 'pay', 'cobranca', 'fatura',
+                'faturamento', 'billing', 'invoice', 'conta', 'account', 'segredo', 'secret', 'credencial', 'credential',
+                'senha', 'password', 'token', 'chave', 'key', 'cliente', 'client', 'customer', 'producao', 'production',
+                'prod', 'deploy')
+_PLURAL = {'credencial': 'credenciais', 'producao': 'producoes'}
+_SEAL_RE = re.compile(r'\b(' + '|'.join(sorted({w for x in SEAL_REFUSED for w in (x, x + 's', _PLURAL.get(x, x))},
+                                               key=len, reverse=True)) + r')\b')
+
+
+def seal_refusal(title, *texts):
+    """Why a task with this title (and these other texts: subject, "what") never takes the seal; '' = it can."""
+    head = norm(title).split(' ', 1)[0]
+    if head in SEAL_DECISION_HEADS:
+        return 'e uma decisao da pessoa ("Decidir:"): fica sem selo'
+    hit = _SEAL_RE.search(' | '.join(norm(x) for x in (title,) + texts))
+    if hit:
+        return (f'fala de "{hit.group(1)}" (custo, cobranca, conta, segredo, credencial, cliente, producao ou deploy): '
+                'fica com a pessoa, sem selo')
+    return ''
+
+
 def key_of(title, subject=None):
     return hashlib.sha256(f'{norm(subject)}|{norm(title)}'.encode()).hexdigest()[:16]
 
