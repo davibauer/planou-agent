@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.105.2 (2026-11-02)
+- A CI dos plugins passa a instalar as dependências dos testes (`requirements-test.txt`: pyyaml, aiohttp e numpy), e os testes do meeting-copilot que dependiam de aiohttp e numpy deixam de ser pulados.
+
 ## 0.105.1 (2026-11-02)
 - job-search: a palavra da empresa nas consultas do Gmail agora pula termos de setor e sufixos (foods, banco, pagamentos, digital, s.a e afins) e prefere a marca; marca de 2 letras leva a palavra seguinte, e consulta só de pontuação não sai mais.
 
