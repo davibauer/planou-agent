@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.105.1 (2026-11-02)
+- job-search: a palavra da empresa nas consultas do Gmail agora pula termos de setor e sufixos (foods, banco, pagamentos, digital, s.a e afins) e prefere a marca; marca de 2 letras leva a palavra seguinte, e consulta só de pontuação não sai mais.
+
 ## 0.105.0 (2026-11-02)
 - `meeting-copilot`: porteiro novo para "estão falando comigo?". Cada fim de turno de outra pessoa é avaliado, não só as falas com cara de pergunta, somando pistas: nome ou apelido do usuário (com erro de grafia), resposta ao que ele acabou de dizer, "e você?", vez dele na rodada da daily, pedido no imperativo e algo que ele mesmo citou na reunião. Funciona em português e inglês, com ou sem pontuação. Decide 1,2 s depois do fim do turno e não alerta se um terceiro toma a palavra antes.
 - Segunda etapa com modelo mais forte só para decidir se a fala pede algo ao usuário (`addressee_model`, padrão Sonnet; `""` desliga), com o mapa de assuntos do usuário (contexto e `instances.<instância>.topics` no config local; `gate_topics: true` leva o mapa também para a primeira etapa). Os cartões continuam no modelo rápido e só aparecem quando ela diz sim; se ela falha ou passa de 5,5 s, os cartões aparecem do mesmo jeito.

@@ -391,16 +391,25 @@ def gmail_after(cursor_epoch):
     return (datetime.fromtimestamp(int(cursor_epoch), timezone.utc).astimezone(BRT) - timedelta(days=1)).strftime('%Y/%m/%d')
 
 GMAIL_MAX_COMPANIES = 15
-# articles, prepositions, legal suffixes and generic words that say nothing about WHICH company it is
-GMAIL_GENERIC = frozenset('''the a an o os as de do da dos das of and e inc ltda sa llc ltd corp co company empresa grupo group banco bank tech technology technologies solutions services servicos holding brasil brazil'''.split())
+# articles, prepositions and legal suffixes: never part of a query (dots are dropped before the lookup: s.a -> sa)
+GMAIL_STOP = frozenset('''the a an o os as de do da dos das of and e y inc ltda sa llc ltd corp co company empresa s'''.split())
+# sector words and generic suffixes that say nothing about WHICH company it is (kept when nothing better exists)
+GMAIL_GENERIC = GMAIL_STOP | frozenset('''grupo group holding holdings tech technology technologies solutions services servicos
+    software systems sistemas labs lab digital global brasil brazil banco bank food foods pagamentos payments capital
+    investimentos investments seguros insurance saude health participacoes international internacional'''.split())
 
 def gmail_company_word(name):
-    """The most distinctive word of the company name for a loose Gmail query: the longest one (4+ letters) that is not an
-    article/preposition/legal suffix/generic word; first wins a tie. Nothing qualifies: the longest word overall."""
+    """Distinctive part of the company name for a loose Gmail query (words without quotes are ANDed by Gmail):
+    the first non-generic word with 3+ chars (usually the brand); else the short brand itself (2 chars, e.g. 'Ny';
+    the judge checks sender/subject); all generic: the longest non-stopword word. Always ONE word. Junk -> ''."""
     words = [re.sub(r'[^\w.-]', '', w).strip('.-') for w in re.split(r'[\s/&,]+', name or '')]
-    words = [w for w in words if w]
-    good = [w for w in words if len(w) >= 4 and w.lower() not in GMAIL_GENERIC]
-    pool = good or sorted(words, key=len, reverse=True)[:1]
+    words = [w for w in words if len(re.sub(r'\W|_', '', w)) >= 2]
+    key = lambda w: w.lower().replace('.', '')
+    brand = [w for w in words if key(w) not in GMAIL_GENERIC]
+    long_ = [w for w in brand if len(w) >= 3]
+    if long_: return long_[0]
+    if brand: return brand[0]
+    pool = [w for w in words if key(w) not in GMAIL_STOP]
     return max(pool, key=len) if pool else ''
 
 def gmail_queries(cursor_epoch, companies=()):
