@@ -27,8 +27,8 @@ integrator comes back, and the wake of `== DEPLOY NOVO` then only read it again.
 instance (`release_file`, default the one of the release_due hook: data/release_queue.json):
 - an integration running (`--release-queue start`, not done nor aborted, younger than `hold_h`, 3 h): new lines wait
   (they are read again on the next tick; the version history in Planou goes on at once);
-- every new line inside the window of the last `--release-queue done` (from the start of that integration to the done,
-  by the minute of the line): `== DEPLOY JA AVISADO (n)`, same lines, which the runner never wakes for (it goes with the
+- every new line inside the window of any `--release-queue done` (kept in `released_log`, PLN0482; from the start of that
+  integration to the done, by the minute of the line, or by the `lote:` branches the done closed): `== DEPLOY JA AVISADO (n)`, same lines, which the runner never wakes for (it goes with the
   next tick that wakes);
 - anything else (a deploy by hand, a rollback, a release this session did not close): `== DEPLOY NOVO (n)`, as before.
 
@@ -60,6 +60,12 @@ def parse(line):
     if rollback: changes = re.sub(r'\s*Backup\b.*$', '', changes).strip()      # the dump's name is not for people
     return {'version': m.group(0), 'commit': parts[1].lower(), 'deployed_at': when, 'changes': changes,
             'kind': 'rollback' if rollback else 'deploy'}
+
+
+def lote_branches(line):
+    """The branches of "(lote: a, b; more text)" in a deploy line ([] when there is no lote)."""
+    m = re.search(r'\(lote:\s*([^;)]*)', line)
+    return [b.strip() for b in m.group(1).split(',') if b.strip()] if m else []
 
 
 def line_kind(line):
@@ -130,14 +136,30 @@ class Gancho(Base):
         now = now or datetime.now(timezone.utc)
         return bool(since) and now - since < timedelta(hours=self.hold_h)
 
+    def windows(self, q):
+        """Every release the session closed: the history (`released_log`, PLN0482) plus the last one (`released`)."""
+        out = [w for w in (q.get('released_log') if isinstance(q.get('released_log'), list) else []) if isinstance(w, dict)]
+        r = q.get('released')
+        if isinstance(r, dict) and not any(w.get('since') == r.get('since') and w.get('at') == r.get('at') for w in out):
+            out.append(r)
+        return out
+
     def announced(self, q, line):
-        """True for a deploy line inside the window of the last `--release-queue done` (by the minute of the line)."""
-        r = q.get('released') if isinstance(q.get('released'), dict) else {}
-        since, at = _when(r.get('since')), _when(r.get('at'))
+        """True for a deploy line the session closed with `--release-queue done` (PLN0155, PLN0482): by the minute of the
+        line inside the window of any done, or by the branches of "(lote: a, b; ...)" when the done named them all and the
+        line was logged up to hold_h before the start mark (never after the done)."""
         rel = parse(line)
         t = _when(rel and rel['deployed_at'])
-        if not (since and at and t): return False
-        return since.replace(second=0, microsecond=0) <= t <= at
+        if not t: return False
+        lote = lote_branches(line)
+        slack = timedelta(hours=self.hold_h)
+        for w in self.windows(q):
+            since, at = _when(w.get('since')), _when(w.get('at'))
+            if not (since and at): continue
+            if since.replace(second=0, microsecond=0) <= t <= at: return True
+            names = w.get('branches') if isinstance(w.get('branches'), list) else []
+            if lote and set(lote) <= set(names) and since - slack <= t <= at: return True
+        return False
 
     def lines(self):
         with open(self.file, encoding='utf-8', errors='replace') as f: text = f.read()

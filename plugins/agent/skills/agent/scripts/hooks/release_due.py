@@ -19,7 +19,8 @@ change and on the heavy tick whenever the local file differs from the last queue
 of truth.
 
 The file: {"branches": [{"branch": "feat/x", "ready_at": ISO UTC, "pid": "ABC0001"}], "integrating_since": ISO|null,
-           "integrating": ["feat/x", ...], "released": {"since": ISO, "at": ISO}}   (released: the last `done`, PLN0155)
+           "integrating": ["feat/x", ...], "released": {"since": ISO, "at": ISO},
+           "released_log": [{"since": ISO, "at": ISO, "branches": [...]}]}   (released: the last `done`, PLN0155; released_log: the last 30, PLN0482)
 
 CLI (the session never edits the file by hand):
   agent.py <instance> --release-queue [list]          the queue and whether a release is due
@@ -246,6 +247,10 @@ class Gancho(Base):
             # the window of this release (PLN0155): a deploy the integrator logged inside it was announced by the session
             # when the integrator came back, and the hook deploy_log prints it without waking (`== DEPLOY JA AVISADO`)
             q['released'] = {'since': q.get('integrating_since') or now.isoformat(), 'at': now.isoformat()}
+            # PLN0482: `released` is only the last one; the runner may read the deploy log after two dones, so every window
+            # stays (last 30) with the branches it closed, and the hook matches a line against any of them
+            q['released_log'] = ((q.get('released_log') if isinstance(q.get('released_log'), list) else [])
+                                 + [dict(q['released'], branches=list(which))])[-30:]
             q['integrating_since'], q['integrating'] = None, []
             self.write(q); self.mirror(q)
             print('no release: ' + (', '.join(_label(b) for b in gone) or '(nenhuma da fila)')

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.107.1 (2026-11-03)
+- Corrigido: o aviso de deploy (`== DEPLOY NOVO`) acordava a sessão por releases que ela já tinha fechado com `--release-queue done` quando o runner lia o log depois de dois `done` seguidos, porque só a janela do último ficava guardada. Agora o `done` guarda o histórico das janelas (`released_log`, com as branches) e o gancho reconhece a linha por qualquer uma delas, ou pelas branches do `lote:` (texto depois da lista ou versão diferente da planejada não atrapalham).
+
 ## 0.107.0 (2026-11-03)
 - `fila started|in_review|done|blocked|handoff|tempo` aceitam `--pr-checks passed|failed|running` (Planou 0.114.1): o ícone da CI aparece na linha Entrega. Com `--pr-url` e sem `--pr-checks`, o plugin lê a CI da PR com `gh pr checks`; sem `gh` ou com erro, o campo não vai e o comando não falha.
 - O comportamento task-queue manda a CI de novo com `fila tempo <PID> --pr-checks ...` quando ela termina e, depois do TaskStop de uma tarefa que saiu, registra o worker parado com `fila worker ... --result parcial` para o custo não se perder.
