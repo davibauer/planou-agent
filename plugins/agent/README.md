@@ -126,9 +126,10 @@ Na sessão: `/agent <instância>` (skill `agent`).
 Decisão com recomendada que cabe na autonomia (o `can` do config e o da tarefa, valendo a mais restrita) não trava o
 agente: ele segue a recomendada, avisa em uma linha e registra a decisão já tomada no Planou com
 `watch_core.planou ... pergunta --auto --title "..." --option "A=..." --option "B=..." --recommended A`, que manda um
-alerta baixo "Decidi: <pergunta> -> <opção>" e não deixa pedido esperando em Precisa de você. O que está em
-`ask_first` ou `never` (mensagem a pessoas, merge não aprovado, produção, apagar dado ou segredo, criar conta, abrir o
-navegador) e o que depende de uma ação pessoal do usuário continuam como pedido com opções.
+registro "Decidi: <pergunta> -> <opção>": comentário na tarefa, quando há tarefa, ou, sem tarefa, um alerta que
+expira em 3 dias. Nada fica esperando em Precisa de você. O que está em `ask_first` ou
+`never` (mensagem a pessoas, merge não aprovado, produção, apagar dado ou segredo, criar conta, abrir o navegador) e o
+que depende de uma ação pessoal do usuário continuam como pedido com opções.
 
 Pedido sobre a tarefa de uma pessoa (`pergunta ... --task <PID>`) libera ao agente só aquela tarefa, enquanto o pedido
 está aberto e até 24 h depois da resposta (Acesso pelo pedido, Planou 0.84): comentar (`comentario <PID>`), mudar a

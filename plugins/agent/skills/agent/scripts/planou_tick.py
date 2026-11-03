@@ -356,9 +356,10 @@ def pedidos_credenciais(ctx, conf):
 
 
 def decisoes(ctx, conf):
-    """What the agent decided and did by itself during the tick, as the low alert of `pergunta --auto` (PLN0225): today
-    the GitLab token rotation (PLN0364), from the note s['gitlab']['rotacao'] the source leaves (Planou is not
-    configured while the sources tick). The note leaves the state once Planou took it. Returns AVISO lines."""
+    """What the agent decided and did by itself during the tick, as the agent_decided record of `pergunta --auto`
+    (PLN0225): today the GitLab token rotation (PLN0364), from the note s['gitlab']['rotacao'] the source leaves
+    (Planou is not configured while the sources tick). The note leaves the state once Planou took it. Returns AVISO
+    lines."""
     st = ctx.s.get('gitlab') if isinstance(ctx.s.get('gitlab'), dict) else {}
     r = st.get('rotacao')
     if not isinstance(r, dict) or r.get('avisado'): return []

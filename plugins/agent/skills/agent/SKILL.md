@@ -229,8 +229,9 @@ recomendada sem abrir pedido pendente**, avisa em uma linha na sessão o que dec
 `$PL pergunta --auto --title "<a pergunta, uma linha>" --option "A=<opção>" --option "B=<opção>" --recommended <letra>
 [--task <PID ou código>] [--context "<por quê>"]`
 
-- `--auto` não abre decisão: registra a já tomada como alerta baixo "Decidi: <pergunta> -> <opção>" (o `/v1` não deixa
-  o agente responder o próprio pedido). A confidencialidade vale como no pedido. Sem `--option`, `--recommended S|N`.
+- `--auto` não abre decisão: registra a já tomada como "Decidi: <pergunta> -> <opção>" (comentário na tarefa, se há
+  tarefa; sem tarefa, alerta que expira em 3 dias); o `/v1` não deixa o agente responder o próprio pedido. A
+  confidencialidade vale como no pedido. Sem `--option`, `--recommended S|N`.
 - Sem recomendada: formar a própria (a mais reversível e mais barata de desfazer) e seguir do mesmo jeito.
 - Falhou ao registrar (Planou fora, `policy_denied`): a decisão continua valendo; dizer na sessão, sem virar pergunta.
 - **Continua pedindo OK** (pedido com opções, abaixo, e esperar): o que está em `ask_first` ou `never` da autonomia,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.106.2 (2026-11-03)
+- Textos: `pergunta --auto` e a renovação de token não são mais descritos como "alerta baixo" em Precisa de você. Desde o Planou 0.109.0 o "Decidi: ..." vira comentário na tarefa, e sem tarefa vira um alerta que expira em 3 dias.
+- O refinamento do backlog não cita mais a tela de Cerimônias ao enviar a lista: "LISTA ENVIADA: <n> sugestoes; a aprovacao fica com a pessoa."
+
 ## 0.106.1 (2026-11-03)
 - Ação sua da ata com prazo "a definir" (ou condição sem pessoa nomeada) agora vai para A fazer, sem data, em vez de Aguardando. Aguardando fica só para ação que espera outra pessoa nomeada; prazo com data segue como antes.
 

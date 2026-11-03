@@ -3398,11 +3398,13 @@ def ask_question(question, options=(), context=None, task=None, ref=None, now=No
 def decide_question(question, options=(), choice=None, context=None, task=None, ref=None, now=None):
     """A question the agent decided on its own (PLN0225): the decision has a recommended option inside the autonomy, so
     the agent follows it instead of waiting. /v1 has no way for the agent to answer its own ask (the answer is the
-    person's, on /api), so the decision already taken goes to Planou as a low severity alert "Decidi: <question> ->
-    <option>" with the context, and no decision stays open in Precisa de você. `choice` is the option key (default: the
-    recommended one); Sim/Não without options. The confidentiality applies as in ask_question: "minimum" sends a neutral
-    question and "Opção A" (Sim/Não stay), "detail" also sends the context and the options. The ref (a hash of the real
-    question, the options, the task and the local date, or `ref`) keeps the same decision from being recorded twice."""
+    person's, on /api), so the decision already taken goes to Planou as an agent_decided "Decidi: <question> ->
+    <option>" record with the context (Planou turns it into a comment on the task when there is one; without a task it
+    stays an alert that expires in 3 days), and no decision stays open in Precisa de você. `choice` is the option key
+    (default: the recommended one); Sim/Não without options. The confidentiality applies as in ask_question: "minimum"
+    sends a neutral question and "Opção A" (Sim/Não stay), "detail" also sends the context and the options. The ref (a
+    hash of the real question, the options, the task and the local date, or `ref`) keeps the same decision from being
+    recorded twice."""
     q = ' '.join(str(question or '').split())
     opts = [(str(o['key']), str(o['text']), bool(o.get('recommended'))) if isinstance(o, dict)
             else (str(o[0]), str(o[1]), bool(o[2]) if len(o) > 2 else False) for o in options]
@@ -5039,7 +5041,7 @@ def _refino(a, ap):
         res, dropped = send_refinement_list(mid, body)
         for line_ in dropped: print(line_)
         print(json.dumps(res, ensure_ascii=False))
-        print(f'LISTA ENVIADA: {res.get("suggestions") or 0} sugestoes esperando a aprovacao do usuario em Cerimonias.'
+        print(f'LISTA ENVIADA: {res.get("suggestions") or 0} sugestoes; a aprovacao fica com a pessoa.'
               if res.get('result') != 'unchanged' else 'LISTA JA ESTAVA LA: nada mudou.')
         return 0
     except PlanouError as e:
@@ -5845,7 +5847,8 @@ def main(argv=None):
     ap.add_argument('--reversible', action='store_true')
     ap.add_argument('--option', action='append', default=[], help='decision option "A=text" (repeat)')
     ap.add_argument('--recommended')
-    ap.add_argument('--auto', action='store_true', help='pergunta: the agent already decided by --recommended; record it (low alert), open nothing')
+    ap.add_argument('--auto', action='store_true', help='pergunta: the agent already decided by --recommended; record it (task comment, or an alert that '
+                    'expires in 3 days), open nothing')
     ap.add_argument('--free-text', action='store_true', help='(default) the person may answer in their own words')
     ap.add_argument('--no-free-text', action='store_true', help='options only, no free answer')
     ap.add_argument('--code'); ap.add_argument('--severity'); ap.add_argument('--reason')
@@ -6039,7 +6042,7 @@ def main(argv=None):
                     res = decide_question(a.title, opts, a.recommended, a.context, task1, a.ref)
                 except ValueError as e:
                     ap.error(f'--recommended {a.recommended}: {e}')
-                print(f'decisao registrada no Planou ({res.get("code")}, alerta baixo); nenhum pedido esperando resposta',
+                print(f'decisao registrada no Planou ({res.get("code")}); nenhum pedido esperando resposta',
                       file=sys.stderr)
                 print(json.dumps(res, ensure_ascii=False))
                 return 0

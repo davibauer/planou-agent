@@ -9,8 +9,9 @@ Also warns (once a day) when the API token expires within "token_aviso_dias", an
 "token_rotacionar_dias" (PLN0364): POST /personal_access_tokens/self/rotate with an expires_at as far as the current
 token's lifetime (30 to 365 days), the new value written atomically (0600) over the same token_file, under a lock and
 never printed. Only while the token still works: an expired or refused (401) token is never rotated, it becomes a
-"Precisa de você" ask (planou_tick.pedidos_credenciais). The decision goes to Planou as a low alert "Decidi: renovei o
-token ..." (planou_tick.decisoes), from the note left in s['gitlab']['rotacao'].
+"Precisa de você" ask (planou_tick.pedidos_credenciais). The decision goes to Planou as an agent_decided "Decidi:
+renovei o token ..." (planou_tick.decisoes; a comment on the task when there is one, otherwise an alert that expires in
+3 days), from the note left in s['gitlab']['rotacao'].
 
 Transport: curl (configurable binary: a Windows curl.exe reaches hosts only the Windows network sees, e.g. behind a
 corporate proxy client; if the WSL interop binfmt is missing it is called through /init). The token header goes through

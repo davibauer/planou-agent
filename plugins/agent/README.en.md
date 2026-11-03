@@ -66,8 +66,9 @@ returns one line per job, with the detail in `data/judgments/<id>.md`.
   roles. A finding opens a backlog task with the evidence; nothing is fixed, rotated or deleted (`--security` scans now).
 - Questions to the user become Planou asks with options and the recommended one marked (`pergunta --recommended`).
   A decision whose recommended option fits the autonomy (the config's and the task's `can`, the stricter one wins) does
-  not wait: the agent follows it, says so in one line and records it with `pergunta --auto` (a low alert "Decidi:
-  <question> -> <option>", nothing left open in Precisa de você). What is in `ask_first` or `never` (messages to people,
+  not wait: the agent follows it, says so in one line and records it with `pergunta --auto` (a "Decidi:
+  <question> -> <option>" note: a comment on the task when there is one, otherwise an alert that expires in 3 days;
+  nothing left open in Precisa de você). What is in `ask_first` or `never` (messages to people,
   unapproved merge, production, deleting data or secrets, creating accounts, opening the browser) and what needs the
   user's own action still become asks.
 - Tests: `python3 -m unittest discover -s plugins/agent/tests`.
