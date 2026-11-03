@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.104.0 (2026-11-02)
+- Gancho novo `agenda`: acorda a sessão num horário fixo com um bloco de texto (`== AGENDA <nome>: <texto>`), uma vez por dia por entrada, só em dia útil por padrão (`dias`: `uteis` ou `todos`; `semanal`: 0 a 6 para um dia da semana). Aceita várias entradas, cada uma com seu `nome`; em tick de teste não grava estado. A validação do config confere `nome`, `texto`, `hora`, `dias` e `semanal`.
+- `runner.sh` recusa argumento desconhecido (ex.: `--status`) com o uso em uma linha e exit 2, em vez de subir um segundo runner em primeiro plano; aceita só `<instância> [interval_s]` e `<instância> stop`.
+- BEHAVIOR.md do job-search: a consulta do runner é `agent.py job-scout --status`; `runner.sh` só para (`stop`).
+
 ## 0.103.1 (2026-11-02)
 - Gmail do juiz de vagas: o `scout.py --gmail` agora imprime consultas simples, uma por linha (`from:<remetente>` ou uma palavra solta, mais `after:AAAA/MM/DD` com 1 dia de folga no fuso do usuário), sem OR, aspas, `-subject:` nem epoch, que o conector recusava ou devolvia vazio. O filtro por assunto passa para o juiz, e o cursor do Gmail só é marcado se todas as consultas rodaram sem erro.
 - `fila done --resolution discarded|no_action` conclui a tarefa na hora, de qualquer coluna, em vez de passá-la adiante (handoff) pelas colunas de revisão e release. A rota da fila do Planou ainda não recebe a resolução: a tarefa fecha como done e o comando avisa.

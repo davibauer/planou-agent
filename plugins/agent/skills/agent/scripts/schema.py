@@ -362,6 +362,23 @@ def _alert_hook(e, i, hooks, err, warn):
         if not e.get('nao_acordar'): warn.append(f'{at}: "nao_acordar_junto" sem "nao_acordar" nao faz nada')
 
 
+def _agenda_hook(e, i, hooks, err, warn):
+    """agenda (PLN0439): a reminder at a fixed time; the name is the state key, so it must be set and unique."""
+    at = f'"hooks"[{i}] (agenda)'
+    n = e.get('name')
+    if not isinstance(n, str) or not n.strip(): err.append(f'{at}: precisa de "nome" (chave do estado)')
+    elif sum(1 for h in hooks if isinstance(h, dict) and h.get('type') == 'agenda' and h.get('name') == n) > 1:
+        err.append(f'{at}: nome "{n}" repetido entre os ganchos agenda')
+    if not isinstance(e.get('texto'), str) or not e['texto'].strip(): err.append(f'{at}: precisa de "texto"')
+    h = e.get('hora')
+    if h is not None and not (isinstance(h, str) and re.fullmatch(r'([01]?\d|2[0-3]):[0-5]\d', h)):
+        err.append(f'{at}: "hora" precisa ser "HH:MM"')
+    if e.get('dias') not in (None, 'uteis', 'todos'): err.append(f'{at}: "dias" precisa ser "uteis" ou "todos"')
+    w = e.get('semanal')
+    if w is not None and not (_is_int(w) and 0 <= w <= 6): err.append(f'{at}: "semanal" precisa ser um inteiro de 0 (segunda) a 6 (domingo)')
+    elif w in (5, 6) and e.get('dias') != 'todos': warn.append(f'{at}: "semanal" {w} com "dias" "uteis" nunca dispara')
+
+
 def _is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -472,6 +489,7 @@ def validate(c, behavior_file=None, adapter_exists=None):
                 err.append(f'"{k}"[{i}]: precisa de "type" (letras minusculas, digitos e _)'); continue
             if adapter_exists and not adapter_exists(t): err.append(f'"{k}"[{i}]: tipo "{t}" nao existe (nem no plugin nem em adapters/ da instancia)')
             if k == 'hooks' and t == 'alertas_azure': _alert_hook(e, i, v, err, warn)
+            if k == 'hooks' and t == 'agenda': _agenda_hook(e, i, v, err, warn)
     b = c.get('behaviors')
     if not isinstance(b, list): err.append('"behaviors" precisa ser uma lista de nomes')
     else:

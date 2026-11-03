@@ -63,6 +63,11 @@
 # when it is gone the line `tick preso ... terminou` waits for the next wake (`== SEM ACAO`). A Planou or transcript call
 # stuck past FG_MAX_S (default 60 s) is left behind the same way, with a line in avisos.log.
 INST=${1:?uso: runner.sh <instancia> [interval_s] | runner.sh <instancia> stop}
+# PLN0430: an unknown argument (e.g. --status) used to start a second runner in the foreground. Refuse it, short usage.
+case "$1" in -*) echo "runner: argumento desconhecido '$1'. uso: runner.sh <instancia> [interval_s] | runner.sh <instancia> stop"; exit 2;; esac
+if [ $# -gt 2 ] || { [ -n "$2" ] && [ "$2" != stop ] && ! [[ "$2" =~ ^[0-9]+$ ]]; }; then
+  echo "runner: argumento desconhecido '${2:-$3}'. uso: runner.sh <instancia> [interval_s] | runner.sh <instancia> stop (consulta: agent.py <instancia> --status)"; exit 2
+fi
 RUNNER_ARGS=("$@")
 S=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=; LIVE=; INTERVAL_CFG=; ERR=; WAKE=; BROKEN_S=

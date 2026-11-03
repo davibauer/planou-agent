@@ -63,6 +63,7 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
 - **Saída vazia e exit 0** não acontece (o runner não acorda à toa). `== RUNNER CICLO` sozinho não é conteúdo: só relançar (seção Runner). Exit 2 = `FONTE QUEBRADA (<fonte>): <causa>`:
   dizer a causa e o conserto em uma linha; as outras fontes continuam valendo. `FONTE RECUPERADA` fecha o assunto.
 - **Blocos das fontes e dos ganchos** (`== ...`): tratar conforme os comportamentos e o `instructions.md`.
+- **`== AGENDA <nome>: <texto>`** (gancho `agenda`): lembrete marcado no config; fazer o que o texto diz.
 - **`== NOTION x PLANOU (n)`** (gancho `notion_compare`, só leitura): a página do dia e o Planou discordam; mostrar as
   linhas ao usuário e investigar a causa (sync com falha, tarefa que sumiu da lista). **`== NOTION PODE DESLIGAR`**:
   avisar e perguntar; desligar (tirar os ganchos `daily` e `tarefas` do config) é decisão do usuário, nunca sua.

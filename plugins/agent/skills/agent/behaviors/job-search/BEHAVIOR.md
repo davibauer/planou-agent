@@ -200,7 +200,7 @@ python3 $V --shortlist [N] | --board [N] | --track | --applied [N] | --observed-
 python3 $J/application.py --profiles | <id> --profile P --summary s.txt | <id> --pdf R --gdoc URL | --timeline cv.docx
 python3 $J/interview.py <id>                       # roteiro de entrevista
 python3 $J/judge.py --brief | --path <id> | --record vereditos.json [--dry]   # o juiz de vagas (passo 4 do tick)
-bash $S/scripts/runner.sh job-scout --status | stop          # o runner do tick (plugin agent)
+python3 $S/scripts/agent.py job-scout --status            # consulta (JSON); o runner do tick: bash $S/scripts/runner.sh job-scout stop
 python3 -m unittest discover -s $S/../../tests/job_scout   # testes do job-scout (na raiz do plugin agent, fora da skill)
 python3 $J/linkedin_jobs.py --show <id>          # descrição completa da vaga
 python3 $J/linkedin_msgs.py --me | --all | --show <thread>
