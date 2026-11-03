@@ -113,8 +113,8 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    a tarefa **passou adiante**, não que foi concluída. Se a coluna em que a tarefa está não tem próximo (409
    `no_next_state`), o próprio comando conclui com `done`; próximo estado da categoria concluída também conclui. O
    handoff não manda restante 0 (o trabalho continua com o próximo dono). Descarte: `fila done <PID> --resolution
-   discarded|no_action` nunca faz handoff, conclui na hora de qualquer coluna (a rota da fila do Planou ainda não recebe a
-   resolução: fecha como done e o comando avisa).
+   discarded|no_action` nunca faz handoff, conclui na hora de qualquer coluna e a resolução vai ao Planou (desde o Planou 0.105.0 a
+   tarefa fica registrada como descartada ou sem ação, não como feita).
    - O ponto em que se fecha é o mesmo de cima: a coluna termina quando a parte do agente termina (análise entregue,
      ou a PR entrou conforme a autonomia).
    - `$PL fila handoff <PID> [--note ...]` força o handoff, sem cair para `done` (erro se a coluna não tem próximo).

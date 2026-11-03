@@ -1,0 +1,12 @@
+#!/bin/bash
+# meeting-copilot start|replay|eval|prepare|setup-windows|devices  (see scripts/meeting_copilot/cli.py)
+# Link it into the PATH:  ln -s <this file> ~/.local/bin/meeting-copilot
+set -e
+export PATH="$HOME/.local/bin:$PATH"
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# faster-whisper (CTranslate2) looks for cuDNN 9 / cuBLAS in the system paths; the pip wheels that torch brings are
+# not there, and without them the first transcription aborts the process ("Unable to load libcudnn_ops").
+NV="$(python3 -c 'import nvidia; print(nvidia.__path__[0])' 2>/dev/null || true)"
+[ -n "$NV" ] && export LD_LIBRARY_PATH="$NV/cudnn/lib:$NV/cublas/lib:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m meeting_copilot "$@"

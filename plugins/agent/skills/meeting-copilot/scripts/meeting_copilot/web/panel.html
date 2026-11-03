@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copiloto da reunião</title>
+<style>
+:root{
+  --bg:#fafafa; --sheet:#ffffff; --text:#1d1d1f; --muted:#6e6e73; --faint:#a3a3a8; --line:#e6e6e8;
+  --accent:#1d7a4e; --pill:#f0f0f2; --shade:rgba(0,0,0,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1c1c1e; --sheet:#262628; --text:#ececee; --muted:#a1a1a6; --faint:#6c6c70; --line:#38383b;
+    --accent:#4cc38a; --pill:#2c2c2e; --shade:rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1c1c1e; --sheet:#262628; --text:#ececee; --muted:#a1a1a6; --faint:#6c6c70; --line:#38383b;
+  --accent:#4cc38a; --pill:#2c2c2e; --shade:rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.serif{font-family:"Iowan Old Style","Charter","Source Serif Pro","Source Serif 4",Georgia,"Times New Roman",serif}
+.app{height:100%;display:flex;flex-direction:column;max-width:560px;margin:0 auto;position:relative}
+header{display:flex;align-items:center;gap:6px;padding:14px 20px 0}
+header .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .m{color:var(--muted);white-space:nowrap}
+header .sp{flex:1}
+.more{width:32px;height:28px;border-radius:8px;color:var(--muted);font-size:18px;letter-spacing:1px;line-height:1}
+.more:hover,.more:focus-visible{background:var(--pill);outline:none}
+main{flex:1;min-height:0;overflow:auto;padding:24px 20px 96px;display:flex;flex-direction:column}
+.lbl{font-size:12px;color:var(--muted);margin:0 0 4px}
+.big{font-size:25px;line-height:1.25;margin:0;font-weight:500}
+[hidden]{display:none!important}
+.mid{font-size:19px;line-height:1.35;margin:0}
+.dim{color:var(--faint)}
+.grow{flex:1;min-height:32px}
+.empty{color:var(--faint);font-size:19px}
+.for{color:var(--accent);font-size:17px;margin:28px 0 4px}
+.alert{cursor:pointer}
+ul.topics{list-style:none;margin:18px 0 0;padding:0}
+ul.topics li{position:relative;padding-left:22px;margin:0 0 12px;font-size:18px;line-height:1.35}
+ul.topics li::before{content:"";position:absolute;left:0;top:.7em;width:11px;height:2px;background:var(--accent)}
+ul.topics li.back{color:var(--muted)}
+.careful{margin:6px 0 0;color:var(--muted);font-size:13px}
+.src{margin-top:14px;color:var(--muted);font-size:12px;display:none}
+.alert.open .src{display:block}
+.phrase{margin-top:14px;font-size:16px;color:var(--muted);display:none}
+.alert.phr .phrase{display:block}
+.acts{display:flex;gap:18px;margin-top:18px;font-size:12px;color:var(--muted)}
+.acts button:hover{color:var(--text)}
+kbd{font:11px system-ui,sans-serif;color:var(--faint);margin-left:4px}
+.pill{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:8px 16px;border-radius:999px;background:var(--pill);border:1px solid var(--line);color:var(--muted);z-index:3}
+.pill.you{color:var(--accent)}
+.wave{display:flex;align-items:center;gap:2px;height:12px}
+.wave i{width:2px;border-radius:1px;background:var(--accent);height:5px}
+.pill:not(.paused) .wave i{animation:w 1.1s ease-in-out infinite}
+.pill.paused .wave i{background:var(--faint)}
+.wave i:nth-child(2){animation-delay:.15s!important}.wave i:nth-child(3){animation-delay:.3s!important}
+.wave i:nth-child(4){animation-delay:.45s!important}
+@keyframes w{0%,100%{height:4px}50%{height:12px}}
+@media (prefers-reduced-motion: reduce){.wave i{animation:none!important;height:8px}}
+.shade{position:absolute;inset:0;background:var(--shade);opacity:0;pointer-events:none;transition:opacity .2s;z-index:4}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:78%;background:var(--sheet);border-radius:16px 16px 0 0;
+  transform:translateY(105%);transition:transform .22s ease;z-index:5;display:flex;flex-direction:column}
+.drawer-open .shade{opacity:1;pointer-events:auto}
+.drawer-open .sheet{transform:none}
+.grip{width:36px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 0}
+.sheet .body{overflow:auto;padding:16px 20px 8px}
+.sheet footer,.endfoot{display:flex;justify-content:space-between;padding:12px 20px 16px;color:var(--muted);font-size:12px}
+.sec{margin:0 0 18px}
+.sec .it{font-size:16px;margin:2px 0 0}
+.sec .meta{font-size:12px;color:var(--muted);margin:0 0 8px}
+.sec .meta .no{color:var(--accent)}
+.saved{color:var(--accent);font-size:12px;display:flex;gap:6px;align-items:center;margin-bottom:12px}
+.menu{position:absolute;right:16px;top:44px;background:var(--sheet);border:1px solid var(--line);border-radius:12px;
+  padding:6px;min-width:220px;z-index:6;display:none;box-shadow:0 8px 24px var(--shade)}
+.menu.on{display:block}
+.menu .h{font-size:11px;color:var(--faint);padding:8px 10px 4px}
+.menu button{display:flex;width:100%;justify-content:space-between;padding:7px 10px;border-radius:8px;text-align:left}
+.menu button:hover{background:var(--pill)}
+.menu button[aria-checked="true"]{color:var(--accent)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header><span class="t" id="title">Reunião</span><span class="m" id="meta"></span><span class="sp"></span>
+    <button class="more" id="more" aria-haspopup="menu" aria-label="Opções">···</button></header>
+  <div class="menu" id="menu" role="menu"></div>
+  <main id="main" aria-live="polite"></main>
+  <button class="pill" id="pill" aria-label="Abrir o resto da reunião"><span class="wave"><i></i><i></i><i></i><i></i></span><span id="pilltxt">Ouvindo</span></button>
+  <div class="shade" id="shade"></div>
+  <section class="sheet" id="sheet" aria-label="O resto da reunião"><div class="grip"></div><div class="body" id="drawer"></div>
+    <footer><a href="/notes.md" target="_blank" style="color:inherit;text-decoration:none">Notas em Markdown</a><button id="pause">Pausar</button></footer></section>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let V=null, S={}, T=0, people=new Set(), shown={phr:false,open:false,id:null};
+const LEVEL={low:'Baixo',mid:'Médio',high:'Alto'};
+
+function post(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+function setTheme(t){if(t)document.documentElement.dataset.theme=t;else delete document.documentElement.dataset.theme;
+  try{localStorage.setItem('mc-theme',t||'')}catch(e){}}
+try{setTheme(localStorage.getItem('mc-theme')||'')}catch(e){}
+
+function header(){
+  $('title').textContent=S.title||'Reunião';
+  $('meta').textContent=V&&V.state==='ended'?' · encerrada':` · ${Math.floor(T/60)} min`;
+}
+function sec(title,items,fn){return items.length?`<div class="sec"><p class="lbl">${title}</p>${items.map(fn).join('')}</div>`:''}
+function owner(n){const o=(n.owner||'').trim();
+  return `<p class="meta">${o?esc(/^you$/i.test(o)?'Você':o):'<span class="no">Sem dono</span>'} · ${n.due?esc(n.due):'sem prazo'}</p>`}
+function notesHtml(d){
+  return sec('Decidido',d.decided,n=>`<p class="it serif">${esc(n.text)}</p><p class="meta"></p>`)+
+    sec('Ações',d.actions,n=>`<p class="it serif">${esc(n.text)}</p>${owner(n)}`)+
+    sec('Em aberto',d.open,n=>`<p class="it serif">${esc(n.text)}</p><p class="meta"></p>`)+
+    sec('Talvez pra você',d.maybe||[],g=>`<p class="it serif">${esc(g.q)}</p><p class="meta">${esc(g.who)}</p>`)+
+    sec('Ouvido na reunião',d.fyi||[],g=>`<p class="it serif">${esc(g.q)}</p><p class="meta">${esc(g.who)}</p>`);
+}
+function render(){
+  if(!V)return;
+  header();
+  const m=$('main'), d=V.drawer;
+  if(V.state==='ended'){
+    document.body.classList.remove('drawer-open');$('pill').hidden=true;
+    m.innerHTML=`<div class="saved"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 4.5"/></svg>Salvo para a ata</div>
+      <h1 class="big serif" style="margin-bottom:4px">${esc(S.title||'Reunião')}</h1>
+      <p class="meta lbl">${Math.round(T/60)} min · ${people.size} ${people.size===1?'pessoa':'pessoas'}</p><div style="height:18px"></div>
+      ${notesHtml(d)||'<p class="empty serif">Nada anotado.</p>'}<div class="grow"></div>
+      <div class="endfoot" style="padding:0"><span>Transcrição e notas ficam nesta máquina</span><a href="/notes.md" target="_blank" style="color:inherit">Abrir</a></div>`;
+    return;
+  }
+  const a=V.alert;
+  if(!a||a.id!==shown.id)shown={phr:false,open:false,id:a&&a.id};
+  const topic=V.topic?`<p class="lbl">Agora</p><h1 class="big serif">${esc(V.topic)}</h1>`:'<p class="lbl">Agora</p><p class="empty serif">Ouvindo a reunião</p>';
+  if(a){
+    const back=a.cards.filter(c=>c.k==='ask'), care=a.cards.filter(c=>c.k==='careful'), ans=a.cards.find(c=>c.k==='answer');
+    m.innerHTML=`${V.topic?`<p class="mid serif dim">${esc(V.topic)}</p>`:''}
+      <div class="alert${shown.open?' open':''}${shown.phr?' phr':''}" id="alert" title="Toque para ver de onde veio">
+      <p class="for serif">${a.who?esc(a.who)+', p':'P'}ra você</p><h1 class="big serif">${esc(a.q)}</h1>
+      <ul class="topics serif">${a.topics.map(t=>`<li>${esc(t)}</li>`).join('')}${back.map(c=>`<li class="back">${esc(c.x)}</li>`).join('')}</ul>
+      ${care.map(c=>`<p class="careful">Cuidado: ${esc(c.x)}</p>`).join('')}
+      ${ans?`<p class="phrase serif">${esc(ans.x)}</p>`:''}
+      <p class="src">De onde veio: ${a.sources.length?a.sources.map(esc).join(', '):'transcrição'}</p></div>
+      <div class="acts"><button id="dismiss">Dispensar<kbd>Esc</kbd></button>${ans?`<button id="phr">Frase pronta<kbd>F</kbd></button>`:''}</div>`;
+    $('alert').onclick=()=>{shown.open=!shown.open;$('alert').classList.toggle('open',shown.open)};
+    $('dismiss').onclick=dismiss; if(ans)$('phr').onclick=phrase;
+  }else{
+    m.innerHTML=`${topic}<div class="grow"></div>${V.ask&&V.ask.text?`<p class="lbl">Vale perguntar</p><p class="mid serif">${esc(V.ask.text)}</p>`:''}`;
+  }
+  const p=$('pill'); p.hidden=false;
+  p.className='pill'+(a?' you':'')+(V.paused?' paused':'');
+  $('pilltxt').textContent=V.paused?'Pausado':(a?'Pra você':'Ouvindo');
+  $('drawer').innerHTML=notesHtml(d)||'<p class="empty serif" style="font-size:16px">Nada anotado ainda.</p>';
+  $('pause').textContent=V.paused?'Retomar':'Pausar';
+  menu();
+}
+function menu(){
+  const s=V.settings, th=document.documentElement.dataset.theme||'';
+  const opt=(on,txt,key,act)=>`<button role="menuitemradio" aria-checked="${on}" data-a="${act}">${txt}<kbd>${key}</kbd></button>`;
+  $('menu').innerHTML=`<div class="h">Mostrar</div>${opt(s.mode==='mine','Só o que é meu','M','mode:mine')}${opt(s.mode==='all','Tudo','M','mode:all')}
+    <div class="h">Avisar com confiança</div>${['low','mid','high'].map((k,i)=>opt(s.threshold===k,LEVEL[k],i+1,'th:'+k)).join('')}
+    <div class="h">Tema</div>${opt(th==='','Do sistema','T','theme:')}${opt(th==='light','Claro','T','theme:light')}${opt(th==='dark','Escuro','T','theme:dark')}
+    <div class="h">Reunião</div><button data-a="drawer">O resto da reunião<kbd>Espaço</kbd></button>
+    <button data-a="pause">${V.paused?'Retomar':'Pausar'}<kbd>P</kbd></button><button data-a="stop">Encerrar</button>`;
+}
+function dismiss(){if(V&&V.alert)post('/api/dismiss',{group:V.alert.id})}
+function phrase(){shown.phr=!shown.phr;const e=$('alert');if(e)e.classList.toggle('phr',shown.phr)}
+function drawer(on){document.body.classList.toggle('drawer-open',on??!document.body.classList.contains('drawer-open'))}
+function pause(){post('/api/pause',{paused:!V.paused})}
+function act(a){
+  const [k,v]=a.split(':');
+  if(k==='mode')post('/api/settings',{mode:v}); else if(k==='th')post('/api/settings',{threshold:v});
+  else if(k==='theme'){setTheme(v);menu()} else if(k==='drawer')drawer(true); else if(k==='pause')pause();
+  else if(k==='stop'&&confirm('Encerrar a reunião e salvar as notas?'))post('/api/stop',{});
+  $('menu').classList.remove('on');
+}
+$('more').onclick=e=>{e.stopPropagation();$('menu').classList.toggle('on')};
+$('menu').onclick=e=>{const b=e.target.closest('button');if(b)act(b.dataset.a)};
+document.addEventListener('click',e=>{if(!e.target.closest('#menu'))$('menu').classList.remove('on')});
+$('pill').onclick=()=>drawer(true); $('shade').onclick=()=>drawer(false); $('pause').onclick=pause;
+document.addEventListener('keydown',e=>{
+  if(!V||e.ctrlKey||e.metaKey||e.altKey)return;
+  const k=e.key.toLowerCase();
+  if(k==='escape'){if($('menu').classList.contains('on'))$('menu').classList.remove('on');
+    else if(document.body.classList.contains('drawer-open'))drawer(false); else dismiss();}
+  else if(k===' '){e.preventDefault();drawer()}
+  else if(k==='m')post('/api/settings',{mode:V.settings.mode==='mine'?'all':'mine'});
+  else if(['1','2','3'].includes(k))post('/api/settings',{threshold:['low','mid','high'][+k-1]});
+  else if(k==='f')phrase(); else if(k==='p')pause();
+  else if(k==='t'){const o=['','light','dark'];setTheme(o[(o.indexOf(document.documentElement.dataset.theme||'')+1)%3]);menu()}
+});
+function line(l){T=Math.max(T,l.end||0);if(!l.me&&l.who)people.add(l.who);else if(l.me)people.add('você')}
+function onEvent(ev){
+  if(ev.type==='hello'){S=ev.session;T=0;people=new Set();(ev.lines||[]).forEach(line);V=ev.view;render()}
+  else if(ev.type==='line'||ev.type==='line_update'){line(ev.line);header()}
+  else if(ev.type==='view'){V=ev.view;render()}
+}
+const es=new EventSource('/events'); es.onmessage=m=>onEvent(JSON.parse(m.data));
+</script>
+</body>
+</html>

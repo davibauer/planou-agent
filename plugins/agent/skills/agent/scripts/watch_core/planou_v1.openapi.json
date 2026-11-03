@@ -3112,6 +3112,16 @@
                     },
                     "default": null,
                     "nullable": true
+                  },
+                  "resolution": {
+                    "enum": [
+                      "done",
+                      "no_action",
+                      "discarded"
+                    ],
+                    "type": "string",
+                    "description": "só com state=done; ausente = done",
+                    "nullable": true
                   }
                 }
               }
@@ -10207,6 +10217,16 @@
               "type": "string"
             },
             "default": null,
+            "nullable": true
+          },
+          "resolution": {
+            "enum": [
+              "done",
+              "no_action",
+              "discarded"
+            ],
+            "type": "string",
+            "description": "só com state=done; ausente = done",
             "nullable": true
           }
         }

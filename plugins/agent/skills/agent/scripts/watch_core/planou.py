@@ -2784,10 +2784,10 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     from the cost turns tied to the task (watch_core.turns, through the current-task marker set here). An hour the
     person changed stays hers (`ignored_fields` in the answer).
 
-    Discard (PLN0434): `resolution` discarded or no_action on a done never becomes a handoff: the task concludes at once,
-    from whatever column it sits in, instead of walking the review and release columns. Planou's progress route has no
-    resolution field (QueueProgressRequest: state, pr_url, note, hours, ask_first), so it is not sent: the server closes
-    the task with resolution done (AgentQueue.ProgressAsync, case done). The caller says so.
+    Resolution (PLN0434, PLN0445): `resolution` discarded or no_action on a done never becomes a handoff: the task concludes
+    at once, from whatever column it sits in, instead of walking the review and release columns. Planou 0.105.0 accepts
+    `resolution` (done|no_action|discarded) in the progress body only with state done (other state or a bad value is a
+    422), so it goes up only when the request sent is `done`, never on a handoff. Without it the server closes as done.
 
     `ask_first` (blocked only): the autonomy actions that made the agent stop (ASK_FIRST_ACTIONS); Planou then shows
     "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too."""
@@ -2815,6 +2815,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         b = {k: v for k, v in {'state': sent, 'pr_url': pr_url, 'note': note}.items() if v}
         b.update({k: v for k, v in {'estimate_h': estimate_h, 'remaining_h': rem}.items() if v is not None})
         if ask_first: b['ask_first'] = ask_first
+        if resolution and sent == 'done': b['resolution'] = resolution
         return b
 
     if resolution is not None and resolution not in DONE_RESOLUTIONS:
@@ -4684,9 +4685,6 @@ def _fila(a, ap):
         else:
             res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h,
                            ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None)
-            if sub == 'done' and a.resolution in ('discarded', 'no_action'):
-                print(f'AVISO (planou): a rota da fila do Planou nao recebe resolucao: {res.get("pid") or ref or "a tarefa"} '
-                      f'foi concluida direto (sem handoff), mas com a resolucao done, nao {a.resolution}.', file=sys.stderr)
             if sub == 'blocked' and paused():
                 tid, entry = _queue_entry(res.get('pid') or ref)
                 pause_hold(res.get('task_id') or tid, res.get('pid') or (entry or {}).get('pid'), (entry or {}).get('title'))
