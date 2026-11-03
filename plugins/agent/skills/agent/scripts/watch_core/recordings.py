@@ -251,7 +251,7 @@ def registra_falha_arquivo(falhas, ts, erro, agora):
     f = falhas.get(ts) or {}
     n = (f.get('n') or 0) + 1 if f.get('causa') == causa else 1
     novo = not any(o.get('causa') == causa for o in falhas.values())
-    falhas[ts] = {'causa': causa, 'n': n, 'proxima': (agora + min(ESPERA_ARQUIVO_BASE * 2 ** (n - 1), ESPERA_ARQUIVO_MAX)).isoformat()}
+    falhas[ts] = {'causa': causa, 'n': n, 'proxima': (agora + min(ESPERA_ARQUIVO_BASE * 2 ** min(n - 1, 10), ESPERA_ARQUIVO_MAX)).isoformat()}
     return novo
 
 

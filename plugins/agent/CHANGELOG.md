@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.105.4 (2026-11-02)
+- Corrigido o atraso entre tentativas de arquivar uma gravação que falha: depois de dezenas de falhas seguidas o cálculo estourava (OverflowError) e travava a atualização automática do plugin; agora o atraso para de crescer no teto de 6 h (PLN0451).
+
 ## 0.105.3 (2026-11-02)
 - Os textos do agent não mandam mais o usuário aprovar ou configurar "em Cerimônias": a tela saiu do Planou (PLN0441), um evento de cerimônia só chega se uma estiver configurada (hoje nenhuma) e, quando chegar, o comportamento vale como está. Só texto, sem mudança de código.
 
