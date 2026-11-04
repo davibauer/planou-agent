@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.108.2 (2026-11-04)
+- Alerta cancelado pela pessoa no Planou fica marcado como dispensado (com a data) e deixa de ser consultado a cada hora; ele não reabre enquanto o problema durar. Se o problema sumir e voltar depois, abre um alerta novo. Alerta que expirou continua reabrindo, como antes.
+
 ## 0.108.1 (2026-11-03)
 - Aguardando: quando a fonte troca a data de espera depois que o Planou devolveu a tarefa para A fazer (`aguardando_ate` ou o prazo mudou para outra data futura), o sync entende como espera nova, tira a marca de volta e manda Aguardando com a nova data. Mesma data, ou sem data, a tarefa continua em A fazer. A marca de volta guardada por versões anteriores, sem a data, segue segurando a tarefa em A fazer.
 

@@ -3646,20 +3646,22 @@ ASK_CHECK_EVERY = timedelta(hours=1)
 
 
 def _ask_reason(code):
-    """result_reason of an ask whose state is cancelled ('' when unknown or Planou does not answer)."""
+    """result_reason of an ask whose state is cancelled ('' when it has none); None when the ask is not cancelled or
+    Planou does not answer."""
     try:
         _, res = _call('GET', f'/asks/{urllib.parse.quote(str(code))}')
     except PlanouError:
-        return ''
-    return str((res or {}).get('result_reason') or '') if (res or {}).get('state') in ('cancelled', 'expired') else ''
+        return None
+    return str((res or {}).get('result_reason') or '') if (res or {}).get('state') in ('cancelled', 'expired') else None
 
 
 def _alert_expired(v, d, now):
     """PLN0487: True when the alert kept in open_asks.json (still wanted) was cancelled by Planou for expiring. Planou
     cancels an agent's alert with nothing to choose after 3 days with the reason "expirou"; asked only once the alert is
-    that old and at most once an hour. A cancel by the person (any other reason) is not an expiry: the entry stays and
-    the alert is not opened again, as before."""
-    if (d.get('kind') or v.get('kind')) == 'decision' or v.get('answered') or not v.get('code'): return False
+    that old and at most once an hour. PLN0505: a cancel by the person (any other reason) is not an expiry: the entry is
+    marked `dismissed` (with the date) and never asked about again, nor opened again while the problem lasts."""
+    if (d.get('kind') or v.get('kind')) == 'decision' or v.get('answered') or v.get('dismissed') or not v.get('code'):
+        return False
     try:
         age = now - datetime.fromisoformat(v.get('at'))
         last = datetime.fromisoformat(v['checked']) if v.get('checked') else None
@@ -3667,7 +3669,20 @@ def _alert_expired(v, d, now):
         return False
     if age < ASK_EXPIRES_AFTER or (last and now - last < ASK_CHECK_EVERY): return False
     v['checked'] = now.isoformat()
-    return _ask_reason(v['code']) == ASK_EXPIRED
+    reason = _ask_reason(v['code'])
+    if reason is not None and reason != ASK_EXPIRED: v['dismissed'] = now.date().isoformat()
+    return reason == ASK_EXPIRED
+
+
+CLOSED_ASKS_KEEP = timedelta(days=30)
+
+
+def _parse_ts(v, default):
+    try:
+        t = datetime.fromisoformat(v)
+        return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return default
 
 
 def reconcile_asks(desired):
@@ -3678,42 +3693,61 @@ def reconcile_asks(desired):
     A question to the person is always a decision (an alert only has "Ciente"); alerts are for what needs no answer.
     A ref not open yet is opened (the ref is the idempotency key, so a lost local file never duplicates one); an open ref
     that left `desired` is withdrawn (cancel); an answered one is only forgotten. An alert Planou expired (PLN0487) while
-    it is still desired is opened again with the key `<ref>@<day>`, once a day at most. Returns lines for the tick output
+    it is still desired is opened again with the key `<ref>@<day>`, once a day at most. An alert the person cancelled
+    (PLN0505) is marked `dismissed` and left alone while the problem lasts; when the problem leaves `desired` the entry
+    goes (nothing to cancel); every removal of an entry (whatever its state) is counted in closed_asks.json (entries older than 30 days without an active problem are pruned), so that if the problem comes back it is a new alert
+    with the key `<ref>@g<n>`. Returns lines for the tick output
     (AVISO for a refused ask, the usual failure lines for Planou down)."""
     if not active(): return []
     st = _load('open_asks.json', {})
-    lines = []
     now = datetime.now(timezone.utc)
+    # PLN0505: {ref: {'n': how many times an entry of it left, 'at': when}}; the old format was {ref: n}
+    closed = {r: (c if isinstance(c, dict) else {'n': c, 'at': now.isoformat()})
+              for r, c in _load('closed_asks.json', {}).items()}
+    for r in [r for r, c in closed.items() if r not in desired and r not in st and now - _parse_ts(c.get('at'), now) > CLOSED_ASKS_KEEP]:
+        closed.pop(r)                                # old, no active problem and no open entry (its removal would count on top): not needed any more
+    lines = []
     for ref, d in desired.items():
-        key_ref = ref
+        dismissed, reopened = None, False
+        n = closed.get(ref, {}).get('n')
+        key_ref = ref if not n else f'{ref}@g{n}'     # a returned problem is a new alert
         if ref in st:
             if not _alert_expired(st[ref], d, now): continue
             st.pop(ref)                      # PLN0487: Planou expired it; the problem is still there, so open it again
+            reopened = True
             key_ref = f'{ref}@{now.date().isoformat()}'
         try:
             if d.get('kind') == 'decision':
                 res = request_decision(d['title'], d['options'], d.get('context'), d.get('task'), ref, d.get('free_text', False))
             else:
                 res = raise_alert(d['title'], d.get('code') or 'agent', d.get('severity') or 'medium', d.get('context'), d.get('task'), key_ref)
-                if key_ref == ref and res.get('state') == 'cancelled' and _ask_reason(res['code']) == ASK_EXPIRED:
+                reason = _ask_reason(res['code']) if res.get('state') == 'cancelled' and not reopened else None
+                if reason == ASK_EXPIRED:
                     key_ref = f'{ref}@{now.date().isoformat()}'      # the local file was lost: the old key answers the expired one
                     res = raise_alert(d['title'], d.get('code') or 'agent', d.get('severity') or 'medium', d.get('context'), d.get('task'), key_ref)
+                elif reason is not None:
+                    dismissed = now.date().isoformat()               # lost file, cancelled by the person: stays closed
         except PlanouError as e:
             lines.append(f'AVISO (planou): pedido {ref} recusado: {e.message}' if 400 <= e.status < 500 else _failed(e.message if e.status else e))
             continue
         _ok()
         st[ref] = {'code': res.get('code'), 'answered': res.get('state') not in (None, 'open', 'in_window'),
                    'kind': d.get('kind'), 'at': now.isoformat()}
+        if dismissed: st[ref]['dismissed'] = dismissed
     for ref in [r for r in st if r not in desired]:
         v = st[ref]
-        if not v.get('answered'):
+        if v.get('dismissed'):
+            pass                                     # already cancelled by the person
+        elif not v.get('answered'):
             try:
                 cancel_ask(v['code'], 'resolvido fora do Planou')
             except PlanouError as e:
                 if not 400 <= e.status < 500:       # 404 / 409: gone or already closed on the server
                     lines.append(_failed(e.message if e.status else e)); continue
         st.pop(ref)
+        closed[ref] = {'n': closed.get(ref, {}).get('n', 0) + 1, 'at': now.isoformat()}   # a return gets a new key
     _save('open_asks.json', st)
+    _save('closed_asks.json', closed)
     return lines
 
 
