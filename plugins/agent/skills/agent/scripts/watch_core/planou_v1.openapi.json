@@ -10209,6 +10209,33 @@
           }
         }
       },
+      "QueueAutonomy": {
+        "required": [
+          "allowed",
+          "ask_first",
+          "level"
+        ],
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ask_first": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "level": {
+            "type": "string"
+          }
+        },
+        "default": null,
+        "nullable": true
+      },
       "QueueProgressRequest": {
         "type": "object",
         "properties": {
@@ -10480,7 +10507,8 @@
           "autonomy": {
             "required": [
               "allowed",
-              "ask_first"
+              "ask_first",
+              "level"
             ],
             "type": "object",
             "properties": {
@@ -10497,6 +10525,9 @@
                   "type": "string",
                   "nullable": true
                 }
+              },
+              "level": {
+                "type": "string"
               }
             }
           },
@@ -10649,7 +10680,9 @@
                 "blocked",
                 "blocked_by",
                 "epic",
-                "mark"
+                "mark",
+                "autonomy",
+                "held"
               ],
               "type": "object",
               "properties": {
@@ -10762,6 +10795,19 @@
                     }
                   ],
                   "nullable": true
+                },
+                "autonomy": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/QueueAutonomy"
+                    }
+                  ],
+                  "nullable": true
+                },
+                "held": {
+                  "type": "string",
+                  "default": null,
+                  "nullable": true
                 }
               }
             }
@@ -10785,7 +10831,9 @@
           "blocked",
           "blocked_by",
           "epic",
-          "mark"
+          "mark",
+          "autonomy",
+          "held"
         ],
         "type": "object",
         "properties": {
@@ -10897,6 +10945,19 @@
                 "nullable": true
               }
             ],
+            "nullable": true
+          },
+          "autonomy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QueueAutonomy"
+              }
+            ],
+            "nullable": true
+          },
+          "held": {
+            "type": "string",
+            "default": null,
             "nullable": true
           }
         }

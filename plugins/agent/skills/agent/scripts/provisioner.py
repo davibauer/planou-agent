@@ -399,6 +399,8 @@ AUTONOMY = {
                'ask_first': ['branch e worktree', 'push de branch', 'abrir PR', 'dependencia nova',
                              'migration destrutiva ou que apaga dado']},
 }
+# Written once, from the default project: after that the project of each branch and task decides (planou_release.limit
+# and the "autonomy" of `fila ver`), and this config can only make the instance stricter (PLN0566).
 RELEASE_CAN = ['release em lote pelo integrador (fast-forward na main, tag, push)',
                'deploy com trava e linha no log de deploys']
 

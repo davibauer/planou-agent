@@ -12,7 +12,10 @@ when: um worker volta com PRONTA PARA RELEASE, a saida traz == RELEASE ou == DEP
 **Sob demanda (`planou.all_roles`, PLN0368).** Numa instância com `"all_roles": true` no bloco `planou`, este comportamento não precisa estar em `behaviors` e não é lido em toda sessão: o `--load` o lista como `sob demanda` e a sessão lê este arquivo quando a linha `-- FILA` traz `papel da coluna <coluna>: ...` com ele; o integrador leva o bloco de `$A --brief <repo> --role batch-release`. Só entra na lista quando o release em lote está configurado neste computador (`behavior_config.batch-release.repo` apontando um repositório de `repos` com `"release": "batch"`); sem isso, a coluna Release espera outro agente.
 
 Vale para a instância que integra e publica um repositório: a lista `can` do `autonomy` inclui release em lote e
-deploy. O worker de desenvolvimento termina numa branch pronta; quem junta, testa tudo, versiona e publica é um worker
+deploy, e só vale sozinha enquanto o projeto de cada branch está `autonomous` (a autonomia de agora, não a do dia em que
+a instância nasceu). Fora disso, o release pede o OK da pessoa: `== RELEASE DEVIDO` traz a linha `autonomia: ...`,
+`--release-queue start` recusa, e com o OK vai `--release-queue start ok`. Sem resposta do Planou não há o que pedir:
+não disparar, e repetir `--release-queue start` quando ele voltar. O worker de desenvolvimento termina numa branch pronta; quem junta, testa tudo, versiona e publica é um worker
 só, o integrador, disparado por esta sessão. `A="python3 $S/scripts/agent.py <instância>"`.
 
 **Regras do release: no Planou.** Mínimo de branches, espera máxima, e2e completo a cada N horas, regra de versão e
@@ -60,7 +63,7 @@ integrador, para colar no pedido ao integrador (sem o `--role`, o bloco é o do 
 
 ## Disparar o integrador
 
-1. `$A --release-queue start`: marca as branches da fila como em integração e o gancho fica quieto. Um integrador por
+1. `$A --release-queue start` (`start ok` com o OK da pessoa, ver acima): marca as branches da fila como em integração e o gancho fica quieto. Um integrador por
    vez; branch que fica pronta durante a integração entra na fila e vai no próximo lote.
 2. Um worker em background (delegate-to-worker) com o pedido: papel INTEGRADOR, as branches, a worktree de integração em
    `<worktrees>/release-<AAAAMMDD-HHMM>`, o bloco do `$A --brief <repo> --role batch-release`, a linha `regras (...)` do

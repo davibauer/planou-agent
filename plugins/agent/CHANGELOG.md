@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.3 (2026-11-04)
+- Autonomia do projeto vale no funcionário já criado: `fila ver` mostra a regra de agora de cada tarefa, e o release só vai sozinho com o projeto de cada branch em Autônomo; fora disso pede o OK da pessoa (`--release-queue start ok`). Funciona com o Planou antigo e o novo.
+
 ## 0.112.2 (2026-11-04)
 - Tarefa reaberta no Planou volta ao estado que o Planou mandou (Fazendo, Aguardando, Impedimento), não mais sempre a A fazer; sem estado no evento (Planou antigo) ou em backlog continua A fazer. A sincronização seguinte não manda `todo` por cima do estado do Planou enquanto a fonte local diz A fazer.
 

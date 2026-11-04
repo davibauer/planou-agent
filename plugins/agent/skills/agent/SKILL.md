@@ -289,8 +289,10 @@ registrar uma sugestão. O planou a transforma em tarefa no backlog do projeto P
   Versão nova de um rascunho ainda aberto (o mesmo recado reescrito): o mesmo `--assunto <rótulo>` nas duas, para a nova
   substituir a anterior.
 - **Autonomia**: o `autonomy` do config diz o que a instância pode sozinha (`can`), o que pergunta antes (`ask_first`)
-  e o que nunca faz (`never`). Uma tarefa do Planou traz a sua própria `autonomy`; quando as duas divergem, vale a mais
-  restrita. Algo fora de `can`: perguntar (`$PL pergunta` ou `fila blocked`) e esperar.
+  e o que nunca faz (`never`). Esse `can` foi escrito uma vez, ao criar a instância; quem manda agora é o projeto de
+  cada tarefa: a `autonomy` que `$PL fila ver` mostra é a de agora (`level`), e o `release_due` confere a do projeto de
+  cada branch. Quando as duas divergem, vale a mais restrita. Algo fora de `can`: perguntar (`$PL pergunta` ou
+  `fila blocked`) e esperar.
 - Nada de gravar credencial em log, em commit ou no Planou.
 
 ## Modo teste

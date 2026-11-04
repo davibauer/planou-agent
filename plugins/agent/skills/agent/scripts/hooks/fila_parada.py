@@ -45,6 +45,7 @@ def stalled(view):
     for r in view.get('tasks') or []:
         if not isinstance(r, dict) or r.get('state') != 'queued' or r.get('released') is not False: continue
         if any(isinstance(b, dict) and b.get('open') is not False for b in r.get('blocked_by') or []): continue
+        if r.get('held'): continue                      # Planou holds it for the person (a manual project): not stalled
         key = str(r.get('pid') or r.get('task_id') or '')
         if key: out.append((key, r))
     return out

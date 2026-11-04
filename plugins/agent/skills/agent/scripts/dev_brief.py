@@ -38,6 +38,7 @@ import permissions, schema
 from watch_core import column_roles
 
 DEV = 'delegate-to-worker'               # the dev worker's behavior (old name: dev-worker)
+RELEASE_ACTIONS = {'release', 'deploy'}  # what only goes alone in an autonomous project (provisioner.RELEASE_CAN, PLN0566)
 RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, CONFERI (uma linha: "Conferi: ... Não conferi: ..."), PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
 # the independent review and QA workers (PLN0281): their worktree, their done criterion and the independence rule
 REVIEW_ROLES = {
@@ -200,13 +201,29 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
         if tools: out.append('FERRAMENTAS: ' + ', '.join(tools))
         other = [x for x in can if not permissions.role_allows(x, perms['actions'])]
         can = [x for x in can if x not in other]
-    for k, label, v in (('can', 'PODE', can), ('ask_first', 'PERGUNTAR ANTES', a.get('ask_first')),
+    ask = list(a.get('ask_first') or [])
+    moved = [x for x in can if permissions.classify(x) & RELEASE_ACTIONS]
+    held = release_limit() if moved else None
+    if held:                                 # the project in force, not the config of the day the instance was created
+        can = [x for x in can if x not in moved]
+        ask += moved
+        out.append(f'AUTONOMIA DO PROJETO: {held}: release e deploy so com o OK da pessoa, dito neste pedido')
+    for k, label, v in (('can', 'PODE', can), ('ask_first', 'PERGUNTAR ANTES', ask),
                         ('never', 'NUNCA', a.get('never'))):
         if v: out.append(f'{label}: ' + '; '.join(v))
     if other: out.append(f'NAO E DESTE PAPEL ({perms["role"]}), nao fazer: ' + '; '.join(other))
     out.append('AUTONOMIA DA TAREFA: a mais restrita entre a de cima e a da tarefa do Planou')
     out.append('VOLTA: ' + RETURN + ('; no RESULTADO, o veredito (aprovada | ajuste pedido) e o sha7 revisado' if review else ''))
     return out
+
+
+def release_limit():
+    """The project that holds a release back now, in words (planou_release.limit), or None. Stricter on a failure."""
+    try:
+        import planou_release
+        return planou_release.limit_text(planou_release.limit())
+    except Exception as e:
+        return f'nao conferida ({type(e).__name__})'
 
 
 def role_of(cfg, rest, behavior_file):

@@ -7,6 +7,12 @@ there are `min_branches` or more ready branches, or one waiting more than `max_w
 of branches (again after `remind_min` minutes if nothing happened) and stays quiet while an integration is running
 (`start` ... `done`/`abort`); an integration older than `stale_h` hours is reported once.
 
+The project decides who goes alone (PLN0566): a release only goes without the person in an autonomous project, the
+current autonomy of the project of each branch's task, whatever the config says (provisioner.py wrote "can" once, from
+the default project). Otherwise `== RELEASE DEVIDO` says it needs her OK and `--release-queue start` refuses until
+`start ok`. No answer from Planou is no decision: the release waits and `start` is repeated, with no OK to ask for. It
+only looks stricter: an instance that does not talk to Planou keeps its config.
+
 Config: {"type": "release_due", "ready_file": "data/release_queue.json", "min_branches": 2, "max_wait_min": 30,
          "remind_min": 60, "stale_h": 3}
 ready_file is relative to the instance folder (or absolute, ~ and {instance} expanded).
@@ -25,7 +31,8 @@ The file: {"branches": [{"branch": "feat/x", "ready_at": ISO UTC, "pid": "ABC000
 CLI (the session never edits the file by hand):
   agent.py <instance> --release-queue [list]          the queue and whether a release is due
   agent.py <instance> --release-queue add BRANCH [PID] a branch is ready (again: ready_at is now)
-  agent.py <instance> --release-queue start            the integrator starts with the branches in the queue
+  agent.py <instance> --release-queue start [ok]       the integrator starts with the branches in the queue ("ok": the
+                                                       person's OK, needed when the project is not autonomous)
   agent.py <instance> --release-queue drop BRANCH      the culprit goes back to its worker; the integration goes on
   agent.py <instance> --release-queue done [BRANCH...] released (default: the branches of the integration); ends it
   agent.py <instance> --release-queue abort            the integration ended without release; branches stay queued
@@ -33,7 +40,7 @@ CLI (the session never edits the file by hand):
 Never raises in the tick: an unreadable file is reported once (same error, same line) and the tick goes on.
 """
 import json, os, re, sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import core, paths, planou_release
 from watch_core import fileio
@@ -164,10 +171,11 @@ class Gancho(Base):
         if not due:
             st.pop('sig', None); st.pop('at', None)
             return None
-        sig = ' '.join(sorted(b['branch'] for b in q['branches']))
+        held = planou_release.limit(q['branches'], now)
+        sig = ' '.join(sorted(b['branch'] for b in q['branches'])) + (f' | {planou_release.limit_text(held)}' if held else '')
         if st.get('sig') == sig and _minutes(st.get('at'), now) < self.remind: return None
         st['sig'], st['at'] = sig, now.isoformat()
-        return {'kind': 'due', 'branches': q['branches'], 'oldest_min': oldest, 'rules': self.rules_line()}
+        return {'kind': 'due', 'branches': q['branches'], 'oldest_min': oldest, 'rules': self.rules_line(), 'held': held}
 
     def texto(self, v):
         if not v: return None
@@ -184,14 +192,17 @@ class Gancho(Base):
             pid = f'{b["pid"]}, ' if b.get('pid') else ''
             out.append(f'-- {b["branch"]} ({pid}pronta {core.hora(b.get("ready_at"))})')
         if v.get('rules'): out.append(f'   {v["rules"]}')
-        out.append(f'   disparar o integrador (batch-release): agent.py {paths.NAME} --release-queue start')
+        if v.get('held'):
+            out += [f'   {line}' for line in planou_release.limit_lines(v['held'], paths.NAME)]
+        else:
+            out.append(f'   disparar o integrador (batch-release): agent.py {paths.NAME} --release-queue start')
         return '\n'.join(out)
 
     # ------------------------------------------------------------ CLI
 
     def args(self, ap):
         ap.add_argument('--release-queue', nargs='*', metavar='ARG',
-                        help='fila de release: list | add BRANCH [PID] | start | drop BRANCH | done [BRANCH...] | abort')
+                        help='fila de release: list | add BRANCH [PID] | start [ok] | drop BRANCH | done [BRANCH...] | abort')
 
     def cli(self, a, ctx):
         args = getattr(a, 'release_queue', None)
@@ -214,6 +225,8 @@ class Gancho(Base):
                 print('release devido: ' + ('sim' if due else f'nao (dispara com {self.min_branches} ou mais, '
                                                                f'ou 1 esperando mais de {self.max_wait:.0f} min)'))
             print(self.rules_line())
+            held = planou_release.limit(q['branches'], now)
+            for line in planou_release.limit_lines(held, paths.NAME): print(line)
             return True
         if cmd == 'add':
             if not rest or not BRANCH_RE.fullmatch(rest[0]): sys.exit('uso: --release-queue add BRANCH [PID]')
@@ -229,6 +242,10 @@ class Gancho(Base):
         if cmd == 'start':
             if not q['branches']: sys.exit('fila de release vazia: nada a integrar')
             if q.get('integrating_since'): sys.exit(f'ja ha integracao desde {core.hora(q["integrating_since"])} (done ou abort antes)')
+            # read now, not from the cache: this is the moment the release goes
+            held = planou_release.limit(q['branches'], now, ttl=timedelta(0))
+            if held and rest[:1] != ['ok']:
+                sys.exit('release parado. ' + '; '.join(planou_release.limit_lines(held, paths.NAME)))
             q['integrating_since'], q['integrating'] = now.isoformat(), names
             self.write(q); self.mirror(q)
             print('integrando: ' + ', '.join(names)); return True

@@ -103,7 +103,8 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    **Ajuste pedido na Conversa ou na PR** numa tarefa em revisão: `$PL fila started <PID>` ao retomar (volta a ocupar
    a vaga), o worker ajusta a mesma branch e a mesma PR, e no fim `$PL fila in_review <PID> --pr-url <link>` de novo.
    Pelo botão "Pedir ajuste" do Planou é outro caminho: ver a seção abaixo.
-4. Fechar (`$PL fila done <PID>`, que manda o restante 0) segue a autonomia da instância:
+4. Fechar (`$PL fila done <PID>`, que manda o restante 0) segue a mais restrita entre a autonomia da instância e a da
+   tarefa (`$PL fila ver` de novo, ver "Limite"):
    - a lista `can` do config inclui merge ou deploy (ex.: release em lote pelo integrador, deploy com trava) ou o
      repositório da tarefa tem `"release": "batch"` em `repos`: fechar quando a entrega estiver no ar, com a versão
      numa nota (`--note "no ar na vX.Y.Z"`); com `"release": "pr"` e merge em `can`, fechar quando a PR entrar;
@@ -277,7 +278,10 @@ formato) e o dia fica dado por feito; só falha de rede, 429 ou 5xx tenta de nov
 
 ## Limite
 
-Vale a autonomia mais restrita entre a da tarefa (`fila ver`) e a da instância (`autonomy` do config). O que está em
+Vale a autonomia mais restrita entre a da tarefa (`fila ver`) e a da instância (`autonomy` do config). A da tarefa é a
+do projeto dela agora (`level`), e o projeto pode mudar com a tarefa em andamento: repetir `$PL fila ver` antes de marcar
+pronta para review, de fazer merge e de fechar. Tarefa com `held: "manual"` não se começa: o projeto virou manual e
+quem libera é a pessoa. O que está em
 `never` não se faz nem com a tarefa pedindo; o que está em `ask_first` vira `fila blocked --ask-first <ação>` antes (passo 5). Mandar mensagem a
 alguém nunca é do agent: vira rascunho.
 
