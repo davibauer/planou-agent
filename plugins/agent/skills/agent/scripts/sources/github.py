@@ -24,12 +24,22 @@ or a review comment; bots do not count). The clock starts when it became green a
 goes back to Draft or is merged / closed; red CI pauses it (out of the queue, the clock starts over when green again).
 The item carries the PR link (task origin). No extra API call: reviews and check times come in the same PR query.
 
+Closing the Planou task (PLN0528): the rows gh<key> and ghr<key> are built only from open PRs, so a PR that closed left
+its task open on Planou. Each PR that leaves confirmed closed is kept in s['github']['fechados'] with how it ended and the
+heavy tick closes its task (tarefas_fechadas): merged = done, closed without merge = discarded (dropped at the origin, like
+a Removed work item). A review task (ghr) of a merged PR closes as no_action: the person did not review it. Tasks whose PR left earlier are recovered on the tick: the codes Planou still has open that are
+neither watched nor known closed are asked by number, at most LOTE_FECHADAS per tick and each one again only after
+RECONFERE. An open PR, a 404 or any failure confirms nothing: the task stays open. A ghr<key> code spells two PRs (a
+review of <key> or my PR in a repo called r<key>), so the spelling never decides: the row records which PR it stands for
+in s['github']['codigos'] when it is built (tarefas_extras). A ghr code without that record, or that two PRs claimed, is
+left alone for good: never asked, never closed, no warning.
+
 State: sub-tree 'github' of the instance state. Extra CLI: --github all | show <repo#N | repo#issue/N> (read-only).
 """
 import re, sys, json, subprocess, urllib.parse
 from datetime import datetime, timezone, timedelta
 
-import core
+import core, paths
 from adapters import Fonte as Base
 
 ORG = None
@@ -200,10 +210,20 @@ def comentarios_novos(prs, desde, me):
             out.append({'pr': k, 'titulo': p['titulo'], 'minha': p['minha'], 'url': p['url'], 'notas': novos})
     return out
 
+def desfecho(d):
+    """How a PR ended, from its REST body: {fim, status, quando, titulo}, or None while GitHub does not say it is closed.
+    status is the task engine's label, which the Planou sync maps: merged -> Feito (done), closed -> Descartada (discarded)."""
+    if not d or d.get('state') != 'closed': return None
+    feita = bool(d.get('merged') or d.get('merged_at'))
+    return {'fim': 'merged' if feita else 'closed', 'status': 'Feito' if feita else 'Descartada',
+            'quando': d.get('merged_at') or d.get('closed_at') or datetime.now(timezone.utc).isoformat(), 'titulo': d.get('title')}
+
 def pr_fechada_como(p):
     """PR que sumiu da lista: merged, closed ou ?."""
     try:
         o, r = p['repo'].split('/'); d = get(f"repos/{o}/{r}/pulls/{p['numero']}")
+        fim = desfecho(d)
+        if fim: p['desfecho'] = fim                 # the tick keeps it for the close of the Planou task
         return 'merged' + (f" por {d['merged_by']['login']}" if d.get('merged_by') else '') if d.get('merged') else d.get('state', '?')
     except Exception: return '?'
 
@@ -227,10 +247,71 @@ def confirma_sumidas(sumidas, info, prs_agora):
         ausente = (0 if suspeita else int(p.get('ausente') or 0) + 1)
         if ausente > AUSENTE_MAX:
             p['fim'] = 'open (fora da busca)'; saem.append(p); continue
-        fica = {k: v for k, v in p.items() if k != 'fim'}
+        fica = {k: v for k, v in p.items() if k not in ('fim', 'desfecho')}
         fica['ausente'] = ausente
         prs_agora[p['key']] = fica
     return saem
+
+LOTE_FECHADAS = 20            # task codes asked by number per tick
+RECONFERE = timedelta(hours=6)   # a code with nothing confirmed, or that failed, is asked again only after this
+GUARDA = timedelta(days=30)   # how long s['github']['fechados'] and ['codigos'] keep an entry once Planou has the task closed
+
+def lembra_codigo(st, cod, chave_pr, agora):
+    """Records in st['codigos'] the PR the row of a ghr code stands for. Two PRs behind one code: pr None, for good."""
+    atual = st.setdefault('codigos', {}).get(cod)
+    st['codigos'][cod] = {'pr': None if atual and atual['pr'] != chave_pr else chave_pr, 'visto': agora.isoformat()}
+
+def pr_do_codigo(cod, codigos):
+    """The one PR a task code stands for, as (key, is_review), or None. gh<key> is my PR. A ghr code stands for what its
+    row recorded and nothing else: closing the wrong task is the expensive mistake."""
+    if cod.startswith('ghr'):
+        k = (codigos.get(cod) or {}).get('pr')
+        return (k, cod == f'ghr{k}') if k else None
+    k = cod[2:] if cod.startswith('gh') else ''
+    return (k, False) if re.fullmatch(r'[\w.-]+#\d+', k) else None
+
+def codigos_abertos():
+    """Task codes Planou still has open for this instance (its local state.json); empty without Planou."""
+    from watch_core import planou
+    return planou.open_codes(paths.ROOT) if paths.ROOT else set()
+
+def pr_da_chave(chave_pr):
+    """The REST body of a PR by its key in the org, or None when GitHub does not know it. Failures raise."""
+    repo, n = chave_pr.rsplit('#', 1)
+    try: return get(f'repos/{ORG}/{repo}/pulls/{n}')
+    except LookupError: return None
+
+def recupera(st, prs_agora, agora, avisos):
+    """Tasks Planou still has open whose PR is neither watched nor known closed: it left before this was recorded, or
+    left open and closed later. Only the codes pr_do_codigo resolves, LOTE_FECHADAS at most, each asked again only after
+    RECONFERE. The first failure ends this tick's batch with one warning: that code waits RECONFERE like any other, so
+    the next tick moves on to the following ones, and nothing closes."""
+    fechados, conferidos = st.setdefault('fechados', {}), st.setdefault('conferidos', {})
+    codigos = st.get('codigos') or {}
+    corte = agora - RECONFERE
+    def falta(cod):
+        lido = pr_do_codigo(cod, codigos)
+        return (lido and lido[0] not in prs_agora and lido[0] not in fechados
+                and not (conferidos.get(cod) and core.dt(conferidos[cod]) > corte))
+    for cod in sorted(c for c in codigos_abertos() if falta(c))[:LOTE_FECHADAS]:
+        k = pr_do_codigo(cod, codigos)[0]
+        try:
+            d = desfecho(pr_da_chave(k))
+        except (Exception, SystemExit) as e:
+            avisos.append(f'AVISO (github): nao deu para conferir {cod}, o lote segue no proximo tick: {str(e)[:160]}')
+            conferidos[cod] = agora.isoformat()
+            return
+        if d: fechados[k] = {**d, 'visto': agora.isoformat()}
+        else: conferidos[cod] = agora.isoformat()
+
+def poda(st, agora):
+    """Keeps s['github'] bounded: a PR or code Planou no longer has open, seen more than GUARDA ago, goes."""
+    abertos = codigos_abertos()
+    corte = agora - GUARDA
+    st['fechados'] = {k: v for k, v in (st.get('fechados') or {}).items()
+                      if f'gh{k}' in abertos or f'ghr{k}' in abertos or not v.get('visto') or core.dt(v['visto']) > corte}
+    st['codigos'] = {k: v for k, v in (st.get('codigos') or {}).items() if k in abertos or core.dt(v['visto']) > corte}
+    st['conferidos'] = {k: v for k, v in (st.get('conferidos') or {}).items() if k in abertos and core.dt(v) > agora - RECONFERE}
 
 def delta(n_agora, n_antes, prs_agora, prs_antes):
     n_novas = [n for k, n in n_agora.items() if k not in n_antes]
@@ -507,20 +588,31 @@ def tick_github(s, desde, dry):
     for k, it in prs_agora.items():
         for extra in ('status', 'nota'):
             if k in st['prs'] and extra in st['prs'][k]: it[extra] = st['prs'][k][extra]
-    resolvidas = []
+    resolvidas, avisos = [], []
     if not dry:
+        agora = datetime.now(timezone.utc)
+        # how each PR that left ended, for the close of its Planou task (Fonte.tarefas_fechadas, PLN0528)
+        fechados = st.setdefault('fechados', {})
+        for k in prs_agora: fechados.pop(k, None)        # watched and open again: reopened
+        for p in p_sumidas:
+            if p.get('desfecho'):
+                fechados[p['key']] = {**p['desfecho'], 'titulo': p['desfecho'].get('titulo') or p.get('titulo'), 'visto': agora.isoformat()}
+        recupera(st, prs_agora, agora, avisos)
+        poda(st, agora)
         if cursor:                                       # --since is a fixed window: it does not move the review clock
             resolvidas = pendencias_review(st, s, prs_agora, st['prs'], p_sumidas, datetime.now(timezone.utc), LEMBRAR_REVIEW,
                                            JANELA_REVIEW)
         st['notifs'] = n_agora; st['prs'] = prs_agora; st['ultima'] = datetime.now(timezone.utc).isoformat()
     return {'baseline': False, 'notifs_novas': n_novas, 'prs_novas': p_novas, 'prs_mudadas': p_mudadas,
             'prs_sumidas': p_sumidas, 'notas': notas, 'prs': prs_agora, 'me': me, 'resolvidas': resolvidas,
-            'prs_recompostas': recompostas}
+            'prs_recompostas': recompostas, 'avisos': avisos}
 
 def imprime_github(r):
     if r['baseline']:
         print(f'== GITHUB: baseline plantada agora ({r["n_prs"]} PRs monitoradas em {ORG}); a proxima rodada mostra o que mudar.'); return True
+    for a in r.get('avisos') or []: print(a)
     algo = imprime_delta(r['notifs_novas'], r['prs_novas'], r['prs_mudadas'], r['prs_sumidas'], r['notas'], r['prs'], r['me'])
+    algo = algo or bool(r.get('avisos'))                 # a quiet tick still shows the warning
     if r.get('prs_recompostas'):
         if not algo: print('== GITHUB')
         print(f"lista de PRs recomposta: {len(r['prs_recompostas'])} PRs abertas antes do ultimo tick voltaram (ja eram conhecidas, nada novo)")
@@ -555,10 +647,31 @@ class Fonte(Base):
         """A green PR of mine waiting for review: already happening at the source."""
         return f'PR {p.get("ref")} aberta e esperando review', 'PR aberta e esperando review'
 
+    def tarefas_fechadas(self, s, codigos, agora):
+        """The Planou close of each gh<key> / ghr<key> whose PR left closed (s['github']['fechados'], filled by the tick).
+        Reads only the state. A ghr code closes only by the PR its row recorded (see pr_do_codigo)."""
+        st = s.get('github') or {}
+        abertas, fechados = st.get('prs') or {}, st.get('fechados') or {}
+        mapa = st.get('codigos') or {}
+        out = {}
+        for cod in codigos:
+            lido = pr_do_codigo(cod, mapa)
+            if not lido or lido[0] in abertas: continue
+            k, revisao = lido
+            d = fechados.get(k) or {}
+            if d.get('status') not in ('Feito', 'Descartada'): continue
+            repo, n = k.rsplit('#', 1)
+            # merged before my review: the PR is done, the review was not (same as 'PR mergeada' in tasks.SEM_ACAO)
+            status = 'Sem ação' if revisao and d['status'] == 'Feito' else d['status']
+            out[cod] = {'status': status, 'concluida': d.get('quando'), 'origem': 'github', 'fim': d.get('fim'),
+                        'titulo': f"{repo} #{n} {d.get('titulo') or ''}".strip()}
+        return out
+
     def tarefas_extras(self, s, agora):
         """My open non-draft PRs touched in the last N days: CI failing / conflict -> To do; waiting on reviewers ->
         Waiting on; approved -> merge. Other people's PRs asking for my review -> review. A PR of mine with an open
-        pending item (green with no review for too long) has no row here: the pending item is its task."""
+        pending item (green with no review for too long) has no row here: the pending item is its task. Each ghr code
+        built here is recorded in the state, the only proof of which PR it stands for when it comes to closing the task."""
         from watch_core import tasks as tc
         _corta = tc._corta
         t = self.cfg.get('tarefas') or {}
@@ -567,31 +680,37 @@ class Fonte(Base):
         tira = (lambda x: x.replace(sufixo, '')) if sufixo else (lambda x: x)
         out = {}
         cobrando = {p['ref'] for p in core.pend_abertas(s, 'github')}   # the pending item is the task while it is open
-        for pr in ((s.get('github') or {}).get('prs') or {}).values():
+        st = s.get('github') or {}
+        for pr in (st.get('prs') or {}).values():
             if pr.get('draft') or (pr.get('status') and pr['status'] != 'open'): continue
             if ref_pr(pr) in cobrando: continue
             repo = pr['repo'].split('/')[-1]; ref = f'{repo} #{pr["numero"]}'
             base = {'link': pr.get('url'), 'entrou': _iso(pr.get('criado')), 'origem': 'github'}
+            cod = f'gh{pr["key"]}' if pr.get('minha') else f'ghr{pr["key"]}'
+            linha = None
             if pr.get('minha'):
                 upd = _iso(pr.get('atualizado'))
                 if not upd or agora - datetime.fromisoformat(upd) > janela: continue      # zombie PRs stay in GitHub
                 if pr.get('ci') == 'FAILURE':
-                    out[f'gh{pr["key"]}'] = {**base, 'titulo': f'Fix CI on {ref} {pr["titulo"]}', 'curto': _corta(f'Fix CI on {ref}', 70), 'status': 'A fazer', 'prio': 1,
-                                             'ready_reason': f'PR {ref} aberta com CI vermelho', 'ready_reason_min': 'PR aberta com CI vermelho'}
+                    linha = {**base, 'titulo': f'Fix CI on {ref} {pr["titulo"]}', 'curto': _corta(f'Fix CI on {ref}', 70), 'status': 'A fazer', 'prio': 1,
+                             'ready_reason': f'PR {ref} aberta com CI vermelho', 'ready_reason_min': 'PR aberta com CI vermelho'}
                 elif pr.get('conflito'):
-                    out[f'gh{pr["key"]}'] = {**base, 'titulo': f'Resolve the conflict on {ref} {pr["titulo"]}', 'curto': _corta(f'Resolve the conflict on {ref}', 70), 'status': 'A fazer', 'prio': 2,
-                                             'ready_reason': f'PR {ref} aberta com conflito', 'ready_reason_min': 'PR aberta com conflito'}
+                    linha = {**base, 'titulo': f'Resolve the conflict on {ref} {pr["titulo"]}', 'curto': _corta(f'Resolve the conflict on {ref}', 70), 'status': 'A fazer', 'prio': 2,
+                             'ready_reason': f'PR {ref} aberta com conflito', 'ready_reason_min': 'PR aberta com conflito'}
                 elif (pr.get('revisao') or '').upper() == 'APPROVED':
-                    out[f'gh{pr["key"]}'] = {**base, 'titulo': f'Merge {ref} {pr["titulo"]}', 'curto': _corta(f'Merge {ref}', 70), 'status': 'A fazer', 'prio': 2,
-                                             'ready_reason': f'PR {ref} aprovada, falta o merge', 'ready_reason_min': 'PR aprovada, falta o merge'}
+                    linha = {**base, 'titulo': f'Merge {ref} {pr["titulo"]}', 'curto': _corta(f'Merge {ref}', 70), 'status': 'A fazer', 'prio': 2,
+                             'ready_reason': f'PR {ref} aprovada, falta o merge', 'ready_reason_min': 'PR aprovada, falta o merge'}
                 elif pr.get('revisores'):
-                    out[f'gh{pr["key"]}'] = {**base, 'titulo': f'Review of {ref} {pr["titulo"]}', 'curto': _corta(f'Review of {ref}', 70), 'status': 'Aguardando',
-                                             'quem': ', '.join(tira(r) for r in pr['revisores']), 'prio': 5,
-                                             'ready_reason': f'PR {ref} aberta e esperando review', 'ready_reason_min': 'PR aberta e esperando review'}
+                    linha = {**base, 'titulo': f'Review of {ref} {pr["titulo"]}', 'curto': _corta(f'Review of {ref}', 70), 'status': 'Aguardando',
+                             'quem': ', '.join(tira(r) for r in pr['revisores']), 'prio': 5,
+                             'ready_reason': f'PR {ref} aberta e esperando review', 'ready_reason_min': 'PR aberta e esperando review'}
             elif pr.get('pede_minha_revisao'):
-                out[f'ghr{pr["key"]}'] = {**base, 'titulo': f'Review {ref} {pr["titulo"]} ({tira(pr.get("autor") or "?")})',
-                                          'curto': _corta(f'Review {ref} ({tira(pr.get("autor") or "?")})', 70), 'status': 'A fazer', 'prio': 2,
-                                          'ready_reason': f'PR {ref} pede a sua revisão', 'ready_reason_min': 'PR pede a sua revisão'}
+                linha = {**base, 'titulo': f'Review {ref} {pr["titulo"]} ({tira(pr.get("autor") or "?")})',
+                         'curto': _corta(f'Review {ref} ({tira(pr.get("autor") or "?")})', 70), 'status': 'A fazer', 'prio': 2,
+                         'ready_reason': f'PR {ref} pede a sua revisão', 'ready_reason_min': 'PR pede a sua revisão'}
+            if linha:
+                out[cod] = linha
+                if cod.startswith('ghr'): lembra_codigo(st, cod, pr['key'], agora)
         return out
 
     def args(self, ap):

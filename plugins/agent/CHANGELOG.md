@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.111.0 (2026-11-04)
+- Fonte do GitHub informa fechamento: PR mergeada fecha a tarefa do Planou como feita (a tarefa de revisão dessa PR fecha como sem ação, porque a revisão não foi feita), PR fechada sem merge como descartada, inclusive do Backlog. Tarefas de PRs que saíram da lista antes são conferidas pelo número, em lote limitado por tick. PR aberta, 404 ou falha de rede não fecham nada, e um erro fixo não trava as tarefas seguintes do lote. Tarefa de código `ghr` (`ghrapi#3` = revisão de `api#3` ou minha PR `rapi#3`) só fecha pela PR que a linha gravou ao nascer; a que ficou de antes desta versão, com a PR já fora da lista, continua aberta e pode ser fechada à mão (PLN0528).
+
 ## 0.110.0 (2026-11-04)
 - Fonte `ado_prs`: tarefa do Planou ligada a uma PR do Azure DevOps agora fecha sozinha quando a PR sai da lista: concluída vira feita, abandonada vira descartada e, se você saiu dos revisores, fica como sem ação. Só vale com a nova opção `prefixos_tarefa` (padrão vazio: nada muda). Tarefas já paradas são recuperadas por id, no máximo 20 por tick, com nova consulta só depois de 6 h; uma PR que falha espera sozinha e o aviso diz qual é. Tarefa com link de outra coisa (outra organização, GitHub, outra PR) nunca fecha.
 
