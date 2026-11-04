@@ -298,6 +298,8 @@ def print_boards(r):
 GMAIL_ALERT_SENDERS = ('jobalerts-noreply@linkedin.com', 'jobs-noreply@linkedin.com')
 GMAIL_CONFIRM_SENDERS = ('jobs-noreply@linkedin.com', 'jobs-listings@linkedin.com')
 GMAIL_HUMAN_WORDS = ('recruiter', 'recrutador', 'opportunity', 'oportunidade', 'vaga', 'interview', 'entrevista')
+GMAIL_ALERT_NOISE = ('view job', 'your job alert', 'this company', 'fast growing', 'actively',   # lowercase prefixes of alert lines that are not job data
+                     'new jobs match your preferences', 'new jobs from your other alerts', 'see all jobs')
 
 APPLIED_LIST_URL = 'https://www.linkedin.com/my-items/saved-jobs/?cardType=APPLIED'   # no job link in the e-mail: the list of applications
 CONFIRM_SUBJECT = re.compile(r'(?:your application was sent to|sua candidatura foi enviada para)\s+(.+?)\s*$', re.I)
@@ -477,14 +479,13 @@ def gmail_body(s, text):
         m = re.search(r'jobs/view/(\d+)', b)
         if not m: continue
         jid = m.group(1)
-        lines = [l.strip() for l in b.strip().split('\n') if l.strip() and not l.lower().startswith(('view job', 'your job alert', 'this company', 'fast growing', 'actively'))]
+        lines = [l.strip() for l in b.strip().split('\n') if l.strip() and not l.strip().lower().startswith(GMAIL_ALERT_NOISE)]
         if len(lines) < 2: continue
         title, company, location = lines[0], lines[1], (lines[2] if len(lines) > 2 else '')
         if jid in seen_g or jid in seen_j or jid in an: repeated += 1; continue
-        seen_g.add(jid); seen_j.add(jid)
         v = {'id': jid, 'title': title, 'company': company, 'location': location, 'url': f'https://www.linkedin.com/jobs/view/{jid}', 'search': 'gmail'}
-        if not lj.title_ok(title): out.append(v); continue
-        jobs.append(v)
+        (jobs if lj.title_ok(title) else out).append(v)
+        seen_g.add(jid); seen_j.add(jid)   # marked on both outcomes; the order relative to the gatekeeper has no effect. What keeps a header-cut id free is GMAIL_ALERT_NOISE plus the len(lines) < 2 skip above
     import time
     for i, v in enumerate(jobs):
         v['points'], v['tags'] = lj.score(v['title'])

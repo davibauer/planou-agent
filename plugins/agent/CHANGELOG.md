@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.109.3 (2026-11-04)
+- Alertas do LinkedIn no Gmail com várias buscas: as linhas de cabeçalho do alerta (New jobs match your preferences, See all jobs, New jobs from your other alerts) não viram mais título nem empresa, então a vaga logo depois de cada cabeçalho chega ao julgamento em vez de cair como repetida nos ticks seguintes. A vaga recusada pelo porteiro continua marcada como vista e não volta a cada tick.
+
 ## 0.109.2 (2026-11-04)
 - Textos do plugin (README, docs do provisionador, instalador e mensagens do `provisioner.py pair`) apontam para o lugar novo do código de conexão do computador: Time › Computadores, em vez de Configurações › Computadores (PLN0513).
 
