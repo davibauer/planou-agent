@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.109.1 (2026-11-04)
+- employee window tests no longer wait on a leaked sleep (PLN0508) (#255)
+
 ## 0.109.0 (2026-11-04)
 - Pedido ao Planou pode levar um assunto (`--assunto` em `pergunta`, `decision`, `approval`, `draft` e `alert`): a mesma pergunta feita de novo em outro dia substitui a que ainda estava aberta, e Precisa de você fica com um pedido só por assunto. Com a confidencialidade "minimum" só sobe um código do assunto.
 - O pedido para renovar uma credencial leva o assunto `credencial:<ferramenta>`: um episódio novo da mesma falha substitui o pedido anterior em vez de somar outro.
