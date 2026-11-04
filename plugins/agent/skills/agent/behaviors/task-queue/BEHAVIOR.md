@@ -91,8 +91,12 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    aparece é só um aviso. Ela fecha o
    worker no Planou. Vira uma linha em Entregas na tarefa e entra na média de Métricas. Um worker,
    uma chamada: repetir o mesmo comando não duplica. `AVISO (planou): ... versao antiga` é um Planou sem a rota: seguir.
-3. Worker voltou pronto: `$PL fila in_review <PID> --pr-url <link> --remaining-h <H>` (sem PR: `--note "<branch ou
-   resultado>"`; `<H>` é o que ainda falta: revisão, ajuste, merge).
+3. Worker voltou pronto: `$PL fila in_review <PID> --pr-url <link> --remaining-h <H> --self-review "<linha CONFERI>"`
+   (sem PR: `--note "<branch ou resultado>"`; `<H>` é o que ainda falta: revisão, ajuste, merge).
+   **Toda entrega leva `--self-review`** (`fila in_review`, `done` e `handoff`, inclusive as dos passos abaixo): uma
+   linha `Conferi: ... Não conferi: ...` com o que o worker relatou em VALIDACAO (a linha CONFERI da volta dele); ela
+   aparece no Planou junto da entrega. O script faz caber em 200 caracteres sem perder o "Não conferi", não envia com
+   confidencialidade `minimum` e, se o Planou recusar o campo, entrega sem ele e imprime `AVISO (planou)`: seguir.
    **Em revisão libera a vaga**: o Planou pode entregar a próxima tarefa enquanto esta espera, e o agente continua
    responsável por ela (acompanha a PR e atende o ajuste). Contar ao usuário em uma linha: tarefa, PR ou branch, o que
    falta dele. Com mais de uma tarefa com o agente, todo `fila ...` leva o `<PID>`.
@@ -125,7 +129,7 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
      `code-review`): a parte do dev termina na entrega pronta (PR aberta ou branch com push) com os testes verdes, e o
      PID no título da PR e no nome da branch (ex.: `feat/pln0123-filtro`). Passar com `$PL fila handoff <PID> --note
      "<PR ou branch>"` (a nota vai com a tarefa para o revisor em `handed_off_by.note`; sem PR, é a branch) e
-     `--pr-url <link>` quando há PR (o Planou 0.43.0 leva o `pr_url` ao revisor; nunca `done`:
+     `--pr-url <link>` e `--self-review "<linha CONFERI>"` quando há PR (o Planou 0.43.0 leva o `pr_url` ao revisor; nunca `done`:
      sem a coluna configurada, o `done` concluiria a tarefa), sem esperar o merge. O ajuste pedido pelo revisor volta
      direto ao dev como `-- AJUSTE PEDIDO <PID> (<função> <nome>)`, pela seção abaixo; o do QA também (Planou 0.49.0).
    - **Revisão ou QA na mesma instância** (PLN0281: a coluna seguinte também é deste agente, com `code-review` ou `acceptance-testing`
@@ -177,10 +181,10 @@ o briefing do retrabalho.
    atender o texto, testes passando, PR atualizada.
    O worker do ajuste abre key nova (`fila worker-start`), porque o da entrega anterior já fechou.
 4. Worker voltou: `$PL fila worker ... --key <key> --phases-from <output_file>` e `$PL fila in_review <PID> --pr-url
-   <link>` de novo (a mesma PR). A entrega encerra o ajuste; contar ao usuário em uma linha o que mudou.
+   <link> --self-review "<linha CONFERI>"` de novo (a mesma PR). A entrega encerra o ajuste; contar ao usuário em uma linha o que mudou.
    Ajuste da revisão ou QA desta mesma instância (`-- AJUSTE PEDIDO <PID> (<papel> <nome>, voce mesmo: revisao
    independente)`, ou da pessoa nessa coluna; a linha do RETRABALHO diz "depois `fila handoff`"): entregar com
-   `$PL fila handoff <PID> --pr-url <link> --note "<PR ou branch>"`, porque com o mesmo dono na coluna seguinte o
+   `$PL fila handoff <PID> --pr-url <link> --note "<PR ou branch>" --self-review "<linha CONFERI>"`, porque com o mesmo dono na coluna seguinte o
    `in_review` não vira passagem e a revisão não voltaria ao worker novo.
 `$PL fila ver` mostra o texto em `ajuste_pedido` (`fase`: `esperando a fila` ou `retrabalho`) até a nova entrega.
 

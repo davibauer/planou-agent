@@ -38,7 +38,7 @@ import permissions, schema
 from watch_core import column_roles
 
 DEV = 'delegate-to-worker'               # the dev worker's behavior (old name: dev-worker)
-RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
+RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, CONFERI (uma linha: "Conferi: ... Não conferi: ..."), PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
 # the independent review and QA workers (PLN0281): their worktree, their done criterion and the independence rule
 REVIEW_ROLES = {
     'code-review': {

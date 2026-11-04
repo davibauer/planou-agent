@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.0 (2026-11-04)
+- `fila in_review|done|handoff` aceita `--self-review`: a entrega leva ao Planou uma linha com o que foi conferido e o que não foi (`Conferi: ... Não conferi: ...`, até 200 caracteres, sem perder o "Não conferi"). Com confidencialidade `minimum` não é enviada, e um Planou que recuse o campo recebe a mesma entrega sem ele, com um `AVISO (planou)`. O worker devolve a linha CONFERI, e a sessão a manda ao entregar.
+
 ## 0.111.0 (2026-11-04)
 - Fonte do GitHub informa fechamento: PR mergeada fecha a tarefa do Planou como feita (a tarefa de revisão dessa PR fecha como sem ação, porque a revisão não foi feita), PR fechada sem merge como descartada, inclusive do Backlog. Tarefas de PRs que saíram da lista antes são conferidas pelo número, em lote limitado por tick. PR aberta, 404 ou falha de rede não fecham nada, e um erro fixo não trava as tarefas seguintes do lote. Tarefa de código `ghr` (`ghrapi#3` = revisão de `api#3` ou minha PR `rapi#3`) só fecha pela PR que a linha gravou ao nascer; a que ficou de antes desta versão, com a PR já fora da lista, continua aberta e pode ser fechada à mão (PLN0528).
 

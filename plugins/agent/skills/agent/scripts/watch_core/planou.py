@@ -177,7 +177,7 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
   python3 -m watch_core.planou --agent job-scout key set | status | active |
       heartbeat PHASE [--next-heavy EPOCH] [--session-id ID] |
       poll [--next-heavy EPOCH] [--poll-s 90] [--wait 50] | cursor-commit | ack-delivered | events | ack SEQ | tarefa [PID | -] |
-      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] |
+      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] [--self-review TEXT|-] |
       fila tempo [PID] --remaining-h H [--estimate-h H] | fila refinar [PID] --note TEXT|- |
       fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--model M] [--key K] [--phases-from ARQ] |
       fila worker-start PID [--task PID2 ...] --role dev|integrator|other --label TEXT |
@@ -2827,6 +2827,44 @@ def _ask_first(values):
     return out or None
 
 
+# The states a delivery goes up with: `self_review` (Planou PLN0542) only makes sense on them.
+SELF_REVIEW_STATES = ('in_review', 'done', 'handoff')
+SELF_REVIEW_MAX = 200           # Planou's limit, in UTF-16 units (C# string.Length): over it the whole progress is a 422
+NOT_CHECKED = re.compile(r'n[ãa]o\s+conferi', re.I)
+
+
+def _utf16(text):
+    return sum(2 if ord(c) > 0xFFFF else 1 for c in text)
+
+
+def _clip(text, limit):
+    """`text` in at most `limit` UTF-16 units, with an ellipsis when something was cut."""
+    if _utf16(text) <= limit: return text
+    cut = text[:limit - 1]
+    while _utf16(cut) > limit - 1: cut = cut[:-1]
+    return cut.rstrip() + '…'
+
+
+def _self_review(text):
+    """One line within Planou's limit, or None when empty. Over the limit "Não conferi" is what must survive: the
+    "Conferi" before it gives way; when "Não conferi" alone does not fit, its own end does."""
+    text = ' '.join(str(text or '').split())
+    if not text: return None
+    if _utf16(text) <= SELF_REVIEW_MAX: return text
+    found = NOT_CHECKED.search(text)
+    if not found: return _clip(text, SELF_REVIEW_MAX)
+    head, tail = text[:found.start()].rstrip(), text[found.start():]
+    room = SELF_REVIEW_MAX - _utf16(tail) - 1              # the space between the two parts
+    if room < 2: return _clip(tail, SELF_REVIEW_MAX)
+    return f'{_clip(head, room)} {tail}' if head else _clip(tail, SELF_REVIEW_MAX)
+
+
+def _self_review_refused(e):
+    """A Planou older than the field that validates what it does not know (400/422 naming it, or naming nothing). A
+    refusal of another field is not about this one: resending would only repeat it."""
+    return e.status in (400, 422) and (not e.fields or 'self_review' in e.fields)
+
+
 PR_CHECKS = ('passed', 'failed', 'running')
 
 
@@ -2867,7 +2905,7 @@ def discover_pr_checks(pr_url, timeout=20):
 
 
 def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None, ask_first=None,
-             resolution=None, pr_checks=None):
+             resolution=None, pr_checks=None, self_review=None):
     """POST /agent/tasks/{id}/progress for a task of the agent's queue (ref: pid, task_id or source_key; empty = the only
     one). started when the work begins; in_review with the draft PR (pr_url); done concludes the task; blocked with a
     note opens a decision in "Precisa de você" (the note never goes up under "minimum"). Returns the server answer.
@@ -2890,11 +2928,17 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     422), so it goes up only when the request sent is `done`, never on a handoff. Without it the server closes as done.
 
     `ask_first` (blocked only): the autonomy actions that made the agent stop (ASK_FIRST_ACTIONS); Planou then shows
-    "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too."""
+    "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too.
+
+    `self_review` (Planou PLN0542; in_review, done and handoff): what the delivery checked and did not, one line with
+    "Conferi: ... Não conferi: ...". Free text, so it never goes up under "minimum". The delivery matters more than the
+    line: a Planou that refuses the field gets the same progress again without it, and an AVISO goes to stderr."""
     pr_checks = _pr_checks(pr_checks)       # any state (Planou 0.114.1): the CI state shown on the delivery line
     ask_first = _ask_first([ask_first] if isinstance(ask_first, str) else ask_first)
     if ask_first and state != 'blocked': raise PlanouError(0, 'ask_first', '--ask-first so vale com `fila blocked`')
     if state not in PROGRESS_STATES: raise PlanouError(0, 'state', f'estado {state}: use {", ".join(PROGRESS_STATES)}')
+    if self_review and state not in SELF_REVIEW_STATES:
+        raise PlanouError(0, 'self_review', '--self-review so vale com `fila in_review|done|handoff`')
     estimate_h, remaining_h = _hours('estimate_h', estimate_h), _hours('remaining_h', remaining_h)
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
     tid, entry = _queue_entry(ref)
@@ -2904,6 +2948,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     minimum = _S['confidentiality'] == 'minimum'
     local_note = note if minimum else None      # the branch of a handoff to itself stays here (keep_own_branch)
     if minimum: note = None
+    review = None if minimum else _self_review(self_review)
     files = []
     if note: note, files = without_paths(note)       # a file the note cites goes as an attachment (PLN0052)
     if state == 'started' and _S['confidentiality'] != 'minimum':
@@ -2918,7 +2963,19 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         if ask_first: b['ask_first'] = ask_first
         if pr_checks: b['pr_checks'] = pr_checks
         if resolution and sent == 'done': b['resolution'] = resolution
+        if review: b['self_review'] = review
         return b
+
+    def send(sent):
+        nonlocal review
+        try:
+            return _call('POST', path, body(sent))
+        except PlanouError as e:
+            if not (review and _self_review_refused(e)): raise
+            review = None
+            answer = _call('POST', path, body(sent))
+            print(f'AVISO (planou): o Planou recusou o self_review ({e.status} {e.code}); a entrega foi sem ele', file=sys.stderr)
+            return answer
 
     if resolution is not None and resolution not in DONE_RESOLUTIONS:
         raise PlanouError(0, 'resolution', f'--resolution: {", ".join(DONE_RESOLUTIONS)}')
@@ -2929,11 +2986,11 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     # queue.json is read under its lock only after the answer: the runner may note events meanwhile (no lock over HTTP)
     try:
         try:
-            _, res = _call('POST', path, body(sent))
+            _, res = send(sent)
         except PlanouError as e:
             if not (state == 'done' and sent == 'handoff' and e.status == 409 and e.code == 'no_next_state'): raise
             sent = 'done'                                           # the task's column has no next: conclude it
-            _, res = _call('POST', path, body(sent))
+            _, res = send(sent)
     except PlanouError as e:
         if e.status == 409 and e.code == 'not_in_queue':
             if (entry or {}).get('refining'):
@@ -4863,9 +4920,13 @@ def _fila(a, ap):
         return 0
     if a.resolution and (sub != 'done' or a.resolution not in DONE_RESOLUTIONS):
         ap.error('--resolution (done|no_action|discarded) so vale com `fila done`')
+    if a.self_review and sub not in SELF_REVIEW_STATES:
+        ap.error('--self-review so vale com `fila in_review|done|handoff`')
+    if a.self_review == '-' and a.note == '-':
+        ap.error('--note e --self-review nao podem ler os dois da entrada padrao: passe um deles no comando')
     if sub not in PROGRESS_STATES + ('tempo',):
         ap.error('use: fila ver | fila started|in_review|done|blocked|handoff|refinar [PID] [--pr-url URL] [--note TEXTO] '
-                 '[--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] | fila tempo [PID] --remaining-h H [--estimate-h H] [--pr-checks passed|failed|running] | '
+                 '[--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] [--self-review TEXTO] | fila tempo [PID] --remaining-h H [--estimate-h H] [--pr-checks passed|failed|running] | '
                  'fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--key K] [--phases-from ARQ] | '
                  'fila worker-start PID [--task PID2 ...] --role dev|integrator|other --label TEXTO | '
                  'fila ajuste PID --text TEXTO [--pr-url URL] [--to author|previous]')
@@ -4895,7 +4956,8 @@ def _fila(a, ap):
         else:
             checks = _pr_checks(a.pr_checks) or (discover_pr_checks(a.pr_url) if a.pr_url else None)
             res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h,
-                           ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None, pr_checks=checks)
+                           ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None, pr_checks=checks,
+                           self_review=_text_arg(a.self_review) if a.self_review else None)
             if sub == 'blocked' and paused():
                 tid, entry = _queue_entry(res.get('pid') or ref)
                 pause_hold(res.get('task_id') or tid, res.get('pid') or (entry or {}).get('pid'), (entry or {}).get('title'))
@@ -6116,6 +6178,8 @@ def main(argv=None):
     ap.add_argument('--pr-url', help='fila in_review: the draft PR; fila ajuste: the PR to send back (default: the task\'s)')
     ap.add_argument('--pr-checks', help='fila: CI of the PR (passed|failed|running); with --pr-url and without this, read from gh')
     ap.add_argument('--note', help="fila: note for the person (blocked: what the agent needs); '-' reads stdin")
+    ap.add_argument('--self-review', help='fila in_review|done|handoff: one line "Conferi: ... Não conferi: ..." (cut to 200, '
+                    "keeping \"Não conferi\"; not sent under minimum); '-' reads stdin")
     ap.add_argument('--ask-first', action='append', help='fila blocked: the autonomy action(s) that stopped the agent '
                     '(mark_ready_for_review, merge, message_people, touch_production, open_change_request); repeat or use commas')
     ap.add_argument('--estimate-h', help='fila: estimate in hours (with started, or fila tempo)')

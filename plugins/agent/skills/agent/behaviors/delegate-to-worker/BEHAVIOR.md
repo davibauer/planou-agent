@@ -50,7 +50,8 @@ deste comportamento cobrem (abaixo); o resto vai para a linha "NAO E DESTE PAPEL
   `PRONTA PARA RELEASE: <branch>`; `pr`: PR com a CI verde, merge só se a autonomia deixar; `ci`: PR aberta com o
   rótulo `automerge` e os testes filtrados verdes, e o worker volta na hora; `none`: PR em rascunho com os testes
   filtrados verdes). Sem `release`, o repositório que é o `repo` do `batch-release` conta como `batch`. O `--brief` já traz o do config.
-- **Formato da volta**: RESULTADO, O QUE MUDOU, LINKS, VALIDAÇÃO, PENDENTE DO USUÁRIO, RASCUNHOS, ESTADO SUGERIDO.
+- **Formato da volta**: RESULTADO, O QUE MUDOU, LINKS, VALIDAÇÃO, CONFERI, PENDENTE DO USUÁRIO, RASCUNHOS, ESTADO
+  SUGERIDO. CONFERI é uma linha só, tirada da VALIDAÇÃO, sempre com as duas partes: `Conferi: ... Não conferi: ...`.
 
 **Release pela CI** (`"release": "ci"`, PLN0259): o worker não espera a CI (em 30/09, até 54% do tempo de um worker
 era espera da CI para merge, tag e publicação, e PRs em paralelo brigavam pelo número da versão). Ele abre a PR com
@@ -97,7 +98,8 @@ aparece só gera um aviso e a entrega vai sem as fases; sem tarefa ou com a aber
 <key> --result feito|parcial|falhou`, e a tarefa fecha com `$PL tarefa concluir <PID> --evidence ...`) com o uso que chegou com a volta do worker (tokens do subagente, ferramentas usadas,
 duração), qualquer que seja o resultado (task-queue). Depois, contar ao usuário em até três linhas (o que ficou
 pronto, link, o que falta dele). Tarefa da fila: seguir o
-`task-queue` (`fila in_review` ou `fila blocked`). Rascunho que ele trouxe: seguir a regra de rascunhos do núcleo.
+`task-queue` (`fila in_review` ou `fila blocked`), mandando a linha CONFERI em `--self-review` ao entregar (sem essa
+linha na volta, a sessão escreve a partir da VALIDAÇÃO). Rascunho que ele trouxe: seguir a regra de rascunhos do núcleo.
 
 ## Ferramentas e ações do papel
 

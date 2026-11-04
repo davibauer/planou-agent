@@ -3138,6 +3138,11 @@
                     "type": "string",
                     "description": "checks da CI da PR; ausente = sem mudança",
                     "nullable": true
+                  },
+                  "self_review": {
+                    "type": "string",
+                    "description": "uma linha do que foi conferido, até 200 caracteres; ausente = sem mudança; descartado com confidencialidade minimum",
+                    "nullable": true
                   }
                 }
               }
@@ -10263,6 +10268,11 @@
             ],
             "type": "string",
             "description": "checks da CI da PR; ausente = sem mudança",
+            "nullable": true
+          },
+          "self_review": {
+            "type": "string",
+            "description": "uma linha do que foi conferido, até 200 caracteres; ausente = sem mudança; descartado com confidencialidade minimum",
             "nullable": true
           }
         }
