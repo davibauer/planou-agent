@@ -162,7 +162,7 @@ Pré-requisitos: o Planou com a PLN0110 no ar (versão com **Novo funcionário**
 agent instalado.
 
 1. Credencial: conecte este computador (abaixo, em **Conectar este computador**) com o código da tela
-   Configurações › Computadores:
+   Time › Computadores:
    ```bash
    python3 $S/scripts/provisioner.py pair --base-url https://app.planou.com    # pergunta o código, oculto
    ```
@@ -190,7 +190,7 @@ agent instalado.
 
 ## Conectar este computador
 
-Em Configurações › **Computadores**, o botão **Conectar este computador** mostra um código de uso único (`ABCD-EFGH`,
+Em **Time › Computadores**, o botão **Conectar este computador** mostra um código de uso único (`ABCD-EFGH`,
 vale 10 minutos). No computador:
 
 ```bash

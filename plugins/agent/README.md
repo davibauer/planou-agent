@@ -148,8 +148,7 @@ Com `confidentiality: minimum` sobe só "Agente <data>:<código>" (título e slu
 ## Instalar com um comando
 
 Num computador novo, um comando instala o plugin (e um Python portátil, se o computador não tiver o python3) e o
-provisionador local como serviço do usuário, e no fim pede o código de pareamento do Planou (Configurações › Computadores › **Conectar este
-computador**). Sem conta nova e sem segredo no terminal: o código é digitado oculto e vai para o
+provisionador local como serviço do usuário, e no fim pede o código de pareamento do Planou (Time › Computadores). Sem conta nova e sem segredo no terminal: o código é digitado oculto e vai para o
 `provisioner.py pair` pela entrada; a credencial vai do Planou direto para um arquivo 0600.
 
 Linux, WSL e macOS:
@@ -214,7 +213,7 @@ configuração: [docs/provisioner.md](docs/provisioner.md). Sem pasta de trabalh
 nasce com `repos` vazio e nenhum valor de exemplo: o agente descobre o repositório pelo `pr_url` da primeira tarefa,
 clona em `~/src/<nome>` e lê regras e ambiente de teste (`scripts/repo_discovery.py`, estado em `data/discovered.json`
 da instância; o config da pessoa sempre vence).
-`provisioner.py pair` conecta o computador com o código de Configurações › Computadores (sem o código no comando, ele
+`provisioner.py pair` conecta o computador com o código de Time › Computadores (sem o código no comando, ele
 pergunta oculto ou lê da entrada): grava a credencial (0600, sem mostrar) e o `base_url`; com ela, o provisionador fala com `https://app.planou.com/v1` de qualquer máquina.
 
 ## Config (schema 1)

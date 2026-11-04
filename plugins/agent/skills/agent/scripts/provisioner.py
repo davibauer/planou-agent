@@ -71,7 +71,7 @@ one, or one made by hand) is never touched.
 Secrets: the key is never printed, logged, passed as a process argument or put in an environment variable; it goes
 from the HTTP answer straight to the 0600 file. The provisioner's own credential (PLANOU_PROVISIONER_KEY=pl_pv_...) is
 read from ~/.config/agent-provisioner/secrets/planou.env, which must be 0600, and stays in memory. It comes from
-`provisioner.py pair <code>` (PLN0196: the code of Configurações > Computadores, one credential per computer, which
+`provisioner.py pair <code>` (PLN0196: the code of Time > Computadores, one credential per computer, which
 Planou accepts from anywhere since PLN0191, e.g. https://app.planou.com/v1) or from Planou's
 scripts/connect-provisioner.sh (the server's own, accepted only on that machine: http://127.0.0.1:5068/v1). The base URL
 is https, or http on loopback only; HTTP proxies are ignored (Planou refuses the script credential through a proxy).
@@ -94,7 +94,7 @@ Usage:
   provisioner.py check                credential file, base URL and one call to Planou
   provisioner.py pair [<code>] [--base-url URL]
                                       without <code>, read from a hidden prompt (terminal) or stdin (PLN0192);
-                                      connect this computer: trades the code of Configurações > Computadores for the
+                                      connect this computer: trades the code of Time > Computadores for the
                                       credential (written 0600, never shown) and sets base_url in config.json
 """
 import fcntl, json, os, platform, re, shlex, socket, shutil, signal, subprocess, sys, tempfile, time
@@ -240,7 +240,7 @@ def load_credential():
     try: st = os.stat(f)
     except OSError:
         raise SystemExit(f'provisionador: sem a credencial em {f} (conecte este computador com '
-                         f'"provisioner.py pair <codigo>", o codigo sai em Configuracoes > Computadores do Planou)')
+                         f'"provisioner.py pair <codigo>", o codigo sai em Time > Computadores do Planou)')
     if st.st_mode & 0o077:
         raise SystemExit(f'provisionador: {f} precisa ser 0600 (chmod 600 {shlex.quote(f)})')
     with open(f) as fh:
@@ -1939,7 +1939,7 @@ def read_pair_code():
     try:
         if sys.stdin.isatty():
             import getpass
-            return getpass.getpass('codigo de pareamento (Configuracoes > Computadores): ')
+            return getpass.getpass('codigo de pareamento (Time > Computadores): ')
         return sys.stdin.readline()
     except (EOFError, KeyboardInterrupt, OSError):
         return ''
@@ -1988,7 +1988,7 @@ def cmd_pair(argv):
     err = (body.get('error') or {}) if isinstance(body.get('error'), dict) else {}
     if status == 400 and err.get('code') == 'invalid_code':
         raise SystemExit('provisionador: codigo invalido, expirado ou ja usado. '
-                         'Gere outro em Configuracoes > Computadores e rode o pair de novo (ele vale 10 minutos).')
+                         'Gere outro em Time > Computadores e rode o pair de novo (ele vale 10 minutos).')
     if status == 429:
         raise SystemExit('provisionador: muitas tentativas deste endereco. Espere um minuto e tente de novo.')
     if status == 404:

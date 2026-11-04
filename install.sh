@@ -24,7 +24,7 @@
 #      updates itself from the same copy);
 #   3. the local provisioner as a user service: systemd --user on Linux and WSL, launchd on macOS, with "auto_update"
 #      on in a new config.json;
-#   4. last, it asks for the pairing code of Planou (Configuracoes > Computadores > Conectar este computador), hidden, and
+#   4. last, it asks for the pairing code of Planou (Time > Computadores), hidden, and
 #      turns the service on once this computer is connected. A computer already connected keeps its credential.
 # No account is created and no secret is shown: the code goes to `provisioner.py pair` on stdin, the credential goes
 # from Planou straight to a 0600 file. Existing links, launchers or copies that are not this installer's stay as they are,
@@ -579,7 +579,7 @@ else
     say "conexao: sem terminal para perguntar o codigo. Para conectar: $PAIR_CMD"
   else
     say ""
-    say "Conecte este computador: no Planou, Configuracoes > Computadores > Conectar este computador."
+    say "Conecte este computador: no Planou, Time > Computadores."
     tries=0
     while :; do
       tries=$((tries + 1))

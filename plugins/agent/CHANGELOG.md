@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.109.2 (2026-11-04)
+- Textos do plugin (README, docs do provisionador, instalador e mensagens do `provisioner.py pair`) apontam para o lugar novo do código de conexão do computador: Time › Computadores, em vez de Configurações › Computadores (PLN0513).
+
 ## 0.109.1 (2026-11-04)
 - employee window tests no longer wait on a leaked sleep (PLN0508) (#255)
 

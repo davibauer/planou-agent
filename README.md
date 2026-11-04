@@ -8,8 +8,7 @@ cada funcionário), a extensão Team Terminals do VS Code e o provisionador loca
 O jeito normal é pelo Planou: **Time › Adicionar funcionário › Outro computador** gera um comando que instala tudo
 por aqui e registra o funcionário neste computador.
 
-Sem o Planou guiando, um comando instala o agente e no fim pede o código de pareamento (Configurações › Computadores ›
-**Conectar este computador**):
+Sem o Planou guiando, um comando instala o agente e no fim pede o código de pareamento (Time › Computadores):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/davibauer/planou-agent/main/install.sh | sh    # Linux, WSL e macOS
@@ -32,4 +31,4 @@ SHA-256 dele (`.sha256`). O que mudou em cada uma está em
 Este repositório só recebe o que é publicado: o agente é desenvolvido em outro lugar e cada versão chega aqui pronta.
 Por isso não aceitamos pull request. Problemas e sugestões: relate pelo Planou (https://app.planou.com).
 
-Versão publicada: 0.109.1.
+Versão publicada: 0.109.2.
