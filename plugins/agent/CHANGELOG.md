@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.108.1 (2026-11-03)
+- Aguardando: quando a fonte troca a data de espera depois que o Planou devolveu a tarefa para A fazer (`aguardando_ate` ou o prazo mudou para outra data futura), o sync entende como espera nova, tira a marca de volta e manda Aguardando com a nova data. Mesma data, ou sem data, a tarefa continua em A fazer. A marca de volta guardada por versões anteriores, sem a data, segue segurando a tarefa em A fazer.
+
 ## 0.108.0 (2026-11-03)
 - Aguardando com data para olhar de novo (Planou 0.110.0): o sync manda `waiting.until` só quando a fonte traz uma data real (`aguardando_ate` ou o prazo da própria ação, no futuro), nunca um chute; sem data o Planou deixa 7 dias. Na mão, `tarefa estado <PID> Aguardando --until AAAA-MM-DD`.
 - Quando o Planou devolve a tarefa de Aguardando para A fazer ("Voltou de Aguardando"), o agente acompanha: o sync seguinte não a reabre em Aguardando e parte da versão nova do evento, sem conflito. A marca some quando o item deixa de esperar.

@@ -808,9 +808,15 @@ def payload(items, now=None, autonomy=None, default_project=None):
         if ret and state == 'waiting':
             # Planou took it out of Aguardando (the look-again date came, or the person moved it) while the item still
             # says Aguardando at the source: the task stays where Planou put it (PLN0494). The flag goes when the item
-            # stops waiting (sync()), so a new wait is sent as usual
-            state = ret.get('to') if ret.get('to') in ('todo', 'in_progress') else 'todo'
-            held.add(code)
+            # stops waiting (sync()), so a new wait is sent as usual. A look-again date the source changed since the
+            # return (PLN0502) is a new wait: the flag goes and Aguardando is sent with the new until. A mark without
+            # the `until` key (older state) means "unknown date": it holds, so the update does not reopen everything
+            new_until = (waiting(it, now) or {}).get('until')
+            if 'until' in ret and new_until and new_until != ret['until']:
+                kt = {k: v for k, v in kt.items() if k != 'returned'}
+            else:
+                state = ret.get('to') if ret.get('to') in ('todo', 'in_progress') else 'todo'
+                held.add(code)
         if it.get('fecha_na_origem'):
             if sent is None: sent = _load('sent.json', {})
             task = closing_task(code, it, kt, sent)
@@ -2307,7 +2313,10 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             was = ((p.get('changed') or {}).get('state') or {}).get('from') if partial else sent.get('state')
             if was == 'waiting' and view['state'] in ('todo', 'in_progress'):
                 returned_at = datetime.now(timezone.utc).isoformat()
-                tasks[code]['returned'] = {'to': view['state'], 'at': returned_at}
+                # `until`: the look-again date the source had when it went back (what the agent last sent, else what
+                # Planou had), so a different date later is told apart as a new wait (PLN0502)
+                was_until = (sent.get('waiting') or {}).get('until') or ((p.get('changed') or {}).get('waiting_until') or {}).get('from')
+                tasks[code]['returned'] = {'to': view['state'], 'at': returned_at, 'until': _date(was_until)}
             elif view['state'] == 'waiting': tasks[code].pop('returned', None)     # back in Aguardando: the item rules again
         if code in tasks and kind != 'task_deleted' and view.get('state'):
             # the person moved it: in or out of backlog, out of "Em refinamento"
