@@ -309,6 +309,10 @@ STATE_OF = {
 }
 # Planou events -> the status label the agent's "box ticked" handler understands.
 STATUS_OF_RESOLUTION = {'done': 'Feito', 'no_action': 'Sem ação', 'discarded': 'Descartada'}
+# A reopened task goes back to the state Planou says (PLN0554: Em andamento, Aguardando, Impedida...), not always to A fazer.
+# No state in the payload (older Planou), backlog or anything else: A fazer, as before.
+REOPEN_LABEL_OF = {'todo': 'A fazer', 'in_progress': 'Fazendo', 'waiting': 'Aguardando', 'blocked': 'Impedimento'}
+REOPEN_LABELS = tuple(REOPEN_LABEL_OF.values())
 
 _S = {'agent': None, 'instance': None, 'root': None, 'project': None, 'confidentiality': 'title', 'publish': True, 'live': True,
       'base_url': None, 'plugin_version': None, 'drafts_text': True, 'warnings': [], 'cited': {}}
@@ -899,6 +903,10 @@ def payload(items, now=None, autonomy=None, default_project=None):
         mk = marked.get(code) if isinstance(marked.get(code), dict) else None
         reason = None if autonomy == 'manual' else ready_reason(code, it, state, due, mk)
         if reason: task['ready_reason'] = reason
+        if state == 'todo' and kt.get('reopened') and not kt.get('refining'):
+            # reopened in Planou into another state (PLN0558): the source still says A fazer; the task stays where Planou put it
+            for k in ('state', 'resolution'): task.pop(k, None)
+            held.add(code)
         if kt.get('refining') and state != 'closed':
             # scope being worked out with the person: the task sits in "Em refinamento" until she answers or moves it
             for k in ('state', 'resolution', 'completed_at', 'waiting'): task.pop(k, None)
@@ -1005,6 +1013,7 @@ def sync(items, now=None, only=False):
                 for k in ('refining', 'backlog', 'self_sent'):
                     if prev.get(k): entry[k] = prev[k]
                 if prev.get('returned') and code in (_S.get('returned_held') or ()): entry['returned'] = prev['returned']
+                if prev.get('reopened') and code in (_S.get('returned_held') or ()): entry['reopened'] = prev['reopened']
                 if _in_backlog(notes): entry['backlog'] = True
                 elif t.get('state') and 'state' not in (r.get('ignored_fields') or []): entry.pop('backlog', None)
                 if t.get('assignee') == 'self': entry['self_sent'] = True
@@ -2293,7 +2302,8 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             view.update(applied)
         else:
             applied, held, view = None, [], p
-        label = STATUS_OF_RESOLUTION.get(p.get('resolution')) if kind == 'task_completed' else 'A fazer' if kind == 'task_reopened' else None
+        label = (STATUS_OF_RESOLUTION.get(p.get('resolution')) if kind == 'task_completed'
+                 else REOPEN_LABEL_OF.get(p.get('state'), 'A fazer') if kind == 'task_reopened' else None)
         if 'state' in held: label = None          # the agent moved it meanwhile: its state goes up again
         if label and code.startswith(ACT_PREFIX):
             # the agent's own task (`tarefa nova`, PLN0396): no agent handler knows it; applied here for every agent
@@ -2323,6 +2333,11 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             if partial and code in kept_bodies:
                 for f, v in applied.items():
                     if f in kept_bodies[code]: kept_bodies[code][f] = _local_value(f, v)
+        if code in tasks and (kind in ('task_completed', 'task_reopened', 'task_deleted') or (kind == 'task_changed' and view.get('state'))):
+            tasks[code].pop('reopened', None)
+            if kind == 'task_reopened' and changed and label != 'A fazer':
+                # the source only knows "open": the sync keeps the state Planou gave (no state in the body) while the item says A fazer
+                tasks[code]['reopened'] = p.get('state')
         returned_at = None
         if code in tasks and kind == 'task_changed' and view.get('state') and 'state' not in held:
             # Aguardando -> A fazer (PLN0494): the look-again date came ("Voltou de Aguardando") or the person moved it.

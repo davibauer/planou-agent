@@ -347,7 +347,7 @@ def reopen_box(s, code, now=None):
 
 def apply_box(s, code, status, now=None):
     """A box ticked on the page (or a task completed or reopened in Planou). Returns True when the scout's state changed."""
-    if status == 'A fazer': return reopen_box(s, code, now)
+    if status in planou.REOPEN_LABELS: return reopen_box(s, code, now)
     if status != 'Feito': return False
     now = now or datetime.now(timezone.utc)
     if code.startswith('m'):

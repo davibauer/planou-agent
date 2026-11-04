@@ -89,7 +89,7 @@ def aplica(s, cod, status, agora=None):
     if cod.startswith('a') and cod[1:].isdigit():
         a = next((x for x in s.get('acoes') or [] if x['id'] == int(cod[1:])), None)
         if not a: return False
-        if status == 'A fazer':
+        if status in planou.REOPEN_LABELS:
             if a.get('status') != 'feita': return False
             a['status'] = 'aberta'
             for k in ('feita', 'resposta'): a.pop(k, None)
@@ -99,7 +99,7 @@ def aplica(s, cod, status, agora=None):
         return bool(nota and dvm.acao_done(s, a['id'], nota))
     p = next((p for p in s.get('pendencias') or [] if p['chave'] == cod), None)
     if not p: return False            # PR, work item...: closes at the source
-    if status == 'A fazer':
+    if status in planou.REOPEN_LABELS:
         if p.get('status') == 'aberta': return False
         p['status'] = 'aberta'
         for k in ('resolvida', 'como', 'nota'): p.pop(k, None)

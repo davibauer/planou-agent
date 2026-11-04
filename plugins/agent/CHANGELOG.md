@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.2 (2026-11-04)
+- Tarefa reaberta no Planou volta ao estado que o Planou mandou (Fazendo, Aguardando, Impedimento), não mais sempre a A fazer; sem estado no evento (Planou antigo) ou em backlog continua A fazer. A sincronização seguinte não manda `todo` por cima do estado do Planou enquanto a fonte local diz A fazer.
+
 ## 0.112.1 (2026-11-04)
 - O provisionador agora diz "A janela do funcionário está aberta e ainda não entrou: confira o login do Claude Code nela" quando o tempo da sessão estoura com a janela aberta, em vez de mandar rodar o comando. Sem janela, ou sem conseguir ler a trava, a mensagem de antes continua.
 
