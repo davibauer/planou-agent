@@ -206,7 +206,7 @@ def ativas(eu):
 def por_id(projeto, pid, eu):
     """Uma PR pelo id (para saber como terminou uma que sumiu da lista de ativas)."""
     pr = call(ORG + f'/{projeto}/_apis/git/pullrequests/{pid}?api-version=7.0')
-    return _norm(pr, projeto, eu)
+    return {**_norm(pr, projeto, eu), 'fechada': pr.get('closedDate')}
 
 def linha_pr(pr):
     papel = 'minha' if pr['minha'] else ('revisor' + (' obrigatorio' if pr['obrigatorio'] else ''))

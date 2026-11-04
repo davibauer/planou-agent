@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.110.0 (2026-11-04)
+- Fonte `ado_prs`: tarefa do Planou ligada a uma PR do Azure DevOps agora fecha sozinha quando a PR sai da lista: concluída vira feita, abandonada vira descartada e, se você saiu dos revisores, fica como sem ação. Só vale com a nova opção `prefixos_tarefa` (padrão vazio: nada muda). Tarefas já paradas são recuperadas por id, no máximo 20 por tick, com nova consulta só depois de 6 h; uma PR que falha espera sozinha e o aviso diz qual é. Tarefa com link de outra coisa (outra organização, GitHub, outra PR) nunca fecha.
+
 ## 0.109.4 (2026-11-04)
 - O recado de tarefa concluída ou reaberta pelo Planou agora diz "concluida pelo Planou" ou "reaberta pelo Planou", sem a nota de que saiu do backlog pela vaga livre, que vale só para a alteração da vaga livre (PLN0527).
 

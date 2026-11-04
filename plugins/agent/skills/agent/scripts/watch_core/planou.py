@@ -769,6 +769,23 @@ def open_codes(root=None):
     return {c for c, e in tasks.items() if isinstance(e, dict) and _still_open(e)}
 
 
+def read_origin_urls(root):
+    """{code: [origin urls]} of the task bodies last sent (sent.json) in that instance's folder, read without configuring
+    this module (a source during the tick). None when it cannot be read, so "not read" never passes for "no links"."""
+    try:
+        with open(os.path.join(root, 'cache', 'planou', 'sent.json')) as f: sent = json.load(f)
+        if not isinstance(sent, dict): return None
+        return {c: [o.get('url') for o in b.get('origins') or [] if isinstance(o, dict) and isinstance(o.get('url'), str)]
+                for c, b in sent.items() if isinstance(b, dict)}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+
+
+def origin_urls(root):
+    """read_origin_urls, empty when it cannot be read."""
+    return read_origin_urls(root) or {}
+
+
 def closing_task(code, it, kt, sent):
     """The sync row that closes a task the agent's list no longer shows (an item a source confirmed closed at the origin,
     `it['fecha_na_origem']`, PLN0391): the body last sent (sent.json) with the close, never a new title or description
