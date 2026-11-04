@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.109.4 (2026-11-04)
+- O recado de tarefa concluída ou reaberta pelo Planou agora diz "concluida pelo Planou" ou "reaberta pelo Planou", sem a nota de que saiu do backlog pela vaga livre, que vale só para a alteração da vaga livre (PLN0527).
+
 ## 0.109.3 (2026-11-04)
 - Alertas do LinkedIn no Gmail com várias buscas: as linhas de cabeçalho do alerta (New jobs match your preferences, See all jobs, New jobs from your other alerts) não viram mais título nem empresa, então a vaga logo depois de cada cabeçalho chega ao julgamento em vez de cair como repetida nos ticks seguintes. A vaga recusada pelo porteiro continua marcada como vista e não volta a cada tick.
 

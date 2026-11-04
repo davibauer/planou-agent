@@ -2336,7 +2336,8 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             tasks[code]['self_sent'] = True     # already the agent's: a "pronta --self" mark sends no assignee again
         back = returned_at is not None
         who = ('pelo Planou (voltou de Aguardando)' if back and p.get('by') == 'auto'
-               else 'pelo Planou (saiu do backlog pela vaga livre)' if p.get('by') == 'auto' and view.get('state') not in (None, 'backlog')
+               else 'pelo Planou (saiu do backlog pela vaga livre)' if (kind == 'task_changed' and p.get('by') == 'auto'
+                                                                  and view.get('state') not in (None, 'backlog'))
                else 'pelo Planou' if p.get('by') == 'auto' else 'pelo usuario')
         if not printed:
             lines.append(f'PLANOU: {p.get("pid")} {what} {who}' + (' -> aplicado' if changed else '')
