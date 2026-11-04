@@ -730,13 +730,19 @@ def launcher():
     return stub if os.path.isfile(stub) and os.access(stub, os.X_OK) else os.path.join(SCRIPTS, 'team.sh')
 
 
-def session_held(name):
-    """A `team <name>` already holds the launcher's lock (VS Code opened late, or someone ran it by hand)."""
-    import team_lock
+def session_state(name):
+    """'held' (a `team <name>` holds the launcher's lock: VS Code opened late, or someone ran it by hand), 'free', or
+    'unknown' (the lock could not be read)."""
     try:
-        return team_lock.status(name)[0] != 'free'
-    except Exception:            # never a reason to start a second session: unknown counts as held
-        return True
+        import team_lock
+        return 'free' if team_lock.status(name)[0] == 'free' else 'held'
+    except Exception:
+        return 'unknown'
+
+
+def session_held(name):
+    """True when held; unknown counts as held too (never a reason to start a second session)."""
+    return session_state(name) != 'free'
 
 
 def tmux_has(name):
@@ -957,8 +963,10 @@ class Provisioner:
         base = st.get('fallback_at') if st.get('fallback') else opened
         if since(base) < self.cfg['session_timeout_s']: return
         see, run = session_cmd(name)
-        self.report(a, 'terminal_open', (FALLBACK_NO_RUNNER.format(see=see, run=run) if st.get('fallback')
-                                         else NO_SESSION.format(run=run)))
+        if st.get('fallback'): detail = FALLBACK_NO_RUNNER.format(see=see, run=run)
+        elif session_state(name) == 'held': detail = WINDOW_OPEN_NO_LOGIN   # only when sure; unknown keeps NO_SESSION
+        else: detail = NO_SESSION.format(run=run)
+        self.report(a, 'terminal_open', detail)
         st['no_session_told'] = True
         self.state[aid] = st
 
@@ -1236,6 +1244,7 @@ class Provisioner:
 
 
 TEST_MODE = 'modo teste: o runner so sobe com "live": true no config.json'
+WINDOW_OPEN_NO_LOGIN = 'A janela do funcionário está aberta e ainda não entrou: confira o login do Claude Code nela'
 NO_SESSION = 'nenhuma sessao subiu: abra o funcionario num terminal do computador com: {run}'
 FALLBACK_UP = 'sem VS Code: subi a sessao pelo terminal (tmux). Para ver: {see}'
 FALLBACK_NO_RUNNER = ('subi a sessao pelo terminal (tmux), mas o runner nao subiu: veja o que ela espera com {see}, '

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.1 (2026-11-04)
+- O provisionador agora diz "A janela do funcionário está aberta e ainda não entrou: confira o login do Claude Code nela" quando o tempo da sessão estoura com a janela aberta, em vez de mandar rodar o comando. Sem janela, ou sem conseguir ler a trava, a mensagem de antes continua.
+
 ## 0.112.0 (2026-11-04)
 - `fila in_review|done|handoff` aceita `--self-review`: a entrega leva ao Planou uma linha com o que foi conferido e o que não foi (`Conferi: ... Não conferi: ...`, até 200 caracteres, sem perder o "Não conferi"). Com confidencialidade `minimum` não é enviada, e um Planou que recuse o campo recebe a mesma entrega sem ele, com um `AVISO (planou)`. O worker devolve a linha CONFERI, e a sessão a manda ao entregar.
 
