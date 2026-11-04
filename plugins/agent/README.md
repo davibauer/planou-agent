@@ -135,6 +135,9 @@ Pedido sobre a tarefa de uma pessoa (`pergunta ... --task <PID>`) libera ao agen
 está aberto e até 24 h depois da resposta (Acesso pelo pedido, Planou 0.84): comentar (`comentario <PID>`), mudar a
 coluna (`tarefa estado <PID> "<coluna>"`) e ler os anexos (`anexo ver <PID>`, `anexo baixar <PID> <anexo> [--out
 <caminho>]`). Nunca conclui, nunca mexe no backlog e nunca leva para coluna com dono; cada recusa sai em palavras.
+Tarefa em Aguardando (Planou 0.110.0): o sync manda `waiting.until` ("olhar de novo em") só quando a fonte traz uma data real
+(`aguardando_ate` ou o prazo da própria ação), e `tarefa estado <PID> Aguardando --until AAAA-MM-DD` faz o mesmo na mão;
+quando o Planou devolve a tarefa para A fazer, o agente acompanha e o sync seguinte não a reabre em Aguardando.
 
 Trabalho que o agente faz na sessão sem ter vindo de fila nem de fonte (um MR, uma investigação, um merge, uma operação
 num cluster) vira tarefa dele no Planou, sem depender do Notion: `tarefa nova --title '...' [--evidence <link>]

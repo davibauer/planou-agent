@@ -203,7 +203,9 @@ consegue, sem cada comportamento em `behaviors`:
   `--out`, em `cache/planou/downloads/<PID>/`). `tarefa estado` nunca conclui nem reabre (tarefa da fila: `fila done`),
   nunca põe nem tira do backlog (é da pessoa) e, com o acesso do pedido, nunca leva para coluna com dono; na tarefa da
   fila do próprio agente o Planou recusa (`in_queue`): mude pelo `fila`. A saída diz o motivo de cada recusa em
-  palavras; não insistir.
+  palavras; não insistir. Em Aguardando, `--until AAAA-MM-DD` (só data real, nunca chute) diz o dia em que a tarefa
+  volta sozinha para A fazer; sem data o Planou deixa 7 dias, e a volta ("Voltou de Aguardando") não é desfeita pelo
+  sync seguinte.
 - **Trabalho da sessão vira tarefa** (sem fila nem fonte: um MR, uma investigação, um merge, uma operação num cluster,
   uma limpeza): ao começar, `$PL tarefa nova --title '<o que está fazendo, uma linha>' [--project <sigla>] [--evidence
   <link>]`; a saída traz o PID, e o custo da sessão vai para ela até concluir. Ao terminar, `$PL tarefa concluir <PID>

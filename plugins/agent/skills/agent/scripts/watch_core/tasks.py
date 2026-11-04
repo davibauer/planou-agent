@@ -107,7 +107,8 @@ def _itens_crus(s, agora=None):
         st = 'Feito' if a.get('status') == 'feita' else {'aguardando': 'Aguardando', 'decisao': 'Decisão', 'impedimento': 'Impedimento'}.get(a.get('balde'), 'A fazer')
         out[f'a{a["id"]}'] = {'titulo': a['texto'], 'status': st, 'origem': 'ação', 'quem': a.get('quem') or '',
                               'entrou': _data(a.get('desde')), 'concluida': _data(a.get('feita')) if st == 'Feito' else None,
-                              'prio': PRIO.get(a.get('balde') or 'proximas', 3), 'deadline': a.get('deadline')}
+                              'prio': PRIO.get(a.get('balde') or 'proximas', 3), 'deadline': a.get('deadline'),
+                              'aguardando_ate': a.get('aguardando_ate')}
     corte = agora - JANELA_PEND
     from . import planou
     abertas = planou.open_codes()       # o Planou ainda tem aberta: o fechamento vai mesmo depois do corte (PLN0028)

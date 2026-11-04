@@ -687,15 +687,26 @@ def _origin_and_description(code, it):
 
 
 def waiting(it, now=None):
-    """"Aguardando por" of a waiting or blocked task: {"who", "since"} (spec: aguardando {quem, desde}). The item may say it
-    explicitly (aguardando_quem, aguardando_desde: job-scout's company and application date); otherwise who is the item's
-    `quem` and since the day it entered (`entrou`), as on the daily page. `who` is `title` level (spec 9.6): "minimum"
-    sends only since. A since in the future is dropped (the server would ignore it). None when there is nothing to say."""
+    """"Aguardando por" of a waiting or blocked task: {"who", "since", "until"} (spec: aguardando {quem, desde}). The item may
+    say it explicitly (aguardando_quem, aguardando_desde: job-scout's company and application date); otherwise who is the
+    item's `quem` and since the day it entered (`entrou`), as on the daily page. `who` is `title` level (spec 9.6):
+    "minimum" sends only since. A since in the future is dropped (the server would ignore it). `until` ("olhar de novo
+    em", Planou 0.110.0, PLN0494) is the day the task comes back to A fazer by itself: only a real date the item carries
+    (`aguardando_ate`, else the source's own `deadline`), in the future, and only for a waiting task (a blocked one has
+    no such date); without it the key is left out and Planou keeps 7 days. None when there is nothing to say."""
+    now = now or datetime.now(timezone.utc)
     who = ' '.join(str(it.get('aguardando_quem') or it.get('quem') or '').split())[:120] or None
     if _S['confidentiality'] == 'minimum': who = None
     since = _date(it.get('aguardando_desde') or it.get('entrou'))
-    if since and since > (now or datetime.now(timezone.utc)).astimezone().date().isoformat(): since = None
-    return {'who': who, 'since': since} if who or since else None
+    today = now.astimezone().date().isoformat()
+    if since and since > today: since = None
+    until = None
+    if it.get('status') == 'Aguardando':
+        until = _deadlines.valid(it.get('aguardando_ate') or it.get('deadline'))
+        if until and until <= today: until = None
+    w = {'who': who, 'since': since} if who or since else None
+    if until: w = {**(w or {'who': None, 'since': None}), 'until': until}
+    return w
 
 
 READY_MAX = 200
@@ -787,11 +798,19 @@ def payload(items, now=None, autonomy=None, default_project=None):
     _S['cited'] = {}
     _S['epic_picker'] = None
     out, picker, new_epics = [], None, []
-    sent = None
+    sent, held = None, set()
+    _S['returned_held'] = held
     for code, it in items.items():
         state, resolution = STATE_OF.get(it.get('status'), ('todo', None))
         completed = _date(it.get('concluida'))
         kt = known.get(code) or {}
+        ret = kt.get('returned') if isinstance(kt.get('returned'), dict) else None
+        if ret and state == 'waiting':
+            # Planou took it out of Aguardando (the look-again date came, or the person moved it) while the item still
+            # says Aguardando at the source: the task stays where Planou put it (PLN0494). The flag goes when the item
+            # stops waiting (sync()), so a new wait is sent as usual
+            state = ret.get('to') if ret.get('to') in ('todo', 'in_progress') else 'todo'
+            held.add(code)
         if it.get('fecha_na_origem'):
             if sent is None: sent = _load('sent.json', {})
             task = closing_task(code, it, kt, sent)
@@ -962,6 +981,7 @@ def sync(items, now=None, only=False):
                 elif r.get('result') == 'created': entry['deadline'] = None
                 for k in ('refining', 'backlog', 'self_sent'):
                     if prev.get(k): entry[k] = prev[k]
+                if prev.get('returned') and code in (_S.get('returned_held') or ()): entry['returned'] = prev['returned']
                 if _in_backlog(notes): entry['backlog'] = True
                 elif t.get('state') and 'state' not in (r.get('ignored_fields') or []): entry.pop('backlog', None)
                 if t.get('assignee') == 'self': entry['self_sent'] = True
@@ -2280,6 +2300,15 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             if partial and code in kept_bodies:
                 for f, v in applied.items():
                     if f in kept_bodies[code]: kept_bodies[code][f] = _local_value(f, v)
+        returned_at = None
+        if code in tasks and kind == 'task_changed' and view.get('state') and 'state' not in held:
+            # Aguardando -> A fazer (PLN0494): the look-again date came ("Voltou de Aguardando") or the person moved it.
+            # The source may still say Aguardando; the sync follows Planou (payload) and goes on from this event's version
+            was = ((p.get('changed') or {}).get('state') or {}).get('from') if partial else sent.get('state')
+            if was == 'waiting' and view['state'] in ('todo', 'in_progress'):
+                returned_at = datetime.now(timezone.utc).isoformat()
+                tasks[code]['returned'] = {'to': view['state'], 'at': returned_at}
+            elif view['state'] == 'waiting': tasks[code].pop('returned', None)     # back in Aguardando: the item rules again
         if code in tasks and kind != 'task_deleted' and view.get('state'):
             # the person moved it: in or out of backlog, out of "Em refinamento"
             if view['state'] == 'backlog': tasks[code]['backlog'] = True
@@ -2296,7 +2325,9 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
                 'task_restored': 'restaurada'}.get(kind, kind)
         if code in tasks and kind != 'task_deleted' and (p.get('assignee') or {}).get('self'):
             tasks[code]['self_sent'] = True     # already the agent's: a "pronta --self" mark sends no assignee again
-        who = ('pelo Planou (saiu do backlog pela vaga livre)' if p.get('by') == 'auto' and view.get('state') not in (None, 'backlog')
+        back = returned_at is not None
+        who = ('pelo Planou (voltou de Aguardando)' if back and p.get('by') == 'auto'
+               else 'pelo Planou (saiu do backlog pela vaga livre)' if p.get('by') == 'auto' and view.get('state') not in (None, 'backlog')
                else 'pelo Planou' if p.get('by') == 'auto' else 'pelo usuario')
         if not printed:
             lines.append(f'PLANOU: {p.get("pid")} {what} {who}' + (' -> aplicado' if changed else '')
@@ -5749,12 +5780,40 @@ def _state_error(e, tid, column):
     return e
 
 
-def move_task_state(ref, column):
-    """`tarefa estado PID "<coluna>"`: moves a task to a column of its project by name (POST /agent/tasks/{id}/state
+def look_again_at(code, until, version, now=None):
+    """`tarefa estado PID Aguardando --until AAAA-MM-DD` (Planou 0.110.0, PLN0494): the date to look at the task again
+    travels only in the sync (`waiting.until`; the state route has no such field). A one-task sync of the agent's own
+    synced task: the kept body (sent.json) without a state, so the column the move chose stays, and the version the move
+    returned as base. Returns the sync row's answer; None when the agent never synced the task."""
+    body = _load('sent.json', {}).get(code)
+    if not body: return None
+    w = body.get('waiting') if isinstance(body.get('waiting'), dict) else {}
+    t = {k: v for k, v in body.items() if k not in ('state', 'resolution', 'completed_at', 'waiting', 'ready_reason',
+                                                    'project_state', 'assignee')}
+    t.update(waiting={'who': w.get('who'), 'since': w.get('since'), 'until': until}, base_version=version)
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    _, res = _call('POST', '/agent/sync', {'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
+    r = next((x for x in (res or {}).get('tasks') or [] if x.get('source_key') == t.get('source_key')), None) or {}
+    if r.get('result') in ('created', 'updated', 'unchanged') and r.get('version') is not None:
+        with _locked('state.json'):
+            st = _load('state.json', {})
+            e = (st.get('tasks') or {}).get(code)
+            if e is not None:
+                e['version'] = r['version']
+                _save('state.json', st)
+    return r
+
+
+def move_task_state(ref, column, until=None):
+    """`tarefa estado PID "<coluna>" [--until AAAA-MM-DD]`: moves a task to a column of its project by name (POST /agent/tasks/{id}/state
     {"project_state"}): the agent's own task out of its queue, or the person's task an ask of the agent grants. Never
     closes, never touches the backlog, and with the ask's access never into a column with an owner. Returns the
     response ({pid, state, project_state: {name}, version, changed}). Raises PlanouError with the reason in words."""
     column = one_line(column, 200)
+    if until is not None:
+        if not _deadlines.valid(str(until)) or str(until) <= datetime.now().astimezone().date().isoformat():
+            raise PlanouError(0, 'until', '--until: uma data futura AAAA-MM-DD (o dia em que a tarefa volta para A fazer)')
+        until = str(until)
     if not column: raise PlanouError(0, 'project_state', 'diga a coluna (o nome do estado do projeto, ex.: "Em andamento")')
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
     tid = _comment_task(ref)
@@ -5763,17 +5822,37 @@ def move_task_state(ref, column):
     except PlanouError as e:
         raise _state_error(e, tid, column) from None
     res = res or {}
-    if res.get('changed') and res.get('version') is not None:
+    code = None
+    if res.get('version') is not None and (res.get('changed') or until):
         # the agent's own synced task: the next sync goes from this version, not a stale one
         with _locked('state.json'):
             st = _load('state.json', {})
             tasks = st.get('tasks') or {}
             pid = str(res.get('pid') or '').upper()
             code = next((c for c, v in tasks.items() if pid and str((v or {}).get('pid') or '').upper() == pid), None)
-            if code:
+            if code and res.get('changed'):
                 tasks[code].update(version=res['version'], state=res.get('state'),
                                    project_state=(res.get('project_state') or {}).get('name'))
                 _save('state.json', st)
+    if until:
+        # only a task in Aguardando takes the date (Impedida and the other columns have none), and only a task the
+        # agent synced can send it
+        if res.get('state') != 'waiting':
+            res['until_ignored'] = 'a coluna nao e Aguardando: a data de volta so vale la'
+        elif not code:
+            res['until_ignored'] = 'a tarefa nao vem das fontes deste agente: a data so sobe pelo sync'
+        else:
+            try:
+                r = look_again_at(code, until, res['version']) if res.get('version') is not None else None
+            except PlanouError as e:
+                r = None
+                res['until_ignored'] = e.message
+            if r is None and 'until_ignored' not in res: res['until_ignored'] = 'a tarefa ainda nao foi enviada pelo sync'
+            elif r is not None and r.get('result') not in ('created', 'updated', 'unchanged'):
+                res['until_ignored'] = r.get('reason') or r.get('result') or 'o Planou nao aceitou'
+            elif r is not None and 'waiting.until' in (r.get('ignored_fields') or []):
+                res['until_ignored'] = 'a pessoa definiu a data: o sync nao a muda mais'
+            elif r is not None: res['until'] = until
     return res
 
 
@@ -5844,15 +5923,17 @@ def _size(n):
 
 
 def _tarefa_estado(a, ap):
-    if len(a.arg) < 3: ap.error('use: tarefa estado PID "<coluna>"')
+    if len(a.arg) < 3: ap.error('use: tarefa estado PID "<coluna>" [--until AAAA-MM-DD]')
     try:
-        res = move_task_state(a.arg[1], ' '.join(a.arg[2:]))
+        res = move_task_state(a.arg[1], ' '.join(a.arg[2:]), until=a.until)
     except PlanouError as e:
         print(f'AVISO (planou): {e.message}', file=sys.stderr)
         return 1
     pid = one_line(res.get('pid'), 20) or a.arg[1]
     col = one_line((res.get('project_state') or {}).get('name'), 80) or ' '.join(a.arg[2:])
     print(f'{pid}: movida para {col}' if res.get('changed') else f'{pid}: ja estava em {col}')
+    if res.get('until'): print(f'{pid}: volta para A fazer em {res["until"]}')
+    if res.get('until_ignored'): print(f'AVISO (planou): --until nao foi enviado: {res["until_ignored"]}', file=sys.stderr)
     return 0
 
 
@@ -5968,6 +6049,7 @@ def main(argv=None):
     ap.add_argument('--slug', help='tarefa nova: the key of the task (default: from the title; same day + slug = same task)')
     ap.add_argument('--area', help='tarefa nova: the subject that picks the epic (default: agente)')
     ap.add_argument('--epic', help='tarefa nova: the epic (pid or source_key)')
+    ap.add_argument('--until', help='tarefa estado ... Aguardando: the day the task comes back to A fazer by itself (YYYY-MM-DD, a real date, never a guess)')
     ap.add_argument('--resolution', help='tarefa concluir: done (default), no_action or discarded')
     ap.add_argument('--completed-at', help='tarefa nova|concluir: when the work really closed (YYYY-MM-DD or ISO 8601; '
                                            'not in the future, up to 30 days back); tarefa nova: implies --done')
