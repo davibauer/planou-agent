@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.109.0 (2026-11-04)
+- Pedido ao Planou pode levar um assunto (`--assunto` em `pergunta`, `decision`, `approval`, `draft` e `alert`): a mesma pergunta feita de novo em outro dia substitui a que ainda estava aberta, e Precisa de você fica com um pedido só por assunto. Com a confidencialidade "minimum" só sobe um código do assunto.
+- O pedido para renovar uma credencial leva o assunto `credencial:<ferramenta>`: um episódio novo da mesma falha substitui o pedido anterior em vez de somar outro.
+- As instruções do job-scout e do work-watch dizem quando usar o assunto (limpeza do funil, publicação do plugin, versão nova de um rascunho). Com um Planou anterior ao assunto, o campo é ignorado e tudo segue como antes.
+
 ## 0.108.2 (2026-11-04)
 - Alerta cancelado pela pessoa no Planou fica marcado como dispensado (com a data) e deixa de ser consultado a cada hora; ele não reabre enquanto o problema durar. Se o problema sumir e voltar depois, abre um alerta novo. Alerta que expirou continua reabrindo, como antes.
 

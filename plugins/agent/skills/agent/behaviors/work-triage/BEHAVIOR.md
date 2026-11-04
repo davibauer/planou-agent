@@ -126,6 +126,8 @@ reabrir ou editar uma tarefa no Planou vale como a caixinha da página. O que ch
   autonomia e com os dados completos: `$PL pronta pN|aN "<quem pediu o quê>"` (`pronta pN -` desfaz).
 - **Rascunhos**: todo `Rascunho:` também sobe: `printf '%s' "<texto>" | $PL draft --channel teams|slack|email|chat
   --to "<quem>" --title "<uma linha>" --task pN --ref pN --text -`. O texto só sobe com `"drafts_in_planou": true`.
+  Rascunho sem pendência que ganha versão nova (o mesmo recado reescrito): o mesmo `--assunto <rótulo>` nas duas, e a
+  nova substitui a anterior em Precisa de você. Credencial vencida não precisa: o tick já manda `credencial:<ferramenta>`.
 - Fila do agente (`"task_queue": true`): comportamento `task-queue`, com o limite desta família: PR **em rascunho**
   com os testes passando, e nada de marcar pronta, merge, deploy, cluster, GMUD ou mensagem sem o OK do usuário, a não
   ser o que a autonomia do `instructions.md` liberar.

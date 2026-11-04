@@ -3859,6 +3859,11 @@
                     "type": "string",
                     "default": null,
                     "nullable": true
+                  },
+                  "subject": {
+                    "type": "string",
+                    "default": null,
+                    "nullable": true
                   }
                 }
               }
@@ -8113,6 +8118,11 @@
             "nullable": true
           },
           "decided": {
+            "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "subject": {
             "type": "string",
             "default": null,
             "nullable": true

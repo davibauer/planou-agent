@@ -247,7 +247,7 @@ Quando a decisão precisa mesmo do usuário (seção acima: fora da autonomia, a
 além do texto na sessão, abrir o pedido no Planou, para os botões aparecerem na Conversa e em Precisa de você:
 
 `$PL pergunta --title "<a pergunta, uma linha>" --option "A=<opção>" --option "B=<opção>" [--option "C=..."]
---recommended <letra> [--task <PID ou código da tarefa>] [--context "<por quê>"]`
+--recommended <letra> [--task <PID ou código da tarefa>] [--context "<por quê>"] [--assunto <assunto>]`
 
 - Opções curtas e acionáveis, a recomendada marcada com `--recommended` (e dita no texto da sessão). Exemplo: "Quer que
   eu faça agora a proposta de horas do item 123?" com `A=Faça agora` (recomendada), `B=Deixa para amanhã`,
@@ -256,6 +256,11 @@ além do texto na sessão, abrir o pedido no Planou, para os botões aparecerem 
 - O código do pedido sai no stderr. A resposta volta como `-- DECISAO <código> ... (pergunta da sessao)`: seguir como se
   ele tivesse respondido aqui. **Respondeu no terminal antes:** `$PL cancel <código> --reason "respondida no terminal"`.
 - A mesma pergunta no mesmo dia não abre outro pedido. Bloqueio de tarefa da fila continua sendo `fila blocked`.
+- **Pergunta que volta** (o mesmo assunto em outro dia, mesmo com outro texto ou outros números: limpeza do funil,
+  publicação do plugin, uma credencial): `--assunto <rótulo curto e fixo>` (ex.: `funil-limpeza`, `plugin-publish`),
+  sempre o mesmo rótulo para o mesmo assunto, sem data nem número. O pedido novo substitui o que ainda estava aberto
+  com o mesmo assunto (o respondido não muda), e Precisa de você fica com um só. Vale também em `draft` (versão nova do
+  mesmo rascunho), `decision`, `approval` e `alert`. Sem assunto em comum, não use.
 
 ## Sugestões para o Planou e os plugins
 
@@ -281,6 +286,8 @@ registrar uma sugestão. O planou a transforma em tarefa no backlog do projeto P
   `-- COMENTARIO` do Planou (a pessoa chamou o agente com @ na tarefa) vai direto, com `$PL comentario`. Escrever a resposta abaixo de uma
   linha `Rascunho:` em texto puro e, com o Planou ligado, subir também:
   `printf '%s' "<texto>" | $PL draft --channel slack|teams|email|chat --to "<quem>" --title "<uma linha>" --text -`.
+  Versão nova de um rascunho ainda aberto (o mesmo recado reescrito): o mesmo `--assunto <rótulo>` nas duas, para a nova
+  substituir a anterior.
 - **Autonomia**: o `autonomy` do config diz o que a instância pode sozinha (`can`), o que pergunta antes (`ask_first`)
   e o que nunca faz (`never`). Uma tarefa do Planou traz a sua própria `autonomy`; quando as duas divergem, vale a mais
   restrita. Algo fora de `can`: perguntar (`$PL pergunta` ou `fila blocked`) e esperar.

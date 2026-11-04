@@ -3418,52 +3418,78 @@ def _idem(kind, ref, *parts):
     return f'{_S["agent"]}:{kind}:' + hashlib.sha256(norm.encode()).hexdigest()[:32]
 
 
-def _ask(kind, body, ref, *parts):
-    """POST /asks; records the code locally (cache/planou/asks.json) so the answer can be matched later."""
+SUBJECT_MAX = 80          # Planou's limit for the subject of an ask (PLN0506)
+
+
+def ask_subject(subject):
+    """The subject an ask goes with (PLN0506): a short stable label of what it is about ("plugin-publish",
+    "funil-limpeza", "credencial:<tool>"), the same when the same question comes back on another day, so Planou keeps one
+    open ask per agent, kind and subject (the new one replaces the open one; answered ones are never touched). Spaces
+    collapse to "-" and case is folded; under "minimum" confidentiality only a hash leaves (still stable, so the match
+    holds without saying what it is about); a label over the limit keeps a hash of the whole at its end. None: no subject.
+    A Planou older than 0.122 ignores the field (one ask per key, as before)."""
+    t = '-'.join(str(subject or '').split()).lower()
+    if not t: return None
+    h = hashlib.sha256(t.encode()).hexdigest()
+    if _S.get('confidentiality') == 'minimum': return 's-' + h[:16]
+    return t if len(t) <= SUBJECT_MAX else t[:SUBJECT_MAX - 17] + '#' + h[:16]
+
+
+def _ask(kind, body, ref, *parts, subject=None):
+    """POST /asks; records the code locally (cache/planou/asks.json) so the answer can be matched later. `subject`: see
+    ask_subject (never part of the idempotency key, which stays per question and day)."""
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
-    body = {k: v for k, v in {**body, 'kind': kind, 'idempotency_key': _idem(kind, ref, *parts)}.items() if v is not None}
+    body = {k: v for k, v in {**body, 'kind': kind, 'idempotency_key': _idem(kind, ref, *parts),
+                              'subject': ask_subject(subject)}.items() if v is not None}
     _, res = _call('POST', '/asks', body)
     asks = _load('asks.json', {})
     asks[res['code']] = {'kind': kind, 'ref': ref, 'task': body.get('task'), 'title': body.get('title'),
-                         'created': datetime.now(timezone.utc).isoformat()}
+                         'subject': body.get('subject'), 'created': datetime.now(timezone.utc).isoformat()}
     _save('asks.json', asks)
     return res
 
 
-def request_decision(title, options, context=None, task=None, ref=None, free_text=False, due=None):
-    """options: [(key, text, recommended), ...] or [{"key","text","recommended"}]."""
+def request_decision(title, options, context=None, task=None, ref=None, free_text=False, due=None, subject=None):
+    """options: [(key, text, recommended), ...] or [{"key","text","recommended"}]. subject: see ask_subject."""
     opts = [o if isinstance(o, dict) else {'key': o[0], 'text': o[1], 'recommended': bool(o[2]) if len(o) > 2 else False} for o in options]
     return _ask('decision', {'title': title, 'context': context, 'task': task, 'options': opts,
-                             'accepts_free_text': bool(free_text), 'due_at': due}, ref, title, task, *[o['text'] for o in opts])
+                             'accepts_free_text': bool(free_text), 'due_at': due}, ref, title, task, *[o['text'] for o in opts],
+                subject=subject)
 
 
-def request_approval(action_type, verb, title, context=None, task=None, ref=None, description=None, irreversible=True):
+def request_approval(action_type, verb, title, context=None, task=None, ref=None, description=None, irreversible=True,
+                     subject=None):
     """Asks the person's OK for an action the agent would execute. In this phase the answer only records the OK:
-    the agent sends nothing because of it."""
+    the agent sends nothing because of it. subject: see ask_subject."""
     return _ask('approval', {'title': title, 'context': context, 'task': task,
                              'action': {'type': action_type, 'verb': verb, 'description': description, 'irreversible': bool(irreversible)}},
-                ref, title, task, action_type)
+                ref, title, task, action_type, subject=subject)
 
 
-def submit_draft(channel, to, text, title, context=None, task=None, subject=None, ref=None):
+def submit_draft(channel, to, text, title, context=None, task=None, subject=None, ref=None, ask_subject=None):
     """A draft for the person to send. The agent never sends it. Without drafts_text (config "drafts_in_planou") the text
-    stays on this machine: the ask says who and where, and the person reads the text in the session."""
+    stays on this machine: the ask says who and where, and the person reads the text in the session. `subject` is the
+    message's own subject (e-mail); `ask_subject` is the subject of the ask (see the function ask_subject): a new draft
+    of the same message (a "v2") replaces the open one."""
     up = text if _S['drafts_text'] else None
     return _ask('draft', {'title': title, 'context': context, 'task': task,
-                          'draft': {'channel': channel, 'to': to, 'subject': subject, 'text': up}}, ref, title, task, to, text)
+                          'draft': {'channel': channel, 'to': to, 'subject': subject, 'text': up}}, ref, title, task, to, text,
+                subject=ask_subject)
 
 
 YES_NO = [('S', 'Sim', False), ('N', 'Não', False)]
 
 
-def ask_question(question, options=(), context=None, task=None, ref=None, now=None):
+def ask_question(question, options=(), context=None, task=None, ref=None, now=None, subject=None):
     """A direct question the session asks the person ("Quer que eu ...?", "Posso ...?", a choice) as a Planou decision:
     Sim/Não without options, the options otherwise, always with a free answer. The confidentiality applies: "minimum"
     sends a neutral title and "Opção A/B" (Sim/Não stay), "detail" also sends the context. The ref (idempotency key) is
     a hash of the real question, kept on this machine, so the same question is never opened twice and two questions
     never collide under the same neutral title. The local date is part of it: the same question asked on another day is
-    a new ask (Planou answers an idempotency key it knows with the old ask, answered or not). `ref` overrides it. The
-    answer comes back as `-- DECISAO <code> ... (pergunta da sessao)`."""
+    a new ask (Planou answers an idempotency key it knows with the old ask, answered or not). `ref` overrides it. A
+    question that comes back (the same subject on another day, in other words) goes with a stable `subject` (see
+    ask_subject): the new ask replaces the one still open. The answer comes back as
+    `-- DECISAO <code> ... (pergunta da sessao)`."""
     q = ' '.join(str(question or '').split())
     opts = [(str(o['key']), str(o['text']), bool(o.get('recommended'))) if isinstance(o, dict)
             else (str(o[0]), str(o[1]), bool(o[2]) if len(o) > 2 else False) for o in options]
@@ -3478,10 +3504,10 @@ def ask_question(question, options=(), context=None, task=None, ref=None, now=No
     else:
         title = q[:300]
     ctx = (context or q)[:4000] if conf == 'detail' else None
-    return request_decision(title, opts, ctx, task, ref, free_text=True)
+    return request_decision(title, opts, ctx, task, ref, free_text=True, subject=subject)
 
 
-def decide_question(question, options=(), choice=None, context=None, task=None, ref=None, now=None):
+def decide_question(question, options=(), choice=None, context=None, task=None, ref=None, now=None, subject=None):
     """A question the agent decided on its own (PLN0225): the decision has a recommended option inside the autonomy, so
     the agent follows it instead of waiting. /v1 has no way for the agent to answer its own ask (the answer is the
     person's, on /api), so the decision already taken goes to Planou as an agent_decided "Decidi: <question> ->
@@ -3518,12 +3544,13 @@ def decide_question(question, options=(), choice=None, context=None, task=None, 
     if conf == 'detail':
         ctx += '\nOpções: ' + '; '.join(f'{ok}{" (escolhida)" if ok == k else ""}: {ot}' for ok, ot in shown)
         if context: ctx += '\n\n' + str(context)
-    return raise_alert(title, 'agent_decided', 'low', ctx[:4000], task, ref)
+    return raise_alert(title, 'agent_decided', 'low', ctx[:4000], task, ref, subject)
 
 
-def raise_alert(title, code='agent', severity='medium', context=None, task=None, ref=None):
+def raise_alert(title, code='agent', severity='medium', context=None, task=None, ref=None, subject=None):
+    """subject: see ask_subject (an alert replaces only an open alert of the same subject)."""
     return _ask('alert', {'title': title, 'context': context, 'task': task, 'alert': {'code': code, 'severity': severity}},
-                ref, title, task, code)
+                ref, title, task, code, subject=subject)
 
 
 def cancel_ask(code, reason=None):
@@ -3689,7 +3716,8 @@ def reconcile_asks(desired):
     """Keeps the asks that come from the agent state in step with it (heavy tick, after sync).
 
     desired: {ref: {'kind': 'decision' | 'alert', 'title', 'options' [(key, text, recommended)] and 'free_text'
-                    (decision: no options needs free_text), 'context', 'task', 'code' and 'severity' (alert)}}
+                    (decision: no options needs free_text), 'context', 'task', 'code' and 'severity' (alert),
+                    'subject' (optional, see ask_subject)}}
     A question to the person is always a decision (an alert only has "Ciente"); alerts are for what needs no answer.
     A ref not open yet is opened (the ref is the idempotency key, so a lost local file never duplicates one); an open ref
     that left `desired` is withdrawn (cancel); an answered one is only forgotten. An alert Planou expired (PLN0487) while
@@ -3718,13 +3746,16 @@ def reconcile_asks(desired):
             key_ref = f'{ref}@{now.date().isoformat()}'
         try:
             if d.get('kind') == 'decision':
-                res = request_decision(d['title'], d['options'], d.get('context'), d.get('task'), ref, d.get('free_text', False))
+                res = request_decision(d['title'], d['options'], d.get('context'), d.get('task'), ref, d.get('free_text', False),
+                                       subject=d.get('subject'))
             else:
-                res = raise_alert(d['title'], d.get('code') or 'agent', d.get('severity') or 'medium', d.get('context'), d.get('task'), key_ref)
+                res = raise_alert(d['title'], d.get('code') or 'agent', d.get('severity') or 'medium', d.get('context'), d.get('task'), key_ref,
+                                  d.get('subject'))
                 reason = _ask_reason(res['code']) if res.get('state') == 'cancelled' and not reopened else None
                 if reason == ASK_EXPIRED:
                     key_ref = f'{ref}@{now.date().isoformat()}'      # the local file was lost: the old key answers the expired one
-                    res = raise_alert(d['title'], d.get('code') or 'agent', d.get('severity') or 'medium', d.get('context'), d.get('task'), key_ref)
+                    res = raise_alert(d['title'], d.get('code') or 'agent', d.get('severity') or 'medium', d.get('context'), d.get('task'), key_ref,
+                                      d.get('subject'))
                 elif reason is not None:
                     dismissed = now.date().isoformat()               # lost file, cancelled by the person: stays closed
         except PlanouError as e:
@@ -6048,7 +6079,9 @@ def main(argv=None):
     ap.add_argument('--title'); ap.add_argument('--context'); ap.add_argument('--ref')
     ap.add_argument('--task', action='append', help='the task (draft, approval, decision, pergunta, alert: the last one); '
                                                     'fila worker-start, worker start|ping: one more task (repeat)')
-    ap.add_argument('--channel'); ap.add_argument('--subject')
+    ap.add_argument('--channel'); ap.add_argument('--subject', help='draft: the message subject (e-mail)')
+    ap.add_argument('--assunto', help='draft, approval, decision, pergunta, alert: the subject of the ask, short and stable '
+                                      '(plugin-publish, funil-limpeza): the same question asked again replaces the open one')
     ap.add_argument('--to', help='draft: the recipient; fila ajuste: author (whoever did the work, Planou\'s default) or '
                                  'previous (whoever passed the task to the current column)')
     ap.add_argument('--text', help="draft text; fila ajuste: what to adjust; comentario: the answer; '-' reads stdin")
@@ -6230,17 +6263,17 @@ def main(argv=None):
     try:
         if a.cmd == 'draft':
             if not (a.channel and a.to and a.title and a.text): ap.error('draft precisa de --channel, --to, --title e --text')
-            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, a.context, task1, a.subject, a.ref)
+            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, a.context, task1, a.subject, a.ref, a.assunto)
         elif a.cmd == 'approval':
             if not (a.type and a.verb and a.title): ap.error('approval precisa de --type, --verb e --title')
-            res = request_approval(a.type, a.verb, a.title, a.context, task1, a.ref, a.description, not a.reversible)
+            res = request_approval(a.type, a.verb, a.title, a.context, task1, a.ref, a.description, not a.reversible, a.assunto)
         elif a.cmd == 'decision':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
             free = not a.no_free_text          # a question always offers "Responder" in the person's own words
             if not a.title or (len(opts) < 2 and not (free and not opts)):
                 ap.error('decision precisa de --title e de 2 ou mais --option "A=texto" (ou nenhuma, com resposta livre)')
-            res = request_decision(a.title, opts, a.context, task1, a.ref, free)
+            res = request_decision(a.title, opts, a.context, task1, a.ref, free, subject=a.assunto)
         elif a.cmd == 'pergunta':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
@@ -6251,14 +6284,14 @@ def main(argv=None):
                 if not a.recommended:
                     ap.error('pergunta --auto precisa de --recommended <letra> (a opcao que o agente seguiu; S ou N sem --option)')
                 try:
-                    res = decide_question(a.title, opts, a.recommended, a.context, task1, a.ref)
+                    res = decide_question(a.title, opts, a.recommended, a.context, task1, a.ref, subject=a.assunto)
                 except ValueError as e:
                     ap.error(f'--recommended {a.recommended}: {e}')
                 print(f'decisao registrada no Planou ({res.get("code")}); nenhum pedido esperando resposta',
                       file=sys.stderr)
                 print(json.dumps(res, ensure_ascii=False))
                 return 0
-            res = ask_question(a.title, opts, a.context, task1, a.ref)
+            res = ask_question(a.title, opts, a.context, task1, a.ref, subject=a.assunto)
             if opts and not a.recommended:
                 print('dica: marque a opcao recomendada com --recommended <letra> (o botao sai destacado no Planou)',
                       file=sys.stderr)
@@ -6266,7 +6299,7 @@ def main(argv=None):
                   file=sys.stderr)
         elif a.cmd == 'alert':
             if not a.title: ap.error('alert precisa de --title')
-            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', a.context, task1, a.ref)
+            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', a.context, task1, a.ref, a.assunto)
         elif a.cmd == 'cancel':
             res = {'cancelled': cancel_ask(a.arg[0], a.reason)}
         else:

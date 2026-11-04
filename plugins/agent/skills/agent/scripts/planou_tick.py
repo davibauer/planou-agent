@@ -308,7 +308,8 @@ def _rotulo(nome, f):
 def pedidos_credenciais(ctx, conf):
     """The asks for failures that need the person (PLN0364): {ref: decision} for reconcile_asks, which opens each ref
     once, keeps it while the failure lasts (an answered one is not asked again) and withdraws it when the tool is back.
-    The ref carries the failure's start ('desde'), so a new episode on another day is a new ask.
+    The ref carries the failure's start ('desde'), so a new episode on another day is a new ask; the subject
+    "credencial:<tool>" (PLN0506) has no episode, so that new ask replaces the one still open in Planou.
       - a source in s['quebrado'] whose error looks personal (PESSOAL), unless a credential of the credenciais hook
         names that source and already asks;
       - a credential of the credenciais hook in state 'vencida' (a date in the past always; a command only when its
@@ -329,8 +330,9 @@ def pedidos_credenciais(ctx, conf):
                    'Depois de renovar, responda "Já renovei": o próximo tick confere e este pedido sai sozinho quando a '
                    'ferramenta voltar.')
         if conf == 'detail' and erro: ctx_txt += f'\nErro: {planou.clean_text(erro) or "omitido"}'
+        # PLN0506: one subject per credential, without the episode, so a new episode replaces the open ask
         out[ref] = {'kind': 'decision', 'title': titulo[:300], 'context': ctx_txt[:4000], 'free_text': True,
-                    'options': JA_RENOVEI}
+                    'options': JA_RENOVEI, 'subject': f'credencial:{(planou.tool_key(chave) or "x").lower()}'}
 
     for nome, c in creds.items():
         if not isinstance(c, dict) or c.get('estado') != 'vencida': continue
