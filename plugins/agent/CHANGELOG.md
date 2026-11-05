@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.6 (2026-11-04)
+- Testes do plugin agent não dependem mais da carga da máquina: o teste do timeout do `gh pr checks` confere o timeout passado ao subprocesso em vez de medir tempo de parede, e dois limites do copiloto de reunião passaram a comparar com o atraso simulado de 5 s.
+
 ## 0.112.5 (2026-11-04)
 - `fila blocked --ask-first` aceita `code_on_branch` e `open_draft_pr`: em projeto Manual do Planou, criar branch, fazer push e abrir PR passam a ser pedido, e o agente informa qual ação o fez parar.
 
