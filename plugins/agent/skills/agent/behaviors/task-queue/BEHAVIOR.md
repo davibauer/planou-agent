@@ -158,7 +158,7 @@ o worker de volta na mesma branch. Sessão nova com a pausa em vigor: o tick pes
    `printf '%s' "<o que precisa, curto>" | $PL fila blocked <PID> --note -`. Abre a pergunta em Precisa de você; a
    resposta volta como `-- DECISAO` e aí `$PL fila started <PID>` de novo para seguir. Com `"confidentiality":
    "minimum"` a nota não sobe: dizer o que precisa também na sessão.
-   Se parou porque a ação é de `ask_first` da autonomia (`mark_ready_for_review`, `merge`, `message_people`,
+   Se parou porque a ação é de `ask_first` da autonomia (`code_on_branch` e `open_draft_pr` nos projetos Manuais, `mark_ready_for_review`, `merge`, `message_people`,
    `touch_production`, `open_change_request`), mandar também `--ask-first <ação>` (repetir ou separar por vírgula; só
    com `blocked`): o Planou mostra "O agente parou no limite da autonomia" com a ação. Parou por acesso, escolha de
    desenho ou outro motivo: sem `--ask-first`. Valor fora dessa lista o plugin recusa sem enviar.

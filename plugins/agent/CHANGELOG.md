@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.5 (2026-11-04)
+- `fila blocked --ask-first` aceita `code_on_branch` e `open_draft_pr`: em projeto Manual do Planou, criar branch, fazer push e abrir PR passam a ser pedido, e o agente informa qual ação o fez parar.
+
 ## 0.112.4 (2026-11-04)
 - Corrigido: o runner não sai mais com "ciclo" antes de rodar o tick pesado que já vencia no lançamento quando o relógio de parede volta alguns segundos logo depois da partida (o vencimento do primeiro tick fica guardado até ele rodar).
 - Testes: os de capacidades do job-scout (PlanouTick) não dependem mais da ordem de importação e do HOME; o Planou falso do teste de estados do projeto responde à rota de épicos; novo teste do runner fixa o relógio de parede.

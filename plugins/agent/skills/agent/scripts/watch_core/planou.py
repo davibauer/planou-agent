@@ -2826,7 +2826,7 @@ def _hours(name, value):
 
 
 # The autonomy actions Planou accepts in `ask_first` of a blocked progress (AgentQueue.AutonomyAskFirst on the server).
-ASK_FIRST_ACTIONS = ('mark_ready_for_review', 'merge', 'message_people', 'touch_production', 'open_change_request')
+ASK_FIRST_ACTIONS = ('code_on_branch', 'open_draft_pr', 'mark_ready_for_review', 'merge', 'message_people', 'touch_production', 'open_change_request')
 
 
 def _ask_first(values):
@@ -6196,7 +6196,7 @@ def main(argv=None):
     ap.add_argument('--self-review', help='fila in_review|done|handoff: one line "Conferi: ... Não conferi: ..." (cut to 200, '
                     "keeping \"Não conferi\"; not sent under minimum); '-' reads stdin")
     ap.add_argument('--ask-first', action='append', help='fila blocked: the autonomy action(s) that stopped the agent '
-                    '(mark_ready_for_review, merge, message_people, touch_production, open_change_request); repeat or use commas')
+                    '(code_on_branch, open_draft_pr, mark_ready_for_review, merge, message_people, touch_production, open_change_request); repeat or use commas')
     ap.add_argument('--estimate-h', help='fila: estimate in hours (with started, or fila tempo)')
     ap.add_argument('--remaining-h', help='fila: hours left (every step; done without it sends 0)')
     ap.add_argument('--role', help='fila worker: dev or integrator; fila worker-start: also other')
