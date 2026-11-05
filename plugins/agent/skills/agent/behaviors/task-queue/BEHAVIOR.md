@@ -19,7 +19,8 @@ Fila; o antigo modo automático saiu no Planou 0.25.0 e `agent_can_do` é o selo
 O "Ao mesmo tempo" da aba Fila é o limite real de trabalho deste agente. O Planou avisa de toda tarefa que entra na
 fila, mas **só se começa tarefa liberada**:
 - `-- FILA <PID>: ... -> NA FILA, nao comecar` (`released: false`): anotar e esperar. Não delegar worker, não mandar
-  `started`, não abrir branch por ela.
+  `started`, não abrir branch por ela. A liberação só vem para tarefa que espera vaga; tarefa em revisão ou impedida
+  que voltou por Desfazer não recebe `-- FILA LIBERADA`: espere a resposta da pessoa.
 - `-- FILA LIBERADA <PID>: ...` (`task_released`, a vaga abriu) ou `-- FILA <PID>: ... -> tarefa da fila`: pode
   começar, pelo passo 1 abaixo.
 - `$PL fila ver` diz, para cada tarefa, `status: liberada` ou `na fila`, na ordem da fila.

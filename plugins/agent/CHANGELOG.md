@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.112.7 (2026-11-04)
+- Foco: a tarefa com data passada ou Prazo passado conta como atrasada, mesmo com o outro campo no futuro, igual ao Planou (PLN0576).
+- Fila: a linha `NA FILA, nao comecar` não promete mais a liberação. Diz para não mandar `fila started` e esperar a vaga ou a resposta da pessoa, porque tarefa em revisão ou impedida que voltou por Desfazer não recebe `-- FILA LIBERADA` (PLN0573).
+
 ## 0.112.6 (2026-11-04)
 - Testes do plugin agent não dependem mais da carga da máquina: o teste do timeout do `gh pr checks` confere o timeout passado ao subprocesso em vez de medir tempo de parede, e dois limites do copiloto de reunião passaram a comparar com o atraso simulado de 5 s.
 

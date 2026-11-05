@@ -136,10 +136,10 @@ def known(priorities=None, remote=None):
 
 def rank(t, day):
     """(rank, reason_kind) of a known task by the server's rule; rank 4 ('other') when nothing makes it urgent. Overdue
-    is by the Prazo when there is one, else by the due date; due today when either date is today or past."""
+    is a past date OR a past Prazo, even with a future Prazo (PLN0576); due today when either date is today or past."""
     if t.get('blocks'): return 1, 'blocks'
     due, dl = _day(t.get('due')), _day(t.get('deadline'))
-    if (dl < day) if dl else (due and due < day): return 2, 'overdue'
+    if (dl and dl < day) or (due and due < day): return 2, 'overdue'
     if (due and due <= day) or (dl and dl <= day): return 2, 'due_today'
     if t.get('priority') == 1: return 3, 'priority'
     return 4, 'other'

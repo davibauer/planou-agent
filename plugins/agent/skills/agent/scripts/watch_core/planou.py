@@ -1939,6 +1939,12 @@ def comment_line(p):
             ' agente segue a fila normal); visivel a pessoas: sem dado de cliente nem atribuicao')
 
 
+# `released: false` (PLN0579): not a promise of a release. The `-- FILA LIBERADA` only comes for a task that waits for a slot;
+# a task in review or blocked that came back by Desfazer (PLN0573) gets none, so the line says what to do in both cases.
+WAITING_TEXT = ('NA FILA, nao comecar: sem `fila started`; espere a vaga (-- FILA LIBERADA) ou a resposta da pessoa '
+                '(tarefa em revisao ou impedida que voltou por Desfazer nao recebe a liberacao)')
+
+
 def line(ev):
     """One line of the `== PLANOU` block for an event (the same in the light loop and in the heavy tick)."""
     p, kind = ev.get('payload') or {}, ev.get('type')
@@ -1967,7 +1973,7 @@ def line(ev):
                     f'{f" ({br})" if br else ""} e na mesma PR{f" ({pr})" if pr else ""} atendendo o ajuste, depois {back}{asks}')
         pr = one_line(p.get('pr_url'), 300)
         if not released(p):
-            return f'{head} -> NA FILA, nao comecar: espera a vaga (vem -- FILA LIBERADA)' + (f'; PR: {pr}' if pr else '')
+            return f'{head} -> {WAITING_TEXT}' + (f'; PR: {pr}' if pr else '')
         handed = handoff_line(p, pr)
         if handed:
             return f'{head} -> {handed}{column_hint(p)}'
