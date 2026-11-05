@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.112.4 (2026-11-04)
+- Corrigido: o runner não sai mais com "ciclo" antes de rodar o tick pesado que já vencia no lançamento quando o relógio de parede volta alguns segundos logo depois da partida (o vencimento do primeiro tick fica guardado até ele rodar).
+- Testes: os de capacidades do job-scout (PlanouTick) não dependem mais da ordem de importação e do HOME; o Planou falso do teste de estados do projeto responde à rota de épicos; novo teste do runner fixa o relógio de parede.
+
 ## 0.112.3 (2026-11-04)
 - Autonomia do projeto vale no funcionário já criado: `fila ver` mostra a regra de agora de cada tarefa, e o release só vai sozinho com o projeto de cada branch em Autônomo; fora disso pede o OK da pessoa (`--release-queue start ok`). Funciona com o Planou antigo e o novo.
 

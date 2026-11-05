@@ -381,7 +381,8 @@ trap mata_filhos EXIT
 # deixou em next_heavy (uma acordada do Planou nao o empurra; sem o arquivo, o comportamento antigo: um intervalo a partir de agora)
 agora=$(date +%s)
 WAKE_FIRST=   # PLN0247: the first heavy tick of a session (not of a cycle or a relaunch) never keeps blocks waiting
-if [ "${FIRST_NOW:-${PRIMEIRO_IMEDIATO:-1}}" = 1 ]; then prox=$agora; WAKE_FIRST=--first
+FIRST_DUE=    # a heavy tick due at the launch stays due when the wall clock steps back (cycle_due), until it has run
+if [ "${FIRST_NOW:-${PRIMEIRO_IMEDIATO:-1}}" = 1 ]; then prox=$agora; WAKE_FIRST=--first; FIRST_DUE=1
 else prox=$(cat "$D/next_heavy" 2>/dev/null); case "$prox" in ''|*[!0-9]*) prox=$(( agora + INTERVALO ));; esac; fi
 
 # PLN0155 (d-145: 117 wakes in 24 h that only read and relaunched): lines that ask nothing of the session never wake it
@@ -511,7 +512,7 @@ CYCLE_T0=$(( $(pstat $$ | cut -d' ' -f20) / $(getconf CLK_TCK 2>/dev/null || ech
 cycle_elapsed() { local up; read -r up _ < /proc/uptime; echo $(( ${up%.*} - CYCLE_T0 )); }
 cycle_due() {   # 0 = leave now for a new cycle
   local e; e=$(cycle_elapsed)
-  if [ "$(date +%s)" -ge "$prox" ]; then [ "$e" -ge 60 ] && [ $(( e + TEMPO + 20 )) -gt "$TICK_END" ]
+  if [ -n "$FIRST_DUE" ] || [ "$(date +%s)" -ge "$prox" ]; then [ "$e" -ge 60 ] && [ $(( e + TEMPO + 20 )) -gt "$TICK_END" ]
   else [ "$e" -ge "$CYCLE_S" ]; fi
 }
 # Stuck tick (PLN0241, see the header)
@@ -623,7 +624,7 @@ while true; do
 
   # a tick left behind still alive (PLN0241): no new one; look again in a minute (or the interval), never wake
   if preso_vivo; then
-    agora=$(date +%s); prox=$(( agora + (INTERVALO < 12 * STEP ? INTERVALO : 12 * STEP) )); echo "$prox" > "$D/next_heavy"
+    agora=$(date +%s); prox=$(( agora + (INTERVALO < 12 * STEP ? INTERVALO : 12 * STEP) )); echo "$prox" > "$D/next_heavy"; FIRST_DUE=
     if [ -z "$PRESO_VISTO" ]; then
       PRESO_VISTO=1; printf '%s\t%s\n' "$(date +%FT%T)" "tick pesado adiado: o tick preso (pid $(cut -d' ' -f1 "$PRESO")) ainda vive" >> "$D/avisos.log"
     fi
@@ -631,7 +632,7 @@ while true; do
   fi
   # heavy tick: agent.py talks to Planou itself (answers acknowledged, tools, sign of life "tick"). Polled, never a
   # blocking wait (PLN0241): past its limit (and never past the cycle's end) it is left behind
-  t0=$(date +%s)
+  t0=$(date +%s); FIRST_DUE=
   # PLN0394: the tick's own ceiling (hooks and Planou stop at 9/10 of it) is this TEMPO, already cut by the cycle's end
   AGENT_TICK_CEILING_S="$TEMPO" timeout -k 20 "$TEMPO" python3 "$V" "${ARGS[@]}" > "$D/tick.tmp" 2>&1 & TICK=$!
   lim=$TICK_STUCK_S; m=$(( TICK_END - $(cycle_elapsed) )); [ "$m" -lt "$lim" ] && lim=$m; [ "$lim" -lt 1 ] && lim=1
