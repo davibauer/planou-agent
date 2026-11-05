@@ -25,7 +25,8 @@ fila, mas **só se começa tarefa liberada**:
   começar, pelo passo 1 abaixo.
 - `$PL fila ver` diz, para cada tarefa, `status: liberada` ou `na fila`, na ordem da fila.
 - `ESPERE: ...` na saída de um `fila started` (409 `not_released`): a tarefa não está liberada; parar o que começou
-  por ela e esperar o `-- FILA LIBERADA`.
+  por ela e esperar o `-- FILA LIBERADA`. Com 409 `held_manual` o projeto está em Manual: a pessoa tem de passar a
+  tarefa, e o `-- FILA LIBERADA` não vem.
 - Nenhuma outra regra de quantos workers rodar vale acima desta: o limite é o do Planou.
 
 ## Fila parada: `== FILA PARADA <PID> (<motivo>)`

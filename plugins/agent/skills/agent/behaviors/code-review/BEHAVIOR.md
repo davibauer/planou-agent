@@ -114,6 +114,7 @@ sem passar pela pessoa:
      dev: mover a tarefa para a coluna do dev (ou atribuir ao dev). Parecer na PR: <link>" | $PL fila blocked <PID>
      --note -`;
    - `ESPERE: ...` (409 `not_released`): a tarefa ainda não foi liberada para o revisor; esperar o `-- FILA LIBERADA`;
+   - `ESPERE: ...` (409 `held_manual`): o projeto está em Manual; a pessoa tem de passar a tarefa, não esperar `-- FILA LIBERADA`;
    - `PARE: ...` (409 `not_in_queue`): a tarefa não está mais com o revisor; não devolver nada.
 Quando o dev entrega de novo, a tarefa volta para esta coluna (com a PR na linha da fila): revisar só o que mudou desde o
 `sha7` do último parecer (`git diff <sha7>...origin/<branch>`), conferindo que cada ajuste foi atendido. Isso vale

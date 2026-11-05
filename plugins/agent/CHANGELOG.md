@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.8 (2026-11-05)
+- `fila started` e `fila ajuste` tratam o 409 `held_manual` (projeto em Manual): avisam `ESPERE:` que a pessoa tem de passar a tarefa, sem esperar o `-- FILA LIBERADA`.
+
 ## 0.112.7 (2026-11-04)
 - Foco: a tarefa com data passada ou Prazo passado conta como atrasada, mesmo com o outro campo no futuro, igual ao Planou (PLN0576).
 - Fila: a linha `NA FILA, nao comecar` não promete mais a liberação. Diz para não mandar `fila started` e esperar a vaga ou a resposta da pessoa, porque tarefa em revisão ou impedida que voltou por Desfazer não recebe `-- FILA LIBERADA` (PLN0573).

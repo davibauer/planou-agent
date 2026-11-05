@@ -85,7 +85,8 @@ declares `task_release`, and Planou announces every task that enters the queue (
 `released: false` = it waits, printed `-- FILA <pid>: ... NA FILA, nao comecar`) and sends `task_released` when its slot
 comes (`-- FILA LIBERADA <pid>: ...`). Only a released task is started (`released` absent = an older Planou: released).
 `fila ver` asks Planou (GET /agent/queue) and marks each task `liberada` or `na fila`; `fila started` on a task not
-released gets 409 not_released and prints `ESPERE: ...`.
+released gets 409 not_released and prints `ESPERE: ...`; 409 held_manual (project in Manual) prints `ESPERE: ...` too,
+without waiting for the release.
 Idle pull (Planou 0.42.0): in an autonomous project Planou itself fills a free slot from the backlog (`queued_by: "auto"`,
 `reason: "vaga livre, projeto autonomo"`), with a task_changed `by: "auto"` that takes the task out of the backlog; the
 agent never pulls by itself. The queue line shows the reason and it is a released task like any other (unclear scope:
@@ -317,6 +318,10 @@ REOPEN_LABELS = tuple(REOPEN_LABEL_OF.values())
 _S = {'agent': None, 'instance': None, 'root': None, 'project': None, 'confidentiality': 'title', 'publish': True, 'live': True,
       'base_url': None, 'plugin_version': None, 'drafts_text': True, 'warnings': [], 'cited': {}}
 
+
+# 409 held_manual (Planou PLN0588): the project is Manual, so a person has to pass the task on; no -- FILA LIBERADA comes.
+# An older Planou never sends the code: it falls into the generic warning.
+HELD_MANUAL_MSG = 'o projeto da tarefa esta em Manual: a pessoa tem de passar a tarefa; nao espere -- FILA LIBERADA'
 
 class PlanouError(Exception):
     def __init__(self, status, code, message, fields=None):
@@ -4918,6 +4923,9 @@ def _fila(a, ap):
             if e.code == 'not_released':
                 print(f'ESPERE: a tarefa ainda nao foi liberada ({e.message}). Revise so quando vier -- FILA LIBERADA.')
                 return 4
+            if e.code == 'held_manual':
+                print(f'ESPERE: {HELD_MANUAL_MSG} ({e.message}). Nao revise: a pessoa tem de passar a tarefa.')
+                return 4
             if e.code == 'no_previous_owner':
                 print(f'SEM DEV: a tarefa nao chegou pelo handoff de outro agente ({e.message}); nao ha a quem devolver. '
                       f'Peca a pessoa: printf \'%s\' "<ajuste>" | fila blocked {a.arg[1]} --note -')
@@ -4994,6 +5002,9 @@ def _fila(a, ap):
             return 3
         if e.code == 'not_released':
             print(f'ESPERE: a tarefa ainda nao foi liberada ({e.message}). Nao comece; ela chega como -- FILA LIBERADA.')
+            return 4
+        if e.code == 'held_manual':
+            print(f'ESPERE: {HELD_MANUAL_MSG} ({e.message}). Nao comece.')
             return 4
         print(f'AVISO (planou): {e.message}', file=sys.stderr)
         return 1
