@@ -196,6 +196,7 @@ consegue, sem cada comportamento em `behaviors`:
 - `$PL comentario <PID> --ver`: os comentários da tarefa; `$PL comentario <PID> --text - [--reply-to <comment_id>]`
   (lê do stdin): responde a um `-- COMENTARIO` (seção acima). Só na tarefa do agente, em que a pessoa o chamou com @
   ou liberada por um pedido dele (abaixo).
+  Em Mínimo (`confidentiality: minimum`) não envia: imprime `ESPERE:` e a resposta vai pela sessão.
 - Acesso pelo pedido (Planou 0.84): um pedido aberto pelo agente com `--task <PID>` sobre a tarefa de uma pessoa
   libera só aquela tarefa, enquanto o pedido está aberto e até 24 h depois da resposta, para fechar o ciclo:
   comentar (`$PL comentario`), mudar a coluna com `$PL tarefa estado <PID> "<coluna>"` e ler os anexos com

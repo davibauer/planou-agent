@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.112.9 (2026-11-05)
+- Em Mínimo, `comentario` não envia mais o texto: avisa com `ESPERE:` que a resposta vai pela sessão (também quando o servidor recusa com 422 `minimum_confidentiality`), e `worker start` e `worker ping` mandam só o papel, sem o rótulo.
+
 ## 0.112.8 (2026-11-05)
 - `fila started` e `fila ajuste` tratam o 409 `held_manual` (projeto em Manual): avisam `ESPERE:` que a pessoa tem de passar a tarefa, sem esperar o `-- FILA LIBERADA`.
 

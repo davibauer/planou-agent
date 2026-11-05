@@ -3296,8 +3296,14 @@ def _worker_closed(key, result, sig=None, now=None):
         _workers_save(w, now)
 
 
+def _worker_label(v):
+    """The label that leaves the machine: under "minimum" only the role (the server shows "Worker <role>" anyway); the
+    real label stays in workers.json."""
+    return f'Worker {v["role"]}' if _S['confidentiality'] == 'minimum' else v['label']
+
+
 def _worker_body(v, with_key=True):
-    body = {'role': v['role'], 'tasks': list(v.get('tasks') or []), 'label': v['label'], 'started_at': v['started_at']}
+    body = {'role': v['role'], 'tasks': list(v.get('tasks') or []), 'label': _worker_label(v), 'started_at': v['started_at']}
     if with_key: body['key'] = v['key']
     return body
 
@@ -3381,7 +3387,7 @@ def worker_ping(key, label=None, tasks=None, now=None):
             _workers_save(w, now)
         return out or {}
     body = {}
-    if lab: body['label'] = lab
+    if lab and _S['confidentiality'] != 'minimum': body['label'] = lab        # minimum: the role only, no label
     if refs is not None: body['tasks'] = refs
     _, out = _call('PATCH', f'/agent/workers/{urllib.parse.quote(key, safe=":")}', body)
     return out or {}
@@ -5596,7 +5602,13 @@ def _comment_task(ref):
     return tid
 
 
+MINIMUM_CONF = 'minimum_confidentiality'
+MINIMUM_COMMENT_MSG = 'em Minimo o comentario nao sai por aqui: a resposta vai pela sessao, nao pelo Planou'
+
+
 def _comment_error(e, pid):
+    if e.status == 422 and e.code == MINIMUM_CONF:       # the server refuses before the local config says minimum
+        return PlanouError(e.status, MINIMUM_CONF, MINIMUM_COMMENT_MSG)
     if e.code == 'not_your_task':
         return PlanouError(e.status, e.code, f'{pid} nao e tarefa deste agente, ninguem o chamou nos comentarios dela e '
                                              'nao ha pedido dele aberto sobre ela (ou passou o prazo depois da resposta)')
@@ -5629,6 +5641,7 @@ def post_comment(ref, text, reply_to=None):
     if reply_to and not _UUID.match(str(reply_to).strip()):
         raise PlanouError(0, 'reply_to', '--reply-to: o id do comentario (o comment_id da linha -- COMENTARIO)')
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    if _S['confidentiality'] == 'minimum': raise PlanouError(0, MINIMUM_CONF, MINIMUM_COMMENT_MSG)
     tid = _comment_task(ref)
     body = {'text': text, **({'reply_to': str(reply_to).strip()} if reply_to else {})}
     try:
@@ -5664,6 +5677,9 @@ def _comentario(a, ap):
             return 0
         res = post_comment(a.arg[0], _text_arg(a.text), a.reply_to)
     except PlanouError as e:
+        if e.code == MINIMUM_CONF:
+            print(f'ESPERE: {e.message}. Nada foi enviado; responda a pessoa na conversa desta sessao.')
+            return 0
         print(f'AVISO (planou): {e.message}', file=sys.stderr)
         return 1
     print(f'comentario enviado em {one_line(res.get("pid"), 20) or a.arg[0]} ({res.get("id")})'
