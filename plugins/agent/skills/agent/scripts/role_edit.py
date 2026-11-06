@@ -200,9 +200,10 @@ def work_watch(cfg):
 def minimum(cfg):
     """Confidentiality "minimum" (the default of a work-watch instance, as in planou_tick.liga and
     watch_core.planou.configure_agent): no content leaves the machine and only the list of behaviors is edited from
-    Planou."""
+    Planou. The level in force: Planou's agent screen may be stricter than the config (PLN0611)."""
+    from watch_core import planou
     default = 'minimum' if work_watch(cfg) else 'title'
-    return ((cfg.get('planou') or {}).get('confidentiality') or default) == 'minimum'
+    return planou.in_effect(paths.ROOT, (cfg.get('planou') or {}).get('confidentiality') or default) == 'minimum'
 
 
 # ---------------------------------------------------------------- files

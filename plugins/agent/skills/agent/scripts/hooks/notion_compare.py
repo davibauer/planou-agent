@@ -260,7 +260,8 @@ class Gancho(Base):
 
     def _minimum(self, cfg):
         pc = cfg.get('planou') if isinstance(cfg.get('planou'), dict) else {}
-        return (pc.get('confidentiality') or 'minimum') == 'minimum'
+        from watch_core import planou
+        return planou.in_effect(paths.ROOT, pc.get('confidentiality') or 'minimum') == 'minimum'
 
     def _notion(self, s, code, day):
         """(items or None, reason when None)."""

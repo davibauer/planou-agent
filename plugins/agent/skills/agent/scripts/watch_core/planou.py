@@ -315,7 +315,8 @@ STATUS_OF_RESOLUTION = {'done': 'Feito', 'no_action': 'Sem ação', 'discarded':
 REOPEN_LABEL_OF = {'todo': 'A fazer', 'in_progress': 'Fazendo', 'waiting': 'Aguardando', 'blocked': 'Impedimento'}
 REOPEN_LABELS = tuple(REOPEN_LABEL_OF.values())
 
-_S = {'agent': None, 'instance': None, 'root': None, 'project': None, 'confidentiality': 'title', 'publish': True, 'live': True,
+_S = {'agent': None, 'instance': None, 'root': None, 'project': None, 'confidentiality': 'title', 'local_confidentiality': 'title',
+      'publish': True, 'live': True,
       'base_url': None, 'plugin_version': None, 'drafts_text': True, 'warnings': [], 'cited': {}}
 
 
@@ -370,14 +371,69 @@ def user_agent(plugin=None):
     return f'planou-agent/{VERSION} (+{plugin or _own_name()})'
 
 
+# Strictest first. Planou's agent screen is the ceiling (PLN0611): `_S['confidentiality']` is the strictest of the level in
+# the agent's config (`local_confidentiality`) and the one the last heartbeat answered, kept in cache/planou. The config
+# file is never written; an older Planou answers no level and the config alone counts.
+CONFIDENTIALITY = ('minimum', 'title', 'detail')
+CONFIDENTIALITY_FILE = 'confidentiality.json'
+
+
+def strictest(*levels):
+    """The strictest of the known levels, None when none is known."""
+    known = [x for x in levels if x in CONFIDENTIALITY]
+    return min(known, key=CONFIDENTIALITY.index) if known else None
+
+
+def server_confidentiality(root):
+    """The level Planou last answered for the instance in `root`, None when it never did."""
+    try:
+        with open(os.path.join(root, 'cache', 'planou', CONFIDENTIALITY_FILE)) as f:
+            level = json.load(f).get('server')
+    except (OSError, TypeError, ValueError, AttributeError):
+        return None
+    return level if level in CONFIDENTIALITY else None
+
+
+def in_effect(root, local):
+    """The level in force for the instance in `root`, whose config says `local`: for whoever reads the config directly."""
+    return strictest(local, server_confidentiality(root)) or local
+
+
+def confidentiality_from(res, phase, now=None):
+    """Takes the level of a heartbeat answer, in force right away and for the next configure(). A level that differs from
+    the config gives one AVISO per instance and pair of levels, on a `tick` only: the other phases may drop what they
+    return (turns.py does), and a warning marked as seen there would never reach the person."""
+    server = res.get('confidentiality') if isinstance(res, dict) else None
+    if server not in CONFIDENTIALITY: return []
+    local = _S['local_confidentiality']
+    _S['confidentiality'] = strictest(local, server)
+    line = None
+    with _locked(CONFIDENTIALITY_FILE):
+        seen = _load(CONFIDENTIALITY_FILE, {})
+        if not isinstance(seen, dict): seen = {}
+        pair = f'{local}>{server}' if local != server else None
+        warned = seen.get('warned') if pair else None
+        if pair and pair != warned and phase == 'tick':
+            warned = pair
+            line = (f'AVISO (planou): confidencialidade diverge: config "{local}", ficha do Planou "{server}"; '
+                    f'vale "{_S["confidentiality"]}", o mais restrito. Ajuste um dos dois para alinhar.')
+        state = {'server': server, 'warned': warned}
+        if state != seen: _save(CONFIDENTIALITY_FILE, state)
+    if not line: return []
+    _log('warnings.log', line, now or datetime.now(timezone.utc))
+    return [line]
+
+
 def configure(agent, root, project=None, confidentiality='title', publish=True, live=True, base_url=None, plugin_version=None,
               drafts_text=True, instance=None):
     """Called once per tick by the plugin. `publish=False` turns this agent off; `live=False` (test mode) sends nothing;
     `drafts_text=False` keeps the text of the drafts on this machine (the ask goes up without it). Without
     `plugin_version`, the version of the plugin this copy ships in (the runner, the CLI and job-scout pass none).
     `agent` is the name in Planou (sync, source keys, idempotency keys, whoami fallback); `instance` the local instance
-    when it differs ("planou.agent" in its config, PLN0282), used only for what is read on this machine."""
-    _S.update(agent=agent, instance=instance or agent, root=os.path.expanduser(root), project=project, confidentiality=confidentiality or 'title',
+    when it differs ("planou.agent" in its config, PLN0282), used only for what is read on this machine.
+    `confidentiality` is the config's: the level in force may be stricter (PLN0611)."""
+    root, local = os.path.expanduser(root), confidentiality or 'title'
+    _S.update(agent=agent, instance=instance or agent, root=root, project=project, confidentiality=in_effect(root, local), local_confidentiality=local,
               publish=publish is not False, live=live is not False,
               base_url=(base_url or config.get('planou.base_url') or '').rstrip('/') or None,
               plugin_version=plugin_version or _own_version(), drafts_text=drafts_text is not False)
@@ -1397,6 +1453,7 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     now = now or datetime.now(timezone.utc)
     reaped = reap_workers(now) if phase == 'tick' else []
     body = {'phase': phase, 'broken_sources': list(broken_sources), 'host': socket.gethostname(), 'plugin_version': _S['plugin_version']}
+    if _S['local_confidentiality'] in CONFIDENTIALITY: body['confidentiality_local'] = _S['local_confidentiality']
     kind, where = _own_copy()
     if kind: body.update(plugin_kind=kind, plugin_path=where)    # which copy to update (PLN0332)
     su = self_update(kind, phase)
@@ -1447,7 +1504,7 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     if links: _save('links_sent.json', {'sig': links[0], 'at': now.isoformat()})
     if docs: _docs_taken(docs[0], now)
     if 'roles' in body: _role_limit_from(res)
-    told = pause_from_heartbeat(res, phase, now)
+    told = pause_from_heartbeat(res, phase, now) + confidentiality_from(res, phase, now)
     return reaped + told + (flush_attachments(now) if phase == 'tick' else [])
 
 
@@ -4429,7 +4486,8 @@ def _ignored(code, source_key, cache=None):
 
 def _send(code, source_key, path=None, data=None, name=None, now=None):
     """(outcome, lines) of one attachment: sent, unchanged, pending (no pid yet, 404 or network: a later tick sends it),
-    inactive (Planou off or "minimum"), missing, refused, ignored (the person deleted it in Planou: never again)."""
+    inactive (Planou off or "minimum"), missing, refused, ignored (the person deleted it in Planou: never again).
+    Planou answering `minimum_confidentiality` also makes "minimum" the level in force, until a heartbeat says otherwise."""
     if not active(): return 'inactive', []
     if _S['confidentiality'] == 'minimum': return 'inactive', []
     now = now or datetime.now(timezone.utc)
@@ -4465,6 +4523,12 @@ def _send(code, source_key, path=None, data=None, name=None, now=None):
                        timeout=max(60, 30 + len(data) // UPLOAD_BYTES_PER_S))
     except PlanouError as e:
         if e.status == 404: return 'not_found', []          # not synced yet (the next tick tries again), or gone
+        if e.code == MINIMUM_CONF:
+            # The agent screen went to "minimum" after the last heartbeat. Taken as the level in force, so nothing else
+            # goes while it lasts (the `inactive` above); not cached as a refusal: the file goes once the screen rises.
+            confidentiality_from({'confidentiality': 'minimum'}, 'attachment', now)
+            return 'inactive', [f'AVISO (planou): anexo {source_key} de {code} ({name}) fica no computador: '
+                                f'a ficha do Planou está em Mínimo']
         if final_refusal(e.status, e.code):
             line = refusal_line(source_key, code, name, e)
             _cache_put(k, {'sha': sha, 'name': name, 'refused': e.code, 'status': e.status, 'line': line,

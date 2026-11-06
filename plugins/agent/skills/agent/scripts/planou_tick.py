@@ -569,7 +569,7 @@ def after(ctx, ganchos=()):
     fontes = list((getattr(ctx, 'fontes', None) or {}).values())
     its = enriquece(s, tc.itens(s, agora), fontes)
     linhas = planou.sync({**fechadas_na_origem(s, its, fontes, agora), **its}, agora)
-    conf = (settings(ctx.cfg) or {}).get('confidentiality') or 'minimum'
+    conf = planou._S['confidentiality']
     falhou = any(l.startswith('FONTE QUEBRADA (planou)') or (l.startswith('AVISO (planou)') and ' recusada: ' not in l)
                  for l in linhas)
     if not falhou:                    # Planou down: the asks wait for the next tick (one failure line is enough)

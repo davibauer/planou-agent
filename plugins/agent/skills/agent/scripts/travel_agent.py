@@ -169,7 +169,7 @@ def prune_marks(planou, codes):
 def sync_cards(cfg, now=None):
     """Syncs one card per trip plan; returns the lines for the output (empty when all went well). The text is the
     user's own trip: with "plan_cards": {"detail": true} it goes whole even when the instance is at "title"; "minimum"
-    always wins."""
+    always wins, and so does a stricter level on Planou's agent screen (PLN0611)."""
     from watch_core import planou
     import datetime as dt
     items = plan_items()
@@ -180,7 +180,8 @@ def sync_cards(cfg, now=None):
     if not batch: return []
     opts = cfg.get('plan_cards') if isinstance(cfg.get('plan_cards'), dict) else {}
     conf = planou._S['confidentiality']
-    if opts.get('detail') is True and conf != 'minimum': planou._S['confidentiality'] = 'detail'
+    if opts.get('detail') is True and conf != 'minimum':
+        planou._S['confidentiality'] = planou.strictest('detail', planou.server_confidentiality(planou._S['root']))
     try:
         lines = planou.sync(batch, now, only=True)      # partial: never prunes the other tasks' marks
     finally:

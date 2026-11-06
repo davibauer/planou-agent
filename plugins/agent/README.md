@@ -145,6 +145,11 @@ num cluster) vira tarefa dele no Planou, sem depender do Notion: `tarefa nova --
 '...'` fecha com a evidência. O mesmo título no mesmo dia é a mesma tarefa; `worker start --task <PID>` liga o worker.
 Com `confidentiality: minimum` sobe só "Agente <data>:<código>" (título e slug em hash, sem o link da evidência e sem `--area`).
 
+A confidencialidade em vigor é a mais restrita entre `planou.confidentiality` do config e a ficha do funcionário no
+Planou (`minimum` < `title` < `detail`): a resposta do heartbeat diz a da ficha, o plugin guarda em
+`cache/planou/confidentiality.json`, nunca escreve no config e avisa uma vez (`AVISO (planou)`) quando os dois divergem.
+Um Planou antigo não responde o nível e vale só o config.
+
 ## Instalar com um comando
 
 Num computador novo, um comando instala o plugin (e um Python portátil, se o computador não tiver o python3) e o

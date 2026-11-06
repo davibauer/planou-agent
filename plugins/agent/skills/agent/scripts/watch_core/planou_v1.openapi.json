@@ -846,6 +846,15 @@
                     "default": null,
                     "nullable": true
                   },
+                  "confidentiality_local": {
+                    "enum": [
+                      "minimum",
+                      "title",
+                      "detail"
+                    ],
+                    "type": "string",
+                    "nullable": true
+                  },
                   "roles": {
                     "type": "array",
                     "items": {
@@ -3422,6 +3431,14 @@
                     "worker_result": {
                       "type": "string",
                       "nullable": true
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null,
+                      "nullable": true
                     }
                   }
                 }
@@ -3484,6 +3501,14 @@
                     },
                     "worker_result": {
                       "type": "string",
+                      "nullable": true
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null,
                       "nullable": true
                     }
                   }
@@ -3600,6 +3625,14 @@
                     "worker_result": {
                       "type": "string",
                       "nullable": true
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null,
+                      "nullable": true
                     }
                   }
                 }
@@ -3707,6 +3740,14 @@
                     },
                     "worker_result": {
                       "type": "string",
+                      "nullable": true
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null,
                       "nullable": true
                     }
                   }
@@ -5332,7 +5373,8 @@
                   "nullable": true
                 },
                 "title": {
-                  "type": "string"
+                  "type": "string",
+                  "nullable": true
                 },
                 "open": {
                   "type": "boolean"
@@ -5712,7 +5754,8 @@
                   "nullable": true
                 },
                 "title": {
-                  "type": "string"
+                  "type": "string",
+                  "nullable": true
                 },
                 "open": {
                   "type": "boolean"
@@ -5983,6 +6026,14 @@
           },
           "draft_text_in_planou": {
             "type": "boolean",
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
             "nullable": true
           }
         }
@@ -8582,6 +8633,15 @@
             "default": null,
             "nullable": true
           },
+          "confidentiality_local": {
+            "enum": [
+              "minimum",
+              "title",
+              "detail"
+            ],
+            "type": "string",
+            "nullable": true
+          },
           "roles": {
             "type": "array",
             "items": {
@@ -9059,6 +9119,10 @@
           "tools_accepted": {
             "type": "integer",
             "format": "int32",
+            "nullable": true
+          },
+          "confidentiality": {
+            "type": "string",
             "nullable": true
           },
           "links_accepted": {
@@ -10558,7 +10622,8 @@
                   "nullable": true
                 },
                 "title": {
-                  "type": "string"
+                  "type": "string",
+                  "nullable": true
                 },
                 "open": {
                   "type": "boolean"
@@ -10601,7 +10666,8 @@
                 "nullable": true
               },
               "title": {
-                "type": "string"
+                "type": "string",
+                "nullable": true
               },
               "open": {
                 "type": "boolean"
@@ -12298,7 +12364,8 @@
                   "nullable": true
                 },
                 "title": {
-                  "type": "string"
+                  "type": "string",
+                  "nullable": true
                 },
                 "open": {
                   "type": "boolean"
@@ -12366,7 +12433,8 @@
                 "nullable": true
               },
               "title": {
-                "type": "string"
+                "type": "string",
+                "nullable": true
               },
               "open": {
                 "type": "boolean"
@@ -12439,7 +12507,8 @@
                 "nullable": true
               },
               "title": {
-                "type": "string"
+                "type": "string",
+                "nullable": true
               },
               "open": {
                 "type": "boolean"
@@ -12471,7 +12540,8 @@
                   "nullable": true
                 },
                 "title": {
-                  "type": "string"
+                  "type": "string",
+                  "nullable": true
                 },
                 "open": {
                   "type": "boolean"
@@ -12571,6 +12641,14 @@
           },
           "task_pid": {
             "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "default": null,
             "nullable": true
           }
@@ -13711,7 +13789,8 @@
             "nullable": true
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "open": {
             "type": "boolean"
@@ -13740,7 +13819,8 @@
             "nullable": true
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "open": {
             "type": "boolean"
@@ -13844,6 +13924,14 @@
           },
           "worker_result": {
             "type": "string",
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
             "nullable": true
           }
         }

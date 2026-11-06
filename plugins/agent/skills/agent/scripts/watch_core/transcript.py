@@ -463,8 +463,10 @@ def _save_json(path, value):
 
 
 def conversation_on(pc):
-    """Messages carry the text of the conversation: only with "conversation": true, or "confidentiality": "detail"."""
+    """Messages carry the text of the conversation: only with "conversation": true, or "confidentiality": "detail".
+    Under "minimum" in force nothing goes, even with "conversation": true: Planou would refuse it after it left."""
     pc = pc or {}
+    if planou._S['confidentiality'] == 'minimum': return False
     return pc.get('conversation', planou._S['confidentiality'] == 'detail') is True
 
 

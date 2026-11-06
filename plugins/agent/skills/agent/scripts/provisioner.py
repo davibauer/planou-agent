@@ -1442,7 +1442,7 @@ def held_files(root, code):
 def alert_agents(names):
     """The instances that may send the update alert, in the order tried: `planou` first, then the ones this
     provisioner created, then the others alphabetically. Never a work-watch-* (a company's agent) and never one whose
-    "planou.confidentiality" is "minimum": the alert would go out under a company's identity and land in its cache."""
+    confidentiality in force is "minimum": the alert would go out under a company's identity and land in its cache."""
     from watch_core import planou as pl
     names = sorted(n for n in names if not n.startswith('work-watch'))
     names.sort(key=lambda n: (n != 'planou', not isinstance(marker(n), dict)))
@@ -1452,7 +1452,7 @@ def alert_agents(names):
             pc = pl.agent_settings(instance_root(n), n) or {}
         except Exception:
             continue
-        if (pc.get('confidentiality') or 'title') == 'minimum': continue
+        if pl.in_effect(instance_root(n), pc.get('confidentiality') or 'title') == 'minimum': continue
         out.append(n)
     return out
 

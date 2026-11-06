@@ -220,7 +220,8 @@ consegue, sem cada comportamento em `behaviors`:
   fecha na origem. Concluir pelo slug acha a de hoje ou a ainda aberta de um dia anterior; aberta em mais de um dia,
   diga o PID. Concluída ou reaberta pela pessoa no Planou, o próximo tick traz a mudança (a concluída sai do custo). Com
   `confidentiality: minimum`, o Planou mostra só "Agente <data>:<código>": título e `--slug` viram um hash curto, o
-  link da evidência não sobe (fica só no agente) e `--area` é recusado (viraria nome de épico).
+  link da evidência não sobe (fica só no agente) e `--area` é recusado (viraria nome de épico). A ficha do Planou pode
+  ser mais restrita que o config, e vale a mais restrita: `AVISO (planou): confidencialidade diverge` diz qual.
 - Chave nova: `$PL key set` (lê do stdin; grava `secrets/planou.env` com 0600). Nunca imprimir a chave.
 
 ## Decisão com recomendada: seguir sem esperar

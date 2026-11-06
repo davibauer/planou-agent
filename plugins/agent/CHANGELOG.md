@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.112.10 (2026-11-05)
+- A confidencialidade agora tem uma fonte só: a resposta do heartbeat traz o nível da ficha do funcionário no Planou, e o plugin usa o mais restrito entre ela e `planou.confidentiality` do config, sem nunca escrever no config. Quando os dois divergem, sai um `AVISO (planou)` por instância. Sem resposta, ou com um Planou antigo, vale o config.
+- `plan_cards.detail` do travel-agent também respeita esse teto: com a ficha em `title`, o cartão da viagem sobe no nível da ficha.
+- Em confidencialidade mínima, o texto da conversa não sai mais da máquina, mesmo com `conversation: true`. Anexo recusado porque a ficha foi para Mínimo para de ser enviado e volta sozinho quando a ficha sobe.
+
 ## 0.112.9 (2026-11-05)
 - Em Mínimo, `comentario` não envia mais o texto: avisa com `ESPERE:` que a resposta vai pela sessão (também quando o servidor recusa com 422 `minimum_confidentiality`), e `worker start` e `worker ping` mandam só o papel, sem o rótulo.
 
