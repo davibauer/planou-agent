@@ -263,6 +263,10 @@ além do texto na sessão, abrir o pedido no Planou, para os botões aparecerem 
   sempre o mesmo rótulo para o mesmo assunto, sem data nem número. O pedido novo substitui o que ainda estava aberto
   com o mesmo assunto (o respondido não muda), e Precisa de você fica com um só. Vale também em `draft` (versão nova do
   mesmo rascunho), `decision`, `approval` e `alert`. Sem assunto em comum, não use.
+  Sem `--assunto` (e sem `--ref` ou `--task`), o plugin deriva o assunto do título tirando só datas, horas e códigos de
+  pedido (`d-40`, `ap-7`, `r-3`, `al-12`); números, versões, hashes, chaves e PIDs ficam. A mesma pergunta repetida em
+  outro dia já substitui a aberta e perguntas sobre itens diferentes não se substituem; contagem no título (`109 vagas`)
+  impede a substituição, então tire a contagem do título ou use `--assunto` quando o texto muda de verdade.
 
 ## Sugestões para o Planou e os plugins
 

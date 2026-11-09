@@ -3599,6 +3599,43 @@ def ask_subject(subject):
     return t if len(t) <= SUBJECT_MAX else t[:SUBJECT_MAX - 17] + '#' + h[:16]
 
 
+DERIVED_PREFIX = 't:'     # prefix of the subjects derived from the title (PLN0694)
+# What changes between two asks of the same question and is dropped from the derived subject; nothing else is (numbers,
+# versions, hashes, keys and PIDs stay: two questions about two of them are two things to decide).
+_ASK_CODE = re.compile(r'\b(?:d|ap|r|al)-\d+\b')     # the code Planou gives an ask (AskRules.Prefix), always lower case
+_MONTHS = 'janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro'
+_DATE_HOUR = re.compile(
+    r'(?<![\w.])(?:\d{4}-\d{1,2}-\d{1,2}'                   # 2026-11-09
+    r'|\d{1,2}([.-])\d{1,2}\1\d{4}'                         # 09.11.2026, 09-11-2026
+    r'|\d{1,2}/\d{1,2}(?:/\d{2}(?:\d{2})?)?'                 # 09/11/2026, 09/11/26, 09/11
+    r'|\d{1,2}:\d{2}(?::\d{2})?'                             # 14:30, 14:30:05
+    r'|\d{1,2}h(?:\d{2})?'                                    # 14h30, 14h
+    rf'|\d{{1,2}} de (?:{_MONTHS})(?: de \d{{4}})?'           # 9 de novembro (de 2026)
+    r')(?![\w]|\.\w)')
+
+
+def derive_subject(title, *extra):
+    """A subject derived from the title of an ask the agent opened without one (PLN0694), so the same question on
+    another day replaces the open one instead of piling up. Only what surely changes between the two goes: dates, hours
+    and ask codes (d-40, ap-7, r-3, al-12); the rest of the title is folded (no accents, lower case) and joined with "-"
+    behind the prefix "t:". Every other number stays (a count, a version, a short hash, a PR number, a key): erring to
+    the safe side, a title with a count that changes does not replace the open ask. `extra` keeps apart asks whose titles
+    match but whose target differs (the recipient of a draft, the action type, the alert code); it goes as a short hash,
+    never as text. A title too generic to tell two questions apart (under 2 words or 8 letters: empty, only numbers,
+    "Aviso") derives nothing (None, no subject, as before). The result goes through ask_subject like any subject: cut
+    with a hash over the limit, and only a hash under "minimum" confidentiality."""
+    n = _ASK_CODE.sub(' ', str(title or ''))
+    n = ''.join(c for c in unicodedata.normalize('NFKD', n) if not unicodedata.combining(c)).casefold()
+    toks = re.findall(r'[a-z0-9]+(?:\.[a-z0-9]+)*', _DATE_HOUR.sub(' ', n))
+    words = [t for t in toks if t.isalpha()]
+    if len(words) < 2 or sum(len(w) for w in words) < 8: return None
+    tag = ''
+    if any(x for x in extra):
+        norm = '|'.join(' '.join(str(x or '').split()).casefold() for x in extra)
+        tag = hashlib.sha256(norm.encode()).hexdigest()[:6] + ':'
+    return DERIVED_PREFIX + tag + '-'.join(toks)
+
+
 def _ask(kind, body, ref, *parts, subject=None):
     """POST /asks; records the code locally (cache/planou/asks.json) so the answer can be matched later. `subject`: see
     ask_subject (never part of the idempotency key, which stays per question and day)."""
@@ -6273,7 +6310,8 @@ def main(argv=None):
                                                     'fila worker-start, worker start|ping: one more task (repeat)')
     ap.add_argument('--channel'); ap.add_argument('--subject', help='draft: the message subject (e-mail)')
     ap.add_argument('--assunto', help='draft, approval, decision, pergunta, alert: the subject of the ask, short and stable '
-                                      '(plugin-publish, funil-limpeza): the same question asked again replaces the open one')
+                                      '(plugin-publish, funil-limpeza): the same question asked again replaces the open one; '
+                                      'without it (and without --ref or --task) one is derived from --title')
     ap.add_argument('--to', help='draft: the recipient; fila ajuste: author (whoever did the work, Planou\'s default) or '
                                  'previous (whoever passed the task to the current column)')
     ap.add_argument('--text', help="draft text; fila ajuste: what to adjust; comentario: the answer; '-' reads stdin")
@@ -6454,20 +6492,27 @@ def main(argv=None):
         if a.arg: print(current_task(a.arg[0]) or '-')
         else: print(current_task() or '-')
         return 0
+    def subj(*extra):
+        # PLN0694: without --assunto, a subject derived from the title, so the same question on another day replaces the
+        # open one. Not with --ref (the agent's own key already names it) nor with a task (Planou already replaces the
+        # open ask of the same task and kind; a derived subject would also replace one of another task).
+        if a.assunto or a.ref or task1: return a.assunto
+        return derive_subject(a.title, *extra)
     try:
         if a.cmd == 'draft':
             if not (a.channel and a.to and a.title and a.text): ap.error('draft precisa de --channel, --to, --title e --text')
-            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, a.context, task1, a.subject, a.ref, a.assunto)
+            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, a.context, task1, a.subject, a.ref,
+                               subj(a.channel, a.to))
         elif a.cmd == 'approval':
             if not (a.type and a.verb and a.title): ap.error('approval precisa de --type, --verb e --title')
-            res = request_approval(a.type, a.verb, a.title, a.context, task1, a.ref, a.description, not a.reversible, a.assunto)
+            res = request_approval(a.type, a.verb, a.title, a.context, task1, a.ref, a.description, not a.reversible, subj(a.type))
         elif a.cmd == 'decision':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
             free = not a.no_free_text          # a question always offers "Responder" in the person's own words
             if not a.title or (len(opts) < 2 and not (free and not opts)):
                 ap.error('decision precisa de --title e de 2 ou mais --option "A=texto" (ou nenhuma, com resposta livre)')
-            res = request_decision(a.title, opts, a.context, task1, a.ref, free, subject=a.assunto)
+            res = request_decision(a.title, opts, a.context, task1, a.ref, free, subject=subj())
         elif a.cmd == 'pergunta':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
@@ -6485,7 +6530,7 @@ def main(argv=None):
                       file=sys.stderr)
                 print(json.dumps(res, ensure_ascii=False))
                 return 0
-            res = ask_question(a.title, opts, a.context, task1, a.ref, subject=a.assunto)
+            res = ask_question(a.title, opts, a.context, task1, a.ref, subject=subj())
             if opts and not a.recommended:
                 print('dica: marque a opcao recomendada com --recommended <letra> (o botao sai destacado no Planou)',
                       file=sys.stderr)
@@ -6493,7 +6538,8 @@ def main(argv=None):
                   file=sys.stderr)
         elif a.cmd == 'alert':
             if not a.title: ap.error('alert precisa de --title')
-            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', a.context, task1, a.ref, a.assunto)
+            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', a.context, task1, a.ref,
+                              subj(a.code or 'agent'))
         elif a.cmd == 'cancel':
             res = {'cancelled': cancel_ask(a.arg[0], a.reason)}
         else:

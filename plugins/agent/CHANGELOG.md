@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.113.0 (2026-11-09)
+- Pedido repetido não enche mais Precisa de você: sem `--assunto` (e sem `--ref` ou `--task`), `pergunta`, `decision`, `approval`, `draft` e `alert` derivam o assunto do título sem acento e sem datas (`09/11/2026`, `09/11`, `2026-11-09`, `09.11.2026`, `9 de novembro`), horas (`14:30`, `14h30`, `14h`) e códigos de pedido (`d-40`, `ap-7`, `r-3`, `al-12`), e a mesma pergunta em outro dia substitui a que ainda estava aberta. Todo o resto do título fica, inclusive números, versões, hashes, chaves e PIDs: perguntas sobre itens diferentes não se substituem, e uma pergunta com contagem que muda no título (`Funil com 109 vagas`) também não. Título genérico demais (vazio, só números, uma palavra) segue sem assunto, como antes.
+- `--assunto` dado à mão continua valendo sobre o derivado, que começa com `t:`. Rascunhos para destinatários diferentes, aprovações de ações diferentes e alertas de códigos diferentes não se substituem. Em confidencialidade mínima o assunto derivado sai só como um hash, sem texto do título.
+
 ## 0.112.10 (2026-11-05)
 - A confidencialidade agora tem uma fonte só: a resposta do heartbeat traz o nível da ficha do funcionário no Planou, e o plugin usa o mais restrito entre ela e `planou.confidentiality` do config, sem nunca escrever no config. Quando os dois divergem, sai um `AVISO (planou)` por instância. Sem resposta, ou com um Planou antigo, vale o config.
 - `plan_cards.detail` do travel-agent também respeita esse teto: com a ficha em `title`, o cartão da viagem sobe no nível da ficha.
