@@ -879,11 +879,12 @@ def closing_task(code, it, kt, sent):
     return t
 
 
-def payload(items, now=None, autonomy=None, default_project=None):
+def payload(items, now=None, autonomy=None, default_project=None, take=()):
     """The sync batch for {code: item} from watch_core.tasks.itens(). Pure: reads only local files (the version map,
     ready.json, cache/planou/epics.json; once the /v1 contract lists a project's epics, that GET too, once per process:
     watch_core.epics). `autonomy` is the project's (sync() reads it): manual never sends a reason; a task Planou keeps in
-    backlog goes without state (autonomous: with a reason, the state goes and takes it out)."""
+    backlog goes without state (autonomous: with a reason, the state goes and takes it out). `take`: codes the agent
+    takes in this batch (`tarefa nova --fila`), like a `pronta --self` mark but without ready.json."""
     now = now or datetime.now(timezone.utc)
     today = now.astimezone().date().isoformat()
     known = _load('state.json', {}).get('tasks') or {}
@@ -989,7 +990,7 @@ def payload(items, now=None, autonomy=None, default_project=None):
             # Planou keeps it in backlog (only the person takes it out here): no state, so no warning on every tick. A
             # close always goes: at worst one logged reason a day, and an accepted close tells the flag was stale
             for k in ('state', 'resolution', 'completed_at', 'waiting', 'project_state'): task.pop(k, None)
-        if (mk and mk.get('self') and not kt.get('self_sent') and reason and autonomy != 'manual'
+        if (((mk and mk.get('self') and not kt.get('self_sent')) or code in take) and reason and autonomy != 'manual'
                 and (not kt.get('pid') or autonomy == 'autonomous')):
             task['assignee'] = 'self'           # the agent takes it: at creation, or on an update in an autonomous project
         out.append(task)
@@ -1036,15 +1037,16 @@ def _post_sync(body):
     return _call('POST', '/agent/sync', body)
 
 
-def sync(items, now=None, only=False):
+def sync(items, now=None, only=False, take=()):
     """Sends the whole list. Returns lines for the tick output (empty when all went well and nothing needs attention).
     `only`: a partial batch (`tarefa nova|concluir`): Planou never erases what a batch leaves out, and neither does this
-    side (the `pronta` marks of the other tasks stay). The rows Planou answered stay in sync_results()."""
+    side (the `pronta` marks of the other tasks stay). The rows Planou answered stay in sync_results(). `take`: see
+    payload()."""
     _S['warnings'], _S['no_epics'], _S['results'], _S['sync_conflict'] = [], [], {}, None
     if not active(): return []
     alloc = allocation(now)
     aut = autonomy(_S['project'] or (alloc or {}).get('default'), now)
-    body = payload(items, now, aut, (alloc or {}).get('default'))
+    body = payload(items, now, aut, (alloc or {}).get('default'), take)
     body['tasks'], lines = not_allocated(body['tasks'], alloc, now)
     for attempt in (1, 2):
         try:
@@ -2066,6 +2068,10 @@ def line(ev):
         handed = handoff_line(p, pr)
         if handed:
             return f'{head} -> {handed}{column_hint(p)}'
+        if p.get('queued_by') == 'agent' and act_queued(p.get('pid')):
+            # `tarefa nova --fila` (PLN0726): the session opened it and already works on it; no worker for it
+            return (f'{head} -> tarefa que a propria sessao abriu (`tarefa nova --fila`), nao e tarefa nova: sem worker '
+                    f'novo; seguir o trabalho na sessao (`fila started {one_line(p.get("pid"), 20)}` se ainda nao mandou)')
         if pr:
             # a handoff brought the PR (Planou 0.43.0): the next owner (a reviewer) works on it, no search by the PID
             return (f'{head} -> tarefa da fila, com a PR: {pr}; `fila ver` para o detalhe e seguir o comportamento da '
@@ -3153,6 +3159,7 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
         elif not back: forget_own_branch(res.get('task_id') or tid, pid)     # concluded, or with someone else
     if state == 'started' and pid: current_task(pid, now=now)
     elif state != 'started': _stop_marker(pid, now)
+    if sent == 'done' and res.get('state') != 'handoff': _act_queue_done(pid, resolution, now)
     if files:
         attached = {os.path.basename(f): attach_file(pid or tid, f, now=now)[0] for f in files}
         res = {**res, 'anexos': attached} if isinstance(res, dict) else res
@@ -5840,6 +5847,8 @@ ACT_PREFIX = 'act:'
 ACT_READY = 'trabalho do agente na sessão, sem fila nem fonte'
 ACT_RESOLUTION = {'done': 'Feito', 'feito': 'Feito', 'no_action': 'Sem ação', 'sem_acao': 'Sem ação', 'sem-acao': 'Sem ação',
                   'discarded': 'Descartada', 'descartada': 'Descartada'}
+# `tarefa nova --fila` on a task that already exists and is not the agent's: the sync sends no assignee there
+NOT_TAKEN_WHY = 'em tarefa que ja existe o responsavel so muda em projeto autonomo; em projeto manual, nunca'
 ACT_SAID = {'Feito': 'concluida', 'Sem ação': 'fechada sem acao', 'Descartada': 'descartada', 'Fazendo': 'em andamento'}
 
 
@@ -5952,12 +5961,12 @@ def _act_code(ref, now=None):
     return older[0] if older else None
 
 
-def _act_send(code, it, now):
+def _act_send(code, it, now, take=False):
     """One-task sync of an agent's own task. Returns {"result", "pid", "notes", "lines"}; raises PlanouError when
     Planou is off or the call failed. A sync_conflict lost twice raises the 409 itself (_sync_conflict): not a failure,
     the item is kept in actions.json and the same command sends it again (the tick's full sync never carries these)."""
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
-    lines = sync({code: it}, now, only=True)
+    lines = sync({code: it}, now, only=True, take=(code,) if take else ())
     failed = [l for l in lines if l.startswith('FONTE QUEBRADA (planou)') or (l.startswith('AVISO (planou)') and ' recusada: ' not in l)]
     r = _S.get('results', {}).get(f'{_S["agent"]}:{code}')
     if not r and _S.get('sync_conflict'):
@@ -5971,15 +5980,103 @@ def _act_send(code, it, now):
             'notes': notes, 'lines': lines}
 
 
+def _queue_left(pid, reason, now=None):
+    """Tombstones the local queue entry of `pid` (queue.json), when there is one: the task left the agent's queue here."""
+    if not pid: return
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    with _locked('queue.json'):
+        q = _queue()
+        for tid, v in q['tasks'].items():
+            if not v.get('left') and str(v.get('pid') or '').upper() == str(pid).upper():
+                q['tasks'][tid] = {'pid': v.get('pid'), 'title': v.get('title'), 'left': reason, 'seq': v.get('seq') or 0, 'at': stamp}
+                _save('queue.json', q)
+                return
+
+
+def _act_queue(code, res, now):
+    """`tarefa nova --fila` after the sync: the row says whether the task is the agent's (it then has a queue entry in
+    Planou); if so, `started` goes right away. Returns {"state": started | waiting (the "Ao mesmo tempo" limit is full:
+    409 not_released) | paused (cost cap) | not_taken (Planou did not give it to the agent) | not_delivered (409
+    not_in_queue: the agent's, but Planou has not delivered it) | error, "why"}. Only an accepted `started` marks the
+    task as the current one (progress): in every other outcome the cost marker stays as it was."""
+    r = _S.get('results', {}).get(f'{_S["agent"]}:{code}') or {}
+    if 'assignee' in (r.get('ignored_fields') or []) or not (r.get('assignee') or {}).get('self'):
+        why = next((n for n in res['notes'] if 'assignee' in str(n)), None)
+        return {'state': 'not_taken', 'why': why}
+    wait = _pause_gate(res['pid'])
+    if wait: return {'state': 'paused', 'why': wait}
+    try:
+        progress('started', res['pid'], now=now)
+    except PlanouError as e:
+        if e.status == 409 and e.code == 'not_released':
+            # no slot yet: the task waits in the queue; the cost marker comes with the `fila started` of the release
+            return {'state': 'waiting', 'why': e.message}
+        if e.status == 409 and e.code == 'not_in_queue': return {'state': 'not_delivered', 'why': e.message}
+        return {'state': 'error', 'why': e.message}
+    return {'state': 'started', 'why': None}
+
+
+def _act_fila_mark(code, on):
+    """The "fila" mark of an item of actions.json: the task was opened with `tarefa nova --fila` and is the agent's."""
+    with _locked('actions.json'):
+        acts = _load('actions.json', {})
+        if code in acts and bool(acts[code].get('fila')) != on:
+            if on: acts[code]['fila'] = True
+            else: acts[code].pop('fila', None)
+            _save('actions.json', acts)
+
+
+def act_queued(pid):
+    """The code of the agent's own open task `pid` when it was opened with `tarefa nova --fila` (the "fila" mark in
+    actions.json), else None. A task opened without the option never has the mark, whatever happens to it later."""
+    p = str(pid or '').upper()
+    if not p: return None
+    known = _load('state.json', {}).get('tasks') or {}
+    code = next((c for c, v in known.items() if c.startswith(ACT_PREFIX) and str((v or {}).get('pid') or '').upper() == p
+                 and v.get('state') != 'closed'), None)
+    return code if code and (_load('actions.json', {}).get(code) or {}).get('fila') else None
+
+
+def _act_queue_done(pid, resolution=None, now=None):
+    """`fila done` concluded a task opened with `tarefa nova --fila`: Planou sends no task_completed to the agent that
+    closed it, so the local item closes here (state.json, then actions.json), else it would stay "Fazendo" forever."""
+    code = act_queued(pid)
+    if not code: return
+    now = now or datetime.now(timezone.utc)
+    with _locked('state.json'):
+        st = _load('state.json', {})
+        with _locked('actions.json'):
+            acts = _load('actions.json', {})
+            if code in acts:
+                acts[code] = _act_item(None, None, None, ACT_RESOLUTION.get(resolution or 'done', 'Feito'), now, acts[code])
+                _save('actions.json', acts)
+        if code in (st.get('tasks') or {}):
+            st['tasks'][code]['state'] = 'closed'
+            _save('state.json', st)
+
+
 def act_new(title, project=None, evidence=None, note=None, done=False, slug=None, area=None, epic=None, now=None,
-            completed_at=None):
+            completed_at=None, queue=False):
     """`tarefa nova`: opens (or, with `done`, records already closed) a task for the agent's own work. Same title (or
     --slug) the same day = the same task (idempotent). Open: marks it as the current task (the cost of the session goes
     to it until `tarefa concluir`). `completed_at` (--completed-at): work done on an earlier day, recorded closed on that
-    day (implies `done`; the key takes that day). Returns (code, answer of _act_send)."""
+    day (implies `done`; the key takes that day). `queue` (--fila, PLN0726): the task is born the agent's
+    (`"assignee": "self"` at the creation, so Planou gives it a queue entry and it shows in the employee's Fila) and
+    `started` goes right after; the answer then has "queue" (_act_queue). Never with `done`: a closed task has no queue.
+    Refused before anything is written or sent when the instance does not declare the queue (Planou delivers a queue
+    task only to who declares `task_queue`). With `queue` the cost marker is not touched here: the accepted `started`
+    sets it, and otherwise (limit full, paused, not taken, error) the task that was the current one stays so. The item
+    keeps a "fila" mark while the task is the agent's (line() reads it).
+    Returns (code, answer of _act_send)."""
     now = now or datetime.now(timezone.utc)
     done_at = _act_done_at(completed_at, now)
     done = done or done_at is not None
+    if queue and done:
+        raise PlanouError(0, 'fila', '--fila nao vale com --done nem --completed-at (tarefa ja feita nao entra na fila): tire um dos dois')
+    if queue and not (queue_enabled() and 'task_queue' in capabilities()):
+        raise PlanouError(0, 'fila', '--fila precisa da fila ligada nesta instancia (`"planou": {"task_queue": true}` no config): '
+                                     'sem ela o Planou nao entrega a tarefa e ela ficaria parada na Fila. Nada foi criado: '
+                                     'use `tarefa nova` sem --fila, ou ligue a fila e repita')
     title = one_line(title, 200)
     if not title: raise PlanouError(0, 'title', '--title: o que o agente fez ou esta fazendo, numa linha')
     if area and _S['confidentiality'] == 'minimum':
@@ -6001,8 +6098,21 @@ def act_new(title, project=None, evidence=None, note=None, done=False, slug=None
         if epic: it['epic'] = str(epic)
         it['uid'] = code[len(ACT_PREFIX):]
         it['area'] = area or it.get('area') or 'agente'
+        had = bool(it.get('fila'))
+        if queue: it['fila'] = True     # before the send: the tick may print the queue line of the task right away
         acts[code] = it
         _save('actions.json', acts)
+    if queue:
+        taken = False
+        try:
+            # `take` makes payload() send "assignee": "self" (at the creation; on a task that exists, autonomous only)
+            res = _act_send(code, it, now, take=True)
+            if res['pid'] and res['result'] in ('created', 'updated', 'unchanged'):
+                res['queue'] = _act_queue(code, res, now)
+                taken = res['queue']['state'] != 'not_taken'
+        finally:
+            if not taken and not had: _act_fila_mark(code, False)
+        return code, res
     res = _act_send(code, it, now)
     if res['pid'] and res['result'] in ('created', 'updated', 'unchanged'):
         if not done: current_task(res['pid'], now=now)
@@ -6032,6 +6142,8 @@ def act_close(ref, evidence=None, note=None, resolution='done', now=None, comple
         _save('actions.json', acts)
     res = _act_send(code, it, now)
     if res['pid'] and (current_task(at=now) or '') == str(res['pid']).upper(): current_task('-', now=now)
+    if res['pid'] and res['result'] in ('created', 'updated', 'unchanged'):
+        _queue_left(res['pid'], 'closed', now)      # opened with --fila: no stale entry in the local queue
     return code, res
 
 
@@ -6062,17 +6174,18 @@ def _act_person(code, label, pid, now=None):
 
 def _tarefa_acao(a, ap):
     """tarefa nova --title T [--project P] [--evidence E] [--note N] [--done] [--completed-at D] [--slug S] [--area A]
-    [--epic E] | tarefa concluir PID|CODIGO [--evidence E] [--note N] [--resolution done|no_action|discarded]
+    [--epic E] [--fila] | tarefa concluir PID|CODIGO [--evidence E] [--note N] [--resolution done|no_action|discarded]
     [--completed-at D]."""
     sub = a.arg[0]
     try:
         if sub == 'nova':
             if len(a.arg) != 1 or not a.title:
                 ap.error("use: tarefa nova --title '<o que foi feito>' [--project P] [--evidence URL] [--note T] [--done] "
-                         "[--completed-at AAAA-MM-DD] [--slug S]")
+                         "[--completed-at AAAA-MM-DD] [--slug S] [--fila]")
             code, res = act_new(a.title, a.project, a.evidence, _text_arg(a.note) if a.note else None, a.done, a.slug, a.area, a.epic,
-                                completed_at=a.completed_at)
+                                completed_at=a.completed_at, queue=a.fila)
         else:
+            if a.fila: ap.error('--fila so vale com `tarefa nova`')
             if len(a.arg) != 2:
                 ap.error('use: tarefa concluir PID|CODIGO [--evidence URL] [--note T] [--resolution done|no_action|discarded] '
                          '[--completed-at AAAA-MM-DD]')
@@ -6101,8 +6214,29 @@ def _tarefa_acao(a, ap):
     said = ACT_SAID.get(status, status)
     if st.get('backlog') and status == 'Fazendo': said = 'no backlog (o Planou manteve: a pessoa aprova)'
     tail = '; o custo da sessao vai para ela ate `tarefa concluir`' if sub == 'nova' and status == 'Fazendo' else ''
+    fila = (res.get('queue') or {})
+    if a.fila and sub == 'nova' and fila.get('state') != 'started': tail = ''   # only an accepted started moves the cost
+    if fila.get('state') == 'waiting':
+        # the "Ao mesmo tempo" limit is full: not an error, the task waits for its slot
+        print(f'{pid}: {head}, na fila; limite cheio, comeca quando abrir vaga (vem -- FILA LIBERADA {pid}; ai `fila started {pid}`) ({code})')
+        return 0
+    if fila.get('state') == 'started':
+        said, tail = 'em andamento na fila do agente', '; o custo da sessao vai para ela; fecha com `fila handoff|done` (PR ou esteira) ou `tarefa concluir`'
     print(f'{pid}: {head}, {said} ({code}){tail}')
     for n in res['notes']: print(f'  aviso do Planou: {one_line(n, 200)}')
+    if fila.get('state') == 'not_taken':
+        print(f'  fora da fila: o Planou nao passou a tarefa para o agente ({one_line(fila.get("why"), 200) or NOT_TAKEN_WHY}); '
+              'ela segue como tarefa da sessao (repita sem `--fila` para o custo da sessao ir para ela)')
+    elif fila.get('state') == 'paused':
+        print(f'  {fila["why"]}')
+    elif fila.get('state') == 'not_delivered':
+        print(f'AVISO (planou): {pid} foi criada e e do agente, mas o Planou ainda nao a entregou pela fila ({fila.get("why")}): '
+              f'o `started` nao foi. Quando o tick trouxer `-- FILA {pid}`, mande `fila started {pid}`', file=sys.stderr)
+        return 1
+    elif fila.get('state') == 'error':
+        print(f'AVISO (planou): {pid} esta na fila, mas o `started` falhou ({fila.get("why")}): repita com `fila started {pid}`',
+              file=sys.stderr)
+        return 1
     return 0
 
 
@@ -6389,6 +6523,8 @@ def main(argv=None):
     ap.add_argument('--project', help='tarefa nova: the project (sigla); default the instance\'s, else Planou\'s default')
     ap.add_argument('--evidence', help='tarefa nova|concluir: the evidence (MR/PR link, result in one line)')
     ap.add_argument('--done', action='store_true', help='tarefa nova: the work is already done: record it closed')
+    ap.add_argument('--fila', action='store_true', help='tarefa nova: the task is born the agent\'s and started, so it shows '
+                                                        'in the employee\'s Fila (not with --done)')
     ap.add_argument('--slug', help='tarefa nova: the key of the task (default: from the title; same day + slug = same task)')
     ap.add_argument('--area', help='tarefa nova: the subject that picks the epic (default: agente)')
     ap.add_argument('--epic', help='tarefa nova: the epic (pid or source_key)')

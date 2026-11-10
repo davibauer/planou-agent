@@ -238,6 +238,14 @@ sincronizou a tarefa, a marca vai na hora, num sync só dela (`enviado agora`, e
 não mudou o responsável): vale também numa instância sem fontes. Item de fonte que ainda não subiu vai no sync das fontes.
 Tarefa criada pela pessoa (PID que não é do agente) não se marca: o comando recusa e diz por quê (o sync não a toca).
 
+Trabalho que a própria sessão abre e que leva várias rodadas (deve aparecer na aba Fila do funcionário) não usa
+`pronta --self`: `$PL tarefa nova --title '...' --fila` cria a tarefa já atribuída ao agente e manda o `started` na
+hora. Com o limite cheio a saída diz `na fila; limite cheio, comeca quando abrir vaga` (não é erro): esperar o
+`-- FILA LIBERADA <PID>` e então `fila started <PID>`. Fechar: com PR ou esteira de colunas, `fila handoff|done <PID>`;
+sem, `tarefa concluir <PID>`. Sem `--fila`, `tarefa nova` segue como sempre (fora da fila). `--fila` só vale com a
+fila ligada na instância (`"planou": {"task_queue": true}`): sem ela o comando recusa e nada é criado. Com o limite
+cheio o custo da sessão continua na tarefa que já estava em andamento, até o `fila started` da liberação.
+
 Tarefa nova que o agente cria sem motivo (`ready_reason`) nasce em Backlog. O sync manda o motivo quando a tarefa espelha
 algo que já acontece na origem (PR em revisão, card em andamento, pedido explícito numa mensagem, reunião marcada,
 prazo) ou quando o agente a marcou pronta. Os avisos do sync vão para `cache/planou/warnings.log`, um por tarefa por dia.

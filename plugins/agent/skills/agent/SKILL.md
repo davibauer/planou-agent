@@ -219,7 +219,17 @@ consegue, sem cada comportamento em `behaviors`:
   `$PL tarefa concluir <PID> --completed-at ...` corrige a data de uma que o agente já fechou. Mesmo título (ou `--slug`) no mesmo dia é
   a mesma tarefa, sem duplicar (chave `act:<data>:<slug>`). Worker para ela: `$PL worker start --task <PID> --role
   dev|other --label '...'` e o PID na descrição do `Agent` (o custo dele vai para a tarefa); fecha com `$PL worker end
-  <key> --result ...`. Só para o que não veio de fila nem de fonte: tarefa da fila fecha com `fila done`, tarefa de fonte
+  <key> --result ...`. Trabalho de várias rodadas que deve aparecer na aba Fila do funcionário: `--fila` no `tarefa
+  nova` (nunca com `--done`): a tarefa nasce atribuída ao agente e já começa (`em andamento na fila do agente`), sem
+  `pronta --self` nem `fila started`. Limite "Ao mesmo tempo" cheio: sai com 0 e `na fila; limite cheio, comeca quando
+  abrir vaga`; esperar o `-- FILA LIBERADA <PID>` e mandar `fila started <PID>`. `fora da fila: ...` diz que o Planou
+  não passou a tarefa ao agente (projeto manual, backlog; em tarefa que já existe, só projeto autônomo): ela segue como
+  tarefa da sessão. Fechar a aberta com `--fila`: com PR ou esteira de colunas, `fila handoff|done <PID>`; sem, `tarefa
+  concluir <PID>`. A linha `-- FILA <PID> ... (o agente se atribuiu)` dela no tick não pede worker novo. `--fila`
+  precisa da fila ligada na instância (`"planou": {"task_queue": true}`): sem ela o comando recusa antes de criar
+  qualquer coisa (usar sem `--fila`, ou ligar a fila). O custo da sessão só passa para a tarefa quando o `started` é
+  aceito; com limite cheio, pausa ou `fora da fila`, a tarefa que estava em andamento segue como a atual.
+  `tarefa nova|concluir` é só para o que não veio de fila nem de fonte: tarefa da fila fecha com `fila done`, tarefa de fonte
   fecha na origem. Concluir pelo slug acha a de hoje ou a ainda aberta de um dia anterior; aberta em mais de um dia,
   diga o PID. Concluída ou reaberta pela pessoa no Planou, o próximo tick traz a mudança (a concluída sai do custo). Com
   `confidentiality: minimum`, o Planou mostra só "Agente <data>:<código>": título e `--slug` viram um hash curto, o

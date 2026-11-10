@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.114.0 (2026-11-10)
+- `tarefa nova --fila`: a tarefa que o próprio agente abre nasce atribuída a ele e já começa, então aparece em andamento na aba Fila do funcionário sem o contorno `pronta --self` + `fila started` (que a fazia voltar para A fazer por um instante). É uma opção explícita: sem `--fila` nada muda. Não vale com `--done`.
+- Com o limite "Ao mesmo tempo" cheio, o comando sai sem erro e diz `na fila; limite cheio, comeca quando abrir vaga`. Quando o Planou não passa a tarefa ao agente (projeto manual, backlog), a saída diz `fora da fila` em uma linha. Nesses casos o custo da sessão continua na tarefa que já estava em andamento: só passa para a nova quando ela começa.
+- `--fila` precisa da fila ligada na instância (`planou.task_queue`). Sem ela o comando recusa antes de criar qualquer coisa e diz o que fazer: usar `tarefa nova` sem `--fila`, ou ligar a fila.
+- A linha `-- FILA` da tarefa aberta com `--fila` deixa de pedir um worker novo. A da tarefa aberta sem a opção (e depois marcada com `pronta --self`) segue igual.
+- `tarefa concluir` agora também tira da fila local a entrada da tarefa, quando ela tem uma. Vale também para a tarefa aberta sem `--fila`: antes a entrada ficava velha na fila local.
+- `fila done` numa tarefa aberta com `--fila` fecha também o registro local dela.
+
 ## 0.113.2 (2026-11-10)
 - A cópia do contrato /v1 do Planou usada nos testes foi atualizada: a rota de sincronização das tarefas do agente passa a declarar a resposta 409 (conflito). O plugin já tratava esse caso, então nada muda no uso.
 

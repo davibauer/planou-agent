@@ -142,7 +142,10 @@ quando o Planou devolve a tarefa para A fazer, o agente acompanha e o sync segui
 Trabalho que o agente faz na sessão sem ter vindo de fila nem de fonte (um MR, uma investigação, um merge, uma operação
 num cluster) vira tarefa dele no Planou, sem depender do Notion: `tarefa nova --title '...' [--evidence <link>]
 [--done]` devolve o PID (o custo da sessão vai para ela enquanto está aberta) e `tarefa concluir <PID> --evidence
-'...'` fecha com a evidência. O mesmo título no mesmo dia é a mesma tarefa; `worker start --task <PID>` liga o worker.
+'...'` fecha com a evidência. Com `--fila` a tarefa nasce atribuída ao agente e já começa, e aparece na aba Fila do
+funcionário (limite cheio: fica na fila até abrir vaga). `--fila` precisa da fila ligada na instância
+(`planou.task_queue`); sem ela o comando recusa e nada é criado. O mesmo título no mesmo dia é a mesma tarefa;
+`worker start --task <PID>` liga o worker.
 Com `confidentiality: minimum` sobe só "Agente <data>:<código>" (título e slug em hash, sem o link da evidência e sem `--area`).
 
 A confidencialidade em vigor é a mais restrita entre `planou.confidentiality` do config e a ficha do funcionário no
