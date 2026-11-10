@@ -174,6 +174,9 @@ consegue, sem cada comportamento em `behaviors`:
 `PL="env PYTHONPATH=$S/scripts python3 -m watch_core.planou --agent <instância>"`
 
 - `$PL status`: chave, projeto, saúde, tarefa atual. `FONTE QUEBRADA (planou)` costuma ser chave ou Planou fora do ar.
+  Conflito de versão no sync (409 `sync_conflict`) não conta: repete uma vez e, perdendo de novo, o próximo tick
+  reenvia (só `warnings.log`). Num comando sai com 0 e diz o que fazer: `pronta` vai no próximo sync das fontes;
+  `tarefa nova|concluir` fica gravada e só sobe repetindo o mesmo comando (não duplica).
 - `$PL pergunta ...`: pergunta ao usuário com botões; `--auto` registra a decisão que o agente já tomou pela
   recomendada (seções abaixo).
 - `$PL alert --title "<o que houve>" --severity low|medium|high`: aviso sem pergunta.

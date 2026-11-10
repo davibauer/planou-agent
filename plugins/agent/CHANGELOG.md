@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.113.1 (2026-11-10)
+- Conflito de versão no sync do Planou (409 `sync_conflict`, quando uma tarefa do lote mudou ao mesmo tempo) deixou de contar como falha: o lote vai de novo na hora e, se perder outra vez, o próximo tick reenvia, sem `AVISO (planou)` e sem virar `FONTE QUEBRADA`; fica só uma linha em `warnings.log`. `pronta`, o refinamento e o "olhar de novo em" também repetem uma vez.
+- Quando o conflito se repete num comando, ele deixou de sair com erro: `pronta` sai com 0 e diz que a marca fica e vai no próximo sync das fontes; `tarefa nova` e `tarefa concluir` saem com 0 e dizem que a tarefa ficou gravada aqui e ainda não subiu (a tarefa do agente só sobe por esse comando: basta repetir, não duplica). Os outros erros seguem com código 1.
+
 ## 0.113.0 (2026-11-09)
 - Pedido repetido não enche mais Precisa de você: sem `--assunto` (e sem `--ref` ou `--task`), `pergunta`, `decision`, `approval`, `draft` e `alert` derivam o assunto do título sem acento e sem datas (`09/11/2026`, `09/11`, `2026-11-09`, `09.11.2026`, `9 de novembro`), horas (`14:30`, `14h30`, `14h`) e códigos de pedido (`d-40`, `ap-7`, `r-3`, `al-12`), e a mesma pergunta em outro dia substitui a que ainda estava aberta. Todo o resto do título fica, inclusive números, versões, hashes, chaves e PIDs: perguntas sobre itens diferentes não se substituem, e uma pergunta com contagem que muda no título (`Funil com 109 vagas`) também não. Título genérico demais (vazio, só números, uma palavra) segue sem assunto, como antes.
 - `--assunto` dado à mão continua valendo sobre o derivado, que começa com `t:`. Rascunhos para destinatários diferentes, aprovações de ações diferentes e alertas de códigos diferentes não se substituem. Em confidencialidade mínima o assunto derivado sai só como um hash, sem texto do título.

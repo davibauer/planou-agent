@@ -46,6 +46,8 @@ without "live": true in its config is in test mode: nothing is sent.
 Missing config or key means the module does nothing and never breaks the tick. A failure prints one
 `AVISO (planou): ...` line; failures for more than 60 minutes print `FONTE QUEBRADA (planou)` instead, the line the
 runners already know.
+A 409 sync_conflict of the sync (a task changed at the same moment) is not a failure: it goes once more right away
+and, losing again, waits for the next tick with only a line in warnings.log (SYNC_CONFLICT).
 
 Light loop (spec 6.2): between heavy ticks the runner calls `poll --wait 50 --next-heavy EPOCH --poll-s 90` in a
 continuous loop. With --wait the server holds the request until an event for this agent comes (a person's message right
@@ -323,6 +325,15 @@ _S = {'agent': None, 'instance': None, 'root': None, 'project': None, 'confident
 # 409 held_manual (Planou PLN0588): the project is Manual, so a person has to pass the task on; no -- FILA LIBERADA comes.
 # An older Planou never sends the code: it falls into the generic warning.
 HELD_MANUAL_MSG = 'o projeto da tarefa esta em Manual: a pessoa tem de passar a tarefa; nao espere -- FILA LIBERADA'
+
+# 409 sync_conflict (Planou PLN0700): a task of the batch changed at the same moment and the server already ran the batch
+# twice. Passing: the batch goes once more right away (_post_sync); losing again, the next tick sends it again, so it is
+# never a failure of the source (no failing_since, no FONTE QUEBRADA), only a line in warnings.log.
+SYNC_CONFLICT = 'sync_conflict'
+
+def _sync_conflict(e):
+    """True for the passing 409 sync_conflict of POST /agent/sync (the one place that says what it looks like)."""
+    return isinstance(e, PlanouError) and e.status == 409 and e.code == SYNC_CONFLICT
 
 class PlanouError(Exception):
     def __init__(self, status, code, message, fields=None):
@@ -1016,11 +1027,20 @@ def note_warnings(code, notes, now=None):
     return new
 
 
+def _post_sync(body):
+    """POST /agent/sync, once more right away on a 409 sync_conflict (never more: a second one is raised)."""
+    try:
+        return _call('POST', '/agent/sync', body)
+    except PlanouError as e:
+        if not _sync_conflict(e): raise
+    return _call('POST', '/agent/sync', body)
+
+
 def sync(items, now=None, only=False):
     """Sends the whole list. Returns lines for the tick output (empty when all went well and nothing needs attention).
     `only`: a partial batch (`tarefa nova|concluir`): Planou never erases what a batch leaves out, and neither does this
     side (the `pronta` marks of the other tasks stay). The rows Planou answered stay in sync_results()."""
-    _S['warnings'], _S['no_epics'], _S['results'] = [], [], {}
+    _S['warnings'], _S['no_epics'], _S['results'], _S['sync_conflict'] = [], [], {}, None
     if not active(): return []
     alloc = allocation(now)
     aut = autonomy(_S['project'] or (alloc or {}).get('default'), now)
@@ -1028,7 +1048,7 @@ def sync(items, now=None, only=False):
     body['tasks'], lines = not_allocated(body['tasks'], alloc, now)
     for attempt in (1, 2):
         try:
-            _, res = _call('POST', '/agent/sync', body)
+            _, res = _post_sync(body)
             break
         except PlanouError as e:
             drop = set(e.detail.get('source_keys') or []) if e.code == NOT_ALLOCATED else set()
@@ -1038,6 +1058,13 @@ def sync(items, now=None, only=False):
                 lines += not_allocated_warning(e.detail.get('projects') or [], now)
                 body['tasks'] = [t for t in body['tasks'] if t.get('source_key') not in drop]
                 continue
+            if _sync_conflict(e):
+                # lost twice. Neither _ok() nor _failed(), on purpose: Planou answered, but the batch did not go in, so
+                # health.json stays as it was (an earlier failing_since is neither cleared nor restarted). The caller
+                # of a partial batch reads _S['sync_conflict'] to say so (_act_send).
+                _S['sync_conflict'] = e.message
+                _log('warnings.log', f'sync: conflito de versao no Planou duas vezes; o proximo tick reenvia o lote ({e.message})', now)
+                return lines
             return lines + [_failed(e.message if e.status else e, now)]
     _ok()
     _S['results'] = {r.get('source_key'): r for r in (res or {}).get('tasks') or [] if r.get('source_key')}
@@ -1162,7 +1189,7 @@ def ready_now(code, now=None):
     if not t.get('title') and entry.get('title'): t['title'] = entry['title']
     if _S['project'] and not t.get('project'): t['project'] = _S['project']
     if mk.get('self'): t['assignee'] = 'self'
-    _, res = _call('POST', '/agent/sync', {'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
+    _, res = _post_sync({'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
     r = next((x for x in (res or {}).get('tasks') or [] if x.get('source_key') == t['source_key']), None) or {}
     ignored = r.get('ignored_fields') or []
     notes = list(r.get('warnings') or []) + ([r['reason']] if r.get('reason') else [])
@@ -3559,7 +3586,7 @@ def refine(question, ref=None, options=(), now=None):
         t = {k: v for k, v in body.items() if k not in ('state', 'resolution', 'completed_at', 'waiting', 'ready_reason')}
         t.update(project_state=REFINEMENT, base_version=((st.get('tasks') or {}).get(code) or {}).get('version'))
         try:
-            _, res = _call('POST', '/agent/sync', {'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
+            _, res = _post_sync({'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
             for r in (res or {}).get('tasks') or []:
                 if r.get('pid') and r.get('result') in ('created', 'updated', 'unchanged'):
                     with _locked('state.json'):
@@ -5927,11 +5954,16 @@ def _act_code(ref, now=None):
 
 def _act_send(code, it, now):
     """One-task sync of an agent's own task. Returns {"result", "pid", "notes", "lines"}; raises PlanouError when
-    Planou is off or the call failed."""
+    Planou is off or the call failed. A sync_conflict lost twice raises the 409 itself (_sync_conflict): not a failure,
+    the item is kept in actions.json and the same command sends it again (the tick's full sync never carries these)."""
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
     lines = sync({code: it}, now, only=True)
     failed = [l for l in lines if l.startswith('FONTE QUEBRADA (planou)') or (l.startswith('AVISO (planou)') and ' recusada: ' not in l)]
     r = _S.get('results', {}).get(f'{_S["agent"]}:{code}')
+    if not r and _S.get('sync_conflict'):
+        raise PlanouError(409, SYNC_CONFLICT, f'{code}: gravada aqui, ainda nao subiu: conflito de versao no Planou duas '
+                                              f'vezes ({_S["sync_conflict"]}). Nao e falha; a tarefa do agente so sobe por '
+                                              'este comando: repita o mesmo comando (nao duplica)')
     if not r:
         raise PlanouError(0, 'sync', '; '.join(failed or lines) or 'o Planou nao respondeu sobre a tarefa')
     notes = list(r.get('warnings') or []) + ([r['reason']] if r.get('reason') else [])
@@ -6047,6 +6079,9 @@ def _tarefa_acao(a, ap):
             code, res = act_close(a.arg[1], a.evidence, _text_arg(a.note) if a.note else None, a.resolution or 'done',
                                   completed_at=a.completed_at)
     except PlanouError as e:
+        if _sync_conflict(e):               # passing (PLN0701): no AVISO, no error exit
+            print(e.message)
+            return 0
         print(f'AVISO (planou): {e.message}', file=sys.stderr)
         return 1
     st = ((_load('state.json', {}).get('tasks') or {}).get(code) or {})
@@ -6095,7 +6130,7 @@ def look_again_at(code, until, version, now=None):
                                                     'project_state', 'assignee')}
     t.update(waiting={'who': w.get('who'), 'since': w.get('since'), 'until': until}, base_version=version)
     stamp = (now or datetime.now(timezone.utc)).isoformat()
-    _, res = _call('POST', '/agent/sync', {'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
+    _, res = _post_sync({'agent': _S['agent'], 'generated_at': stamp, 'tasks': [t]})
     r = next((x for x in (res or {}).get('tasks') or [] if x.get('source_key') == t.get('source_key')), None) or {}
     if r.get('result') in ('created', 'updated', 'unchanged') and r.get('version') is not None:
         with _locked('state.json'):
@@ -6447,6 +6482,10 @@ def main(argv=None):
         try:
             r = ready_now(code)
         except PlanouError as e:
+            if _sync_conflict(e):           # passing (PLN0701): the mark stays in ready.json, no error exit
+                print(head + '; conflito de versao no Planou duas vezes: nao e falha, a marca fica e vai no proximo sync '
+                             'das fontes (agente sem fontes: repita o comando)')
+                return 0
             print(head + f'; o envio agora falhou ({e.message}): o proximo sync das fontes tenta de novo, se houver')
             return 1
         if r is None:
