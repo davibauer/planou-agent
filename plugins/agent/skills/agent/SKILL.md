@@ -262,12 +262,17 @@ Quando a decisão precisa mesmo do usuário (seção acima: fora da autonomia, a
 além do texto na sessão, abrir o pedido no Planou, para os botões aparecerem na Conversa e em Precisa de você:
 
 `$PL pergunta --title "<a pergunta, uma linha>" --option "A=<opção>" --option "B=<opção>" [--option "C=..."]
---recommended <letra> [--task <PID ou código da tarefa>] [--context "<por quê>"] [--assunto <assunto>]`
+--recommended <letra> [--task <PID ou código da tarefa>] [--context "<por quê>"] [--assunto <assunto>] [--ref <chave>]`
 
 - Opções curtas e acionáveis, a recomendada marcada com `--recommended` (e dita no texto da sessão). Exemplo: "Quer que
   eu faça agora a proposta de horas do item 123?" com `A=Faça agora` (recomendada), `B=Deixa para amanhã`,
   `C=Não precisa`. Sem `--option` vira Sim/Não. Resposta livre sempre aceita.
 - `--task` liga o pedido à tarefa quando a pergunta é sobre uma (o PID do Planou ou o código da pendência).
+- O título nomeia o item de que a pergunta trata (a tarefa, a PR ou o assunto), não um título genérico como "Posso
+  seguir?": é o que a pessoa lê em Precisa de você (com a confidencialidade `minimum` o título sai neutro).
+  `--assunto` serve à pergunta que volta (parágrafo abaixo). `--ref <chave>` é a chave própria do agente: a mesma chave
+  devolve o pedido que já existe (mesmo respondido, mesmo em outro dia), então só serve para a pergunta que não volta;
+  para a que volta, use `--assunto`.
 - O código do pedido sai no stderr. A resposta volta como `-- DECISAO <código> ... (pergunta da sessao)`: seguir como se
   ele tivesse respondido aqui. **Respondeu no terminal antes:** `$PL cancel <código> --reason "respondida no terminal"`.
 - A mesma pergunta no mesmo dia não abre outro pedido. Bloqueio de tarefa da fila continua sendo `fila blocked`.

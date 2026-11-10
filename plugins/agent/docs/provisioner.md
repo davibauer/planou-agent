@@ -2,7 +2,7 @@
 
 O provisionador é um serviço do usuário (systemd, no WSL ou no Linux) que cria na máquina os agentes pedidos na tela
 Time do Planou (**Novo funcionário**). Ele acompanha o Planou por `/v1/provisioner`, cria a instância, guarda a
-chave e informa cada passo, que aparece no cartão do funcionário: **Criando, Validado, Terminal aberto, Runner de pé**,
+chave e informa cada passo, que aparece no cartão do funcionário: **Criando, Validado, Terminal aberto, Funcionário no ar**,
 ou **Erro** com a mensagem.
 
 Com dois ou mais computadores conectados ao workspace, o Novo funcionário pergunta em qual deles criar o agente, e o
@@ -120,7 +120,7 @@ stop`); quem tem plugin próprio usa `~/.claude/skills/<skill>/scripts/runner.sh
 - **Desligar** (`desired: "paused"`): para o runner, põe `"enabled": false` no `agents.json` (a extensão fecha o
   terminal) e informa `paused`, uma vez. Um runner que a pessoa suba à mão depois (`team <nome>`) fica.
 - **Ligar** (`desired: "run"` depois de `paused`): põe `"enabled": true` (a extensão abre `team <nome>`) e informa
-  `terminal_open`; `runner_up` quando o runner sobe.
+  `terminal_open`; `runner_up` (**Funcionário no ar**) quando o runner sobe.
 - Instância do plugin que não estava no `agents.json` (tech-scout, por exemplo) é adotada desligada, a não ser que o
   runner esteja de pé; no Ligar ela ganha uma entrada só com `name`, `enabled` e `order`.
 - Agente sem verbo de parada conhecido no `runner.sh` (chief-of-staff) tem o runner visto, mas Desligar vira erro

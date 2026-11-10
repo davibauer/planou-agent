@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.1 (2026-11-10)
+- Documentação do agent: o provisionador.md usa o nome que o cartão mostra hoje (Funcionário no ar) e o SKILL.md explica o título do `$PL pergunta` (nomeia o item) e quando usar `--assunto` (pergunta que volta) e `--ref` (pergunta que não volta).
+
 ## 0.114.0 (2026-11-10)
 - `tarefa nova --fila`: a tarefa que o próprio agente abre nasce atribuída a ele e já começa, então aparece em andamento na aba Fila do funcionário sem o contorno `pronta --self` + `fila started` (que a fazia voltar para A fazer por um instante). É uma opção explícita: sem `--fila` nada muda. Não vale com `--done`.
 - Com o limite "Ao mesmo tempo" cheio, o comando sai sem erro e diz `na fila; limite cheio, comeca quando abrir vaga`. Quando o Planou não passa a tarefa ao agente (projeto manual, backlog), a saída diz `fora da fila` em uma linha. Nesses casos o custo da sessão continua na tarefa que já estava em andamento: só passa para a nova quando ela começa.
