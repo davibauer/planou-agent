@@ -2614,6 +2614,16 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
           "default": {
             "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
             "content": {

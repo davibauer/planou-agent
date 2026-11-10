@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.113.2 (2026-11-10)
+- A cópia do contrato /v1 do Planou usada nos testes foi atualizada: a rota de sincronização das tarefas do agente passa a declarar a resposta 409 (conflito). O plugin já tratava esse caso, então nada muda no uso.
+
 ## 0.113.1 (2026-11-10)
 - Conflito de versão no sync do Planou (409 `sync_conflict`, quando uma tarefa do lote mudou ao mesmo tempo) deixou de contar como falha: o lote vai de novo na hora e, se perder outra vez, o próximo tick reenvia, sem `AVISO (planou)` e sem virar `FONTE QUEBRADA`; fica só uma linha em `warnings.log`. `pronta`, o refinamento e o "olhar de novo em" também repetem uma vez.
 - Quando o conflito se repete num comando, ele deixou de sair com erro: `pronta` sai com 0 e diz que a marca fica e vai no próximo sync das fontes; `tarefa nova` e `tarefa concluir` saem com 0 e dizem que a tarefa ficou gravada aqui e ainda não subiu (a tarefa do agente só sobe por esse comando: basta repetir, não duplica). Os outros erros seguem com código 1.
