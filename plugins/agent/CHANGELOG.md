@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.114.6 (2026-11-11)
+- Rascunho de uma instância work-watch publicado sem `--task` nem `--assunto` agora se liga sozinho à pendência que o `--ref` nomeia (o `pN` ou a referência da fonte), desde que ela esteja aberta e já seja tarefa no Planou. Assim ele sai de Precisa de você quando a pendência fecha, em vez de ficar aberto para sempre. Nunca liga só pelo destinatário.
+- Em qualquer outro caso o rascunho sobe como antes e a saída traz uma linha `AVISO` com o comando certo (`--task pN --ref pN`, ou `--assunto` quando não há pendência). O exemplo de rascunho do núcleo e do work-triage passa a trazer o `--task pN`.
+
 ## 0.114.5 (2026-11-11)
 - O alerta de tick preso agora diz o que fazer no próprio título ("tick de X preso (12 min): relance com runner.sh X stop e depois start"), em Detalhe, Resumo e Mínimo. Antes a dica ia só no contexto, que não sobe fora do Detalhe. O título leva só o nome da instância, o tempo e o comando.
 - Novo `alert --literal-title`, só para título escrito pelo próprio runner ou plugin: sobe como está em todos os níveis, sem virar o título neutro do Mínimo.

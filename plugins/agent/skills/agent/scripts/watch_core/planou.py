@@ -3731,6 +3731,29 @@ def submit_draft(channel, to, text, title, context=None, task=None, subject=None
                 subject=ask_subject)
 
 
+def draft_pending(ref):
+    """PLN0752: the open pendência (pN) of the agent state a draft answers, for a work-watch draft sent without --task
+    nor --assunto (nothing closes a draft with no task: the person sends it outside). Read-only, from data/state.json
+    of the agent folder. Only by --ref: the pendência's code (pN, or pN-2 of an older v2) or its source reference (`ref`
+    or `fonte:ref`). Never by the recipient or the source alone: a name is a guess, and since Planou replaces the open
+    draft of the same task, a draft linked to the wrong pendência would replace the right one. Linked only when exactly
+    one open pendência matches and Planou already has it as an open task (open_codes), so the ask never fails with
+    "task not found". Returns (code, None) or (None, candidates): the codes that matched (several: ambiguous; one: not
+    a task in Planou yet; empty: none or no --ref)."""
+    r = str(ref or '').strip()
+    if not r: return None, []
+    try:
+        with open(os.path.join(_S['root'] or '', 'data', 'state.json')) as f: s = json.load(f)
+        pend = [p for p in (s.get('pendencias') or []) if isinstance(p, dict) and p.get('status') == 'aberta' and p.get('chave')]
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None, []
+    base = re.sub(r'-\d+$', '', r)
+    codes = [p['chave'] for p in pend if r == p['chave'] or base == p['chave'] or
+             (p.get('ref') and r in (str(p['ref']), f"{p.get('fonte')}:{p['ref']}"))]
+    if len(codes) == 1 and codes[0] in open_codes(): return codes[0], None
+    return None, codes
+
+
 YES_NO = [('S', 'Sim', False), ('N', 'Não', False)]
 QUESTION_LABEL = 'Pergunta do agente'
 
@@ -6731,8 +6754,33 @@ def main(argv=None):
     try:
         if a.cmd == 'draft':
             if not (a.channel and a.to and a.title and a.text): ap.error('draft precisa de --channel, --to, --title e --text')
-            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, ctx, task1,
-                               a.subject if conf == 'detail' else None, a.ref, subj(a.channel, a.to))
+            # PLN0752: a work-watch draft with no task and no --assunto is linked to the pendência its --ref names (only
+            # the ref, never the recipient), so it closes with the pendência (the task closes and Planou cancels the
+            # draft); else it goes as before, with one line saying how to link the next one. The linked task, as --task, takes
+            # the place of the derived subject (Planou replaces the open draft of the same task).
+            linked, cands = None, None
+            if _work_watch(_S['instance']) and not task1 and not a.assunto:
+                linked, cands = draft_pending(a.ref)
+                task1 = linked
+            text = _text_arg(a.text)
+            msg_subject = a.subject if conf == 'detail' else None
+            try:
+                res = submit_draft(a.channel, a.to, text, a.title, ctx, task1, msg_subject, a.ref, subj(a.channel, a.to))
+            except PlanouError as e:
+                if not (linked and e.status == 404): raise
+                task1, linked, cands = None, None, [task1]            # Planou does not have it after all: as before
+                res = submit_draft(a.channel, a.to, text, a.title, ctx, None, msg_subject, a.ref, subj(a.channel, a.to))
+            code = res.get('code') or '?'
+            if linked:
+                print(f'rascunho {code} ligado a pendencia {linked} (pelo --ref): fecha junto com ela; '
+                      f'se nao for essa, cancel {code} e publique de novo com --task pN --ref pN', file=sys.stderr)
+            elif cands is not None:
+                why = (f'--ref bate com {", ".join(cands[:5])}' if len(cands) > 1 else
+                       f'{cands[0]} ainda nao e tarefa no Planou' if cands else
+                       'o --ref nao nomeia uma pendencia aberta' if a.ref else 'sem --task nem --ref')
+                print(f'AVISO: rascunho {code} sem pendencia ligada, nada o fecha sozinho ({why}); no proximo, '
+                      f'draft ... --task pN --ref pN (a pendencia que ele responde), ou --assunto <rotulo> se nao ha pendencia',
+                      file=sys.stderr)
         elif a.cmd == 'approval':
             if not (a.type and a.verb and a.title): ap.error('approval precisa de --type, --verb e --title')
             desc = a.description if conf == 'detail' else None

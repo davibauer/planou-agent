@@ -314,7 +314,11 @@ registrar uma sugestão. O planou a transforma em tarefa no backlog do projeto P
 - Mensagem para uma pessoa (Slack, Teams, e-mail, comentário): o agent nunca envia. Exceção: a resposta a um
   `-- COMENTARIO` do Planou (a pessoa chamou o agente com @ na tarefa) vai direto, com `$PL comentario`. Escrever a resposta abaixo de uma
   linha `Rascunho:` em texto puro e, com o Planou ligado, subir também:
-  `printf '%s' "<texto>" | $PL draft --channel slack|teams|email|chat --to "<quem>" --title "<uma linha>" --text -`.
+  `printf '%s' "<texto>" | $PL draft --channel slack|teams|email|chat --to "<quem>" --title "<uma linha>" --task pN --ref pN --text -`
+  (`pN` é a pendência que o rascunho responde: com ela, o rascunho fecha quando a pendência fecha; sem pendência, tire
+  `--task` e `--ref`). Numa instância work-watch, rascunho sem `--task` nem `--assunto` só é ligado sozinho quando o
+  `--ref` nomeia uma pendência aberta (o `pN` ou a referência da fonte), nunca pelo destinatário; senão ele sobe assim
+  mesmo e a saída traz um `AVISO` com o comando certo para o próximo.
   Versão nova de um rascunho ainda aberto (o mesmo recado reescrito): o mesmo `--assunto <rótulo>` nas duas, para a nova
   substituir a anterior.
 - **Autonomia**: o `autonomy` do config diz o que a instância pode sozinha (`can`), o que pergunta antes (`ask_first`)
