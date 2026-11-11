@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.2 (2026-11-11)
+- Confidencialidade Resumo agora cumpre o que o nome promete: o contexto escrito em `alert`, `decision`, `approval` e `draft` (e a descrição da ação de uma aprovação) só sobe para o Planou com Detalhe, como já acontecia com `pergunta`. Em Resumo e em Mínimo, o pedido sobe sem o contexto (título, opções e tipo da ação continuam); o que a pessoa precisa saber deve ir no título, resumido com as palavras do agente.
+
 ## 0.114.1 (2026-11-10)
 - Documentação do agent: o provisionador.md usa o nome que o cartão mostra hoje (Funcionário no ar) e o SKILL.md explica o título do `$PL pergunta` (nomeia o item) e quando usar `--assunto` (pergunta que volta) e `--ref` (pergunta que não volta).
 

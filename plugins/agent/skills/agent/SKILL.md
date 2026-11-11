@@ -180,6 +180,8 @@ consegue, sem cada comportamento em `behaviors`:
 - `$PL pergunta ...`: pergunta ao usuário com botões; `--auto` registra a decisão que o agente já tomou pela
   recomendada (seções abaixo).
 - `$PL alert --title "<o que houve>" --severity low|medium|high`: aviso sem pergunta.
+  O `--context` (de `alert`, `decision`, `approval`, `draft` e `pergunta`) só sobe com `confidentiality: detail`; em
+  Resumo (`title`) e Mínimo fica na máquina: o que a pessoa precisa saber vai no título, com as palavras do agente.
 - `$PL sugestao ...`: sugestão de melhoria do Planou ou dos plugins (seção abaixo).
 - `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `task-queue`). `$PL fila worker <PID>
   --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou --phases-from <output_file>`:

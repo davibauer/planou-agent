@@ -6673,21 +6673,25 @@ def main(argv=None):
         # open ask of the same task and kind; a derived subject would also replace one of another task).
         if a.assunto or a.ref or task1: return a.assunto
         return derive_subject(a.title, *extra)
+    # PLN0741: the free text the session passes (--context, and an approval's --description) goes up only with "detail",
+    # as in ask_question: under "title" (Resumo) and "minimum" it may carry the source's own text. Titles go as before.
+    ctx = a.context if _S['confidentiality'] == 'detail' else None
     try:
         if a.cmd == 'draft':
             if not (a.channel and a.to and a.title and a.text): ap.error('draft precisa de --channel, --to, --title e --text')
-            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, a.context, task1, a.subject, a.ref,
+            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, ctx, task1, a.subject, a.ref,
                                subj(a.channel, a.to))
         elif a.cmd == 'approval':
             if not (a.type and a.verb and a.title): ap.error('approval precisa de --type, --verb e --title')
-            res = request_approval(a.type, a.verb, a.title, a.context, task1, a.ref, a.description, not a.reversible, subj(a.type))
+            desc = a.description if _S['confidentiality'] == 'detail' else None
+            res = request_approval(a.type, a.verb, a.title, ctx, task1, a.ref, desc, not a.reversible, subj(a.type))
         elif a.cmd == 'decision':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
             free = not a.no_free_text          # a question always offers "Responder" in the person's own words
             if not a.title or (len(opts) < 2 and not (free and not opts)):
                 ap.error('decision precisa de --title e de 2 ou mais --option "A=texto" (ou nenhuma, com resposta livre)')
-            res = request_decision(a.title, opts, a.context, task1, a.ref, free, subject=subj())
+            res = request_decision(a.title, opts, ctx, task1, a.ref, free, subject=subj())
         elif a.cmd == 'pergunta':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
@@ -6713,7 +6717,7 @@ def main(argv=None):
                   file=sys.stderr)
         elif a.cmd == 'alert':
             if not a.title: ap.error('alert precisa de --title')
-            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', a.context, task1, a.ref,
+            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', ctx, task1, a.ref,
                               subj(a.code or 'agent'))
         elif a.cmd == 'cancel':
             res = {'cancelled': cancel_ask(a.arg[0], a.reason)}
