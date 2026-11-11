@@ -137,7 +137,9 @@ def card(trip, tstate, cfg, alerts, hotel_rows, grid_rows, to_home, money):
     if marks:
         m = '; '.join(marks)
         lines.append(m[0].upper() + m[1:] + '.')
-    item = {'titulo': title[:300], 'planou_description': '\n'.join(lines), 'uid': trip['id'], 'origem': 'travel-agent',
+    # curto: the card's title is the agent's own words (trip name and price), so it keeps its title under "title" too,
+    # where an item without curto goes up with a neutral one (PLN0743)
+    item = {'titulo': title[:300], 'curto': title[:300], 'planou_description': '\n'.join(lines), 'uid': trip['id'], 'origem': 'travel-agent',
             'area': 'viagem', 'prio': 1 if chosen else 2}
     if c.get('code'): item['adopted'] = True        # a card made before: closes once even if never synced open here
     if bought_on or status in BOUGHT:

@@ -138,7 +138,7 @@ def card_batch(items, known, opened, today, tracked=()):
     items = dict(items)
     for code, prev in known.items():
         if code not in items:
-            items[code] = {'titulo': prev.get('title') or code, 'status': 'Sem ação', 'planou_description': REMOVED,
+            items[code] = {'titulo': prev.get('title') or code, 'curto': prev.get('title') or code, 'status': 'Sem ação', 'planou_description': REMOVED,
                            'origem': 'travel-agent', 'area': 'viagem'}
     batch, after = {}, {}
     for code, it in items.items():

@@ -39,7 +39,9 @@ Where things live (the agent passes its own root, e.g. ~/.config/job-scout):
                                      (last failure), open_asks.json (asks the tick keeps open, by the agent's ref)
 
 Confidentiality (spec 9.6), applied here before anything leaves the machine: "minimum" sends a neutral title
-(origin + id), "title" the short title, "detail" the short title plus the context of the asks. The draft text goes
+(origin + id), "title" the short title, which may carry the source's subject (an e-mail's, for instance), never the
+body nor the context (neutral like minimum when the item has no short title), "detail" the short title plus the
+context of the asks. The draft text goes
 up only with "drafts_in_planou": true (default true for job-scout, false for work-watch). A work-watch instance
 without "live": true in its config is in test mode: nothing is sent.
 
@@ -687,14 +689,26 @@ DECISION_PREFIX = 'Decidir: '
 _DECISION_HEAD = re.compile(r'^\s*(decidir|decide)\b\s*:?\s*', re.I)
 
 
+def _neutral_task_title(code, it):
+    """Origin + id, no third-party text: the title of a task under minimum, and under title when the item has no short one."""
+    return f'{(it.get("origem") or "Tarefa").capitalize()} {it.get("uid") or code}'
+
+
 def _title(code, it):
-    """minimum: origin + id, no third-party text; title and detail: the short title of the daily page. An open decision
+    """minimum: origin + id, no third-party text; title: the short title of the daily page (`curto`, which the source
+    or the agent writes and may carry the source's subject, an e-mail's for instance: under title the title goes up,
+    never the body nor the context), and without it the same neutral title as minimum, never the full `titulo`
+    (PLN0743); detail: the short title, else the full one. An open decision
     ("Decisão") always goes as "Decidir: ...", also under minimum and in an English instance ("Decide: ..."), so Planou
     never hands it to an agent's slot."""
-    if _S['confidentiality'] == 'minimum':
-        t = f'{(it.get("origem") or "Tarefa").capitalize()} {it.get("uid") or code}'
+    conf = _S['confidentiality']
+    short = str(it.get('curto') or '').strip()
+    if conf == 'minimum':
+        t = _neutral_task_title(code, it)
+    elif conf == 'detail':
+        t = (short or str(it.get('titulo') or '').strip() or code).strip()
     else:
-        t = (it.get('curto') or it.get('titulo') or code).strip()
+        t = short or _neutral_task_title(code, it)
     if it.get('status') == 'Decisão' and not t.lower().startswith(DECISION_PREFIX.strip().lower()):
         t = DECISION_PREFIX + (_DECISION_HEAD.sub('', t) or t)
     return t[:200]
@@ -3609,11 +3623,16 @@ def refine(question, ref=None, options=(), now=None):
 
 # ---------------------------------------------------------------- asks ("Precisa de você", spec 5.2)
 
+def _input_hash(*parts):
+    """128-bit hash of the normalized input of an ask (spaces collapsed, case ignored): the key part of _idem."""
+    norm = '|'.join(' '.join(str(x or '').split()).lower() for x in parts)
+    return hashlib.sha256(norm.encode()).hexdigest()[:32]
+
+
 def _idem(kind, ref, *parts):
     """Idempotency key: the agent's own reference when it has one, else a hash of the normalized input."""
     if ref: return f'{_S["agent"]}:{kind}:{ref}'[:128]
-    norm = '|'.join(' '.join(str(x or '').split()).lower() for x in parts)
-    return f'{_S["agent"]}:{kind}:' + hashlib.sha256(norm.encode()).hexdigest()[:32]
+    return f'{_S["agent"]}:{kind}:' + _input_hash(*parts)
 
 
 SUBJECT_MAX = 80          # Planou's limit for the subject of an ask (PLN0506)
@@ -3713,6 +3732,14 @@ def submit_draft(channel, to, text, title, context=None, task=None, subject=None
 
 
 YES_NO = [('S', 'Sim', False), ('N', 'Não', False)]
+QUESTION_LABEL = 'Pergunta do agente'
+
+
+def neutral_title(seed, label=QUESTION_LABEL):
+    """The title of an ask under "minimum": a fixed label and a short hash of `seed` (the real question, or the agent's
+    key), so two asks never share a neutral title and nothing of the real text leaves. ask_question and the CLI's
+    decision, approval and alert use it (PLN0743)."""
+    return f'{label} ({hashlib.sha256(str(seed).encode()).hexdigest()[:6]})'
 
 
 def ask_question(question, options=(), context=None, task=None, ref=None, now=None, subject=None):
@@ -3734,7 +3761,7 @@ def ask_question(question, options=(), context=None, task=None, ref=None, now=No
                   hashlib.sha256(json.dumps([q, [o[:2] for o in opts], task, day], ensure_ascii=False).encode()).hexdigest()[:16])
     conf = _S['confidentiality']
     if conf == 'minimum':
-        title = f'Pergunta do agente ({hashlib.sha256(ref.encode()).hexdigest()[:6]})'
+        title = neutral_title(ref)
         if opts != YES_NO: opts = [(k, f'Opção {k}', r) for k, _t, r in opts]
     else:
         title = q[:300]
@@ -6674,24 +6701,41 @@ def main(argv=None):
         if a.assunto or a.ref or task1: return a.assunto
         return derive_subject(a.title, *extra)
     # PLN0741: the free text the session passes (--context, and an approval's --description) goes up only with "detail",
-    # as in ask_question: under "title" (Resumo) and "minimum" it may carry the source's own text. Titles go as before.
-    ctx = a.context if _S['confidentiality'] == 'detail' else None
+    # as in ask_question: under "title" (Resumo) and "minimum" it may carry the source's own text. So does a draft's
+    # --subject ("Re: ..." is the source's subject; PLN0743).
+    conf = _S['confidentiality']
+    ctx = a.context if conf == 'detail' else None
+
+    def shown(label, *parts, opts=()):
+        # PLN0743: under "minimum" the title of decision, approval and alert is neutral, as in ask_question. Returns the
+        # title and the ref to send. Without --ref the idempotency key cannot come from what goes up (the neutral title
+        # keeps only 6 hex, so two asks could collide and the new one would vanish into the old): it comes from the full
+        # hash of the real input (title, task and `parts`, case ignored), the very key _idem gave before PLN0743, kept on
+        # this machine as the ref. The neutral title shows a short hash of that ref. The derived subject (subj) stays on
+        # the real title: ask_subject already reduces it to a hash under "minimum".
+        if conf != 'minimum': return a.title, a.ref
+        ref = a.ref or _input_hash(a.title, task1, *parts)
+        seed = [a.cmd, ref, task1, [list(o[:2]) for o in opts]]
+        return neutral_title(json.dumps(seed, ensure_ascii=False), label), ref
     try:
         if a.cmd == 'draft':
             if not (a.channel and a.to and a.title and a.text): ap.error('draft precisa de --channel, --to, --title e --text')
-            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, ctx, task1, a.subject, a.ref,
-                               subj(a.channel, a.to))
+            res = submit_draft(a.channel, a.to, _text_arg(a.text), a.title, ctx, task1,
+                               a.subject if conf == 'detail' else None, a.ref, subj(a.channel, a.to))
         elif a.cmd == 'approval':
             if not (a.type and a.verb and a.title): ap.error('approval precisa de --type, --verb e --title')
-            desc = a.description if _S['confidentiality'] == 'detail' else None
-            res = request_approval(a.type, a.verb, a.title, ctx, task1, a.ref, desc, not a.reversible, subj(a.type))
+            desc = a.description if conf == 'detail' else None
+            title, ref = shown('Pedido de aprovação do agente', a.type)
+            res = request_approval(a.type, a.verb, title, ctx, task1, ref, desc, not a.reversible, subj(a.type))
         elif a.cmd == 'decision':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
             free = not a.no_free_text          # a question always offers "Responder" in the person's own words
             if not a.title or (len(opts) < 2 and not (free and not opts)):
                 ap.error('decision precisa de --title e de 2 ou mais --option "A=texto" (ou nenhuma, com resposta livre)')
-            res = request_decision(a.title, opts, ctx, task1, a.ref, free, subject=subj())
+            title, ref = shown(QUESTION_LABEL, *[o[1] for o in opts], opts=opts)
+            if conf == 'minimum': opts = [(k, f'Opção {k}', r) for k, _t, r in opts]     # as ask_question does
+            res = request_decision(title, opts, ctx, task1, ref, free, subject=subj())
         elif a.cmd == 'pergunta':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
@@ -6717,8 +6761,8 @@ def main(argv=None):
                   file=sys.stderr)
         elif a.cmd == 'alert':
             if not a.title: ap.error('alert precisa de --title')
-            res = raise_alert(a.title, a.code or 'agent', a.severity or 'medium', ctx, task1, a.ref,
-                              subj(a.code or 'agent'))
+            title, ref = shown('Aviso do agente', a.code or 'agent')
+            res = raise_alert(title, a.code or 'agent', a.severity or 'medium', ctx, task1, ref, subj(a.code or 'agent'))
         elif a.cmd == 'cancel':
             res = {'cancelled': cancel_ask(a.arg[0], a.reason)}
         else:

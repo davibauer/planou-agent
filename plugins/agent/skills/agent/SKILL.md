@@ -181,7 +181,10 @@ consegue, sem cada comportamento em `behaviors`:
   recomendada (seções abaixo).
 - `$PL alert --title "<o que houve>" --severity low|medium|high`: aviso sem pergunta.
   O `--context` (de `alert`, `decision`, `approval`, `draft` e `pergunta`) só sobe com `confidentiality: detail`; em
-  Resumo (`title`) e Mínimo fica na máquina: o que a pessoa precisa saber vai no título, com as palavras do agente.
+  Resumo (`title`) e Mínimo fica na máquina. Em Resumo sobe o título (nunca o corpo nem o contexto): o que a pessoa
+  precisa saber vai nele, com as palavras do agente. Em Mínimo nem o título sobe: o de `alert`, `decision` e
+  `approval` vira neutro como o da `pergunta` (e as opções da `decision` viram "Opção A/B"), e a pessoa lê o assunto na
+  sessão. O `--subject` do `draft` também só sobe em `detail`.
 - `$PL sugestao ...`: sugestão de melhoria do Planou ou dos plugins (seção abaixo).
 - `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `task-queue`). `$PL fila worker <PID>
   --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou --phases-from <output_file>`:

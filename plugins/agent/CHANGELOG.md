@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.3 (2026-11-11)
+- Confidencialidade: o título também segue o nível. Em Mínimo, `decision`, `approval` e `alert` da linha de comando sobem com um título neutro, como a `pergunta` já fazia (e as opções da `decision` viram "Opção A/B"). Em Resumo sobe o título, que pode trazer o assunto (o de um e-mail, por exemplo), nunca o corpo nem o contexto; a tarefa que chega sem título curto sobe com um título neutro. Os cartões de viagem guardam o título deles. O assunto do rascunho (`draft --subject`) só sobe em Detalhe.
+
 ## 0.114.2 (2026-11-11)
 - Confidencialidade Resumo agora cumpre o que o nome promete: o contexto escrito em `alert`, `decision`, `approval` e `draft` (e a descrição da ação de uma aprovação) só sobe para o Planou com Detalhe, como já acontecia com `pergunta`. Em Resumo e em Mínimo, o pedido sobe sem o contexto (título, opções e tipo da ação continuam); o que a pessoa precisa saber deve ir no título, resumido com as palavras do agente.
 
