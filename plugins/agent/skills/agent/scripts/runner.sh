@@ -536,7 +536,7 @@ abandona_tick() {   # the heavy tick passed its limit: leave it behind, one aler
   desde=$(date -d "@$t0" +%H:%M)
   printf '%s\t%s\n' "$(date +%FT%T)" "tick preso: pid $p ($es, $w) desde $desde, abandonado apos $(( $(date +%s) - t0 ))s" >> "$D/avisos.log"
   printf '%s\t%s\t%s\t%s\n' "$(date +%FT%T)" preso 0 "$(( $(date +%s) - t0 ))" >> "$D/metricas.tsv"
-  [ "$planou" = 1 ] && PL alert --title "tick de $INST preso ($w)" --severity medium --code tick_stuck --ref "tick-preso:$p:${st:-0}" \
+  [ "$planou" = 1 ] && PL alert --literal-title --title "tick de $INST preso ($(( ($(date +%s) - t0 + 59) / 60 )) min): relance com runner.sh $INST stop e depois start" --severity medium --code tick_stuck --ref "tick-preso:$p:${st:-0}" \
     --context "O tick pesado de $INST nao termina desde $desde (pid $p, estado $es, wchan $w). O runner seguiu sem ele e nao abre outro tick enquanto esse processo viver. Estado D com p9_client_rpc: um drive do Windows (/mnt/<letra>) parou de responder." \
     >/dev/null 2>> "$D/planou.err"
   { echo "== TICK PRESO (pid $p, desde $desde, $w)"

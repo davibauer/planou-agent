@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.114.5 (2026-11-11)
+- O alerta de tick preso agora diz o que fazer no próprio título ("tick de X preso (12 min): relance com runner.sh X stop e depois start"), em Detalhe, Resumo e Mínimo. Antes a dica ia só no contexto, que não sobe fora do Detalhe. O título leva só o nome da instância, o tempo e o comando.
+- Novo `alert --literal-title`, só para título escrito pelo próprio runner ou plugin: sobe como está em todos os níveis, sem virar o título neutro do Mínimo.
+
 ## 0.114.4 (2026-11-11)
 - Funcionário já criado passa a seguir a autonomia de agora do projeto no Planou. Antes, o que ele podia fazer sozinho ficava preso ao dia da criação: com o projeto passado de Semi para Autônomo, ele continuava pedindo OK para abrir a PR e para o release em lote; de Manual para Semi, continuava pedindo antes de criar branch e fazer push. Agora as regras que a sessão lê e o pedido ao worker seguem o projeto padrão, para mais ou para menos, sem reescrever o config. Config que a pessoa editou à mão só fica mais restrito, nunca mais solto, mesmo quando ficou igual ao de outro nível; o que está em Nunca não aparece como permitido. Sem resposta do Planou, vale o config como está. Merge e marcar a PR pronta para revisão continuam pedindo OK mesmo em projeto Autônomo.
 

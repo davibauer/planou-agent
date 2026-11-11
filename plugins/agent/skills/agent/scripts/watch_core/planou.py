@@ -3735,6 +3735,14 @@ YES_NO = [('S', 'Sim', False), ('N', 'Não', False)]
 QUESTION_LABEL = 'Pergunta do agente'
 
 
+# PLN0747: the only title --literal-title keeps under "minimum": the runner's tick_stuck alert (instance, minutes, command)
+LITERAL_TITLE = re.compile(r'^tick de [A-Za-z0-9._-]+ preso \([0-9]+ min\): relance com runner\.sh [A-Za-z0-9._-]+ stop e depois start$')
+
+
+def _literal_ok(code, title):
+    return code == 'tick_stuck' and bool(LITERAL_TITLE.fullmatch(str(title or '')))
+
+
 def neutral_title(seed, label=QUESTION_LABEL):
     """The title of an ask under "minimum": a fixed label and a short hash of `seed` (the real question, or the agent's
     key), so two asks never share a neutral title and nothing of the real text leaves. ask_question and the CLI's
@@ -6514,6 +6522,9 @@ def main(argv=None):
     ap.add_argument('--type', help='approval action type (send_application, send_message)')
     ap.add_argument('--verb'); ap.add_argument('--description')
     ap.add_argument('--reversible', action='store_true')
+    ap.add_argument('--literal-title', action='store_true',
+                    help='alert: the title goes up as written under every level, "minimum" too (no neutral title). Only for a title '
+                         'the runner or the plugin writes itself (instance name, time, command), never one with source or client text')
     ap.add_argument('--option', action='append', default=[], help='decision option "A=text" (repeat)')
     ap.add_argument('--recommended')
     ap.add_argument('--auto', action='store_true', help='pergunta: the agent already decided by --recommended; record it (task comment, or an alert that '
@@ -6713,7 +6724,7 @@ def main(argv=None):
         # hash of the real input (title, task and `parts`, case ignored), the very key _idem gave before PLN0743, kept on
         # this machine as the ref. The neutral title shows a short hash of that ref. The derived subject (subj) stays on
         # the real title: ask_subject already reduces it to a hash under "minimum".
-        if conf != 'minimum': return a.title, a.ref
+        if conf != 'minimum' or (a.cmd == 'alert' and a.literal_title and _literal_ok(a.code, a.title)): return a.title, a.ref
         ref = a.ref or _input_hash(a.title, task1, *parts)
         seed = [a.cmd, ref, task1, [list(o[:2]) for o in opts]]
         return neutral_title(json.dumps(seed, ensure_ascii=False), label), ref
