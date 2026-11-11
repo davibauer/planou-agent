@@ -184,7 +184,10 @@ consegue, sem cada comportamento em `behaviors`:
   Resumo (`title`) e Mínimo fica na máquina. Em Resumo sobe o título (nunca o corpo nem o contexto): o que a pessoa
   precisa saber vai nele, com as palavras do agente. Em Mínimo nem o título sobe: o de `alert`, `decision` e
   `approval` vira neutro como o da `pergunta` (e as opções da `decision` viram "Opção A/B"), e a pessoa lê o assunto na
-  sessão. O `--subject` do `draft` também só sobe em `detail`. Exceção só do runner: `alert --literal-title` sobe o título como foi escrito em todos os níveis, inclusive Mínimo, para o aviso de `tick_stuck` dizer o que fazer (nome da instância, tempo e comando, nunca texto de fonte ou de cliente). A flag só vale para `--code tick_stuck` com esse formato de título; com outro código ou título livre ela é ignorada e o Mínimo segue neutro.
+  sessão. O `--subject` do `draft` também só sobe em `detail`. Em Mínimo também ficam na máquina o título, o
+  destinatário e o texto do `draft` (o título vira neutro, o destinatário vira "destinatário omitido"), o `--verb` do
+  `approval` (vira "executar uma ação") e o `--reason` de `cancel` e de `result`. Rótulos fixos sobem em todos os
+  níveis: `--type` do `approval`, `--code` e `--severity` do `alert`, `--channel` do `draft`. Exceção só do runner: `alert --literal-title` sobe o título como foi escrito em todos os níveis, inclusive Mínimo, para o aviso de `tick_stuck` dizer o que fazer (nome da instância, tempo e comando, nunca texto de fonte ou de cliente); no aviso de versão recusada no canário (`--code rollout`) sobe em Mínimo só o começo fixo ("Versao X de P recusada no canario A"), sem o motivo. A flag só vale para esses dois códigos com esse formato de título; com outro código ou título livre ela é ignorada e o Mínimo segue neutro.
 - `$PL sugestao ...`: sugestão de melhoria do Planou ou dos plugins (seção abaixo).
 - `$PL fila ver | started | in_review | done | blocked`: a fila (comportamento `task-queue`). `$PL fila worker <PID>
   --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou --phases-from <output_file>`:

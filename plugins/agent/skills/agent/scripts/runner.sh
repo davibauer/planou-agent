@@ -685,7 +685,7 @@ while true; do
       released) printf '%s\n' "$RA" | grep '^-- rollout' | sed "s/^/$(date +%FT%T)\t/" >> "$D/avisos.log";;
     esac
     al=$(printf '%s\n' "$RA" | sed -n 's/^ALERT=//p')
-    [ -n "$al" ] && [ "$planou" = 1 ] && PL alert --title "$al" --severity high --code rollout >/dev/null 2>> "$D/rollout.err"
+    [ -n "$al" ] && [ "$planou" = 1 ] && PL alert --literal-title --title "$al" --severity high --code rollout >/dev/null 2>> "$D/rollout.err"
   fi
   # Fonte quebrada (23/09/2026, o Power Automate oscilou 500 <-> ok a cada tick): acorda uma vez por assinatura
   # (quais fontes) a cada 60 min no maximo; a mesma quebra dentro disso so' registra. A volta nao acorda sozinha:

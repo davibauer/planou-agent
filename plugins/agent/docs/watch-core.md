@@ -64,7 +64,10 @@ derivation. Client names belong here, never in the code of this public repositor
 `planou` turns the Planou client on for every agent; each agent still needs its own `"planou"` block in its config
 (project prefix, confidentiality, `publish`) and its key in `<agent folder>/secrets/planou.env` (0600, written by
 `python3 -m watch_core.planou --agent <agent> key set`, which reads the key from stdin). Without any of these the module
-does nothing. The confidentiality `minimum` sends a neutral title (origin and id) instead of the task text. The level in
+does nothing. The confidentiality `minimum` sends a neutral title (origin and id) instead of the task text, and the asks
+the session opens from the command line carry none of its free text (neutral titles, "Opção A/B", the approval verb
+"executar uma ação", a draft without text and with "destinatário omitido", no `--reason` on cancel and result); fixed
+labels (approval type, alert code and severity, draft channel) still go up. The level in
 force is the strictest of the config and of Planou's agent screen (`confidentiality` in the heartbeat answer, kept in
 `cache/planou/confidentiality.json`); an older Planou answers none and the config alone counts.
 

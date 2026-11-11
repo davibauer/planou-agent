@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.114.8 (2026-11-11)
+- Confidencialidade Mínimo: os pedidos abertos pela linha de comando não sobem mais nenhum texto livre da sessão. O rascunho sobe com título neutro, sem o texto e com "destinatário omitido"; o verbo da aprovação vira "executar uma ação"; o motivo de `cancel` e de `result` fica na máquina. Rótulos fixos (tipo da aprovação, código e gravidade do alerta, canal do rascunho) seguem subindo. Resumo e Detalhe não mudam.
+- O aviso de versão recusada no canário sobe em Mínimo com o começo fixo ("Versao X de P recusada no canario A") em vez de um título neutro; o motivo fica na sessão.
+- Rascunho recusado porque o Planou pede o texto (Mínimo no config, ou `drafts_in_planou` false, com "Rascunhos no Planou" ligado na tela do funcionário): o comando agora diz que o rascunho fica na sessão, que não adianta reenviar e como alinhar os dois lados, em vez de só repetir "Informe o texto do rascunho".
+
 ## 0.114.7 (2026-11-11)
 - `pergunta` e `decision` agora dizem quando o Planou não deixou o pedido aberto (por exemplo, juntado ao aviso do sistema): a sessão não fica esperando uma resposta que não vem.
 - O aviso do rascunho para uma pendência cuja tarefa está fechada no Planou agora diz "não é tarefa aberta", em vez de "ainda não é tarefa".

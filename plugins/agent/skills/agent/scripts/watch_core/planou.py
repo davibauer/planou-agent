@@ -42,7 +42,13 @@ Confidentiality (spec 9.6), applied here before anything leaves the machine: "mi
 (origin + id), "title" the short title, which may carry the source's subject (an e-mail's, for instance), never the
 body nor the context (neutral like minimum when the item has no short title), "detail" the short title plus the
 context of the asks. The draft text goes
-up only with "drafts_in_planou": true (default true for job-scout, false for work-watch). A work-watch instance
+up only with "drafts_in_planou": true (default true for job-scout, false for work-watch). The asks the session opens
+from the command line follow the same rule (PLN0741, PLN0743, PLN0759): under "minimum" no free text of the session goes
+up (the title of pergunta, decision, approval, alert and draft is neutral, options are "Opção A/B", an approval's verb
+is "executar uma ação", a draft's recipient "destinatário omitido" and its text stays here, and the --reason of cancel
+and result stays here); fixed labels go up (approval --type, alert --code and --severity, draft --channel). Only
+`alert --literal-title` keeps a title the plugin writes itself: tick_stuck as written, a rollout alert's fixed head.
+A work-watch instance
 without "live": true in its config is in test mode: nothing is sent.
 
 Missing config or key means the module does nothing and never breaks the tick. A failure prints one
@@ -3734,9 +3740,12 @@ def submit_draft(channel, to, text, title, context=None, task=None, subject=None
     stays on this machine: the ask says who and where, and the person reads the text in the session. `subject` is the
     message's own subject (e-mail); `ask_subject` is the subject of the ask (see the function ask_subject): a new draft
     of the same message (a "v2") replaces the open one."""
-    up = text if _S['drafts_text'] else None
+    # PLN0759: under "minimum" neither the text nor the recipient leaves (the idempotency key still hashes the real ones)
+    minimum = _S['confidentiality'] == 'minimum'
+    up = text if _S['drafts_text'] and not minimum else None
+    shown_to = MINIMUM_DRAFT_TO if minimum and to else to
     return _ask('draft', {'title': title, 'context': context, 'task': task,
-                          'draft': {'channel': channel, 'to': to, 'subject': subject, 'text': up}}, ref, title, task, to, text,
+                          'draft': {'channel': channel, 'to': shown_to, 'subject': subject, 'text': up}}, ref, title, task, to, text,
                 subject=ask_subject)
 
 
@@ -3771,8 +3780,24 @@ QUESTION_LABEL = 'Pergunta do agente'
 LITERAL_TITLE = re.compile(r'^tick de [A-Za-z0-9._-]+ preso \([0-9]+ min\): relance com runner\.sh [A-Za-z0-9._-]+ stop e depois start$')
 
 
-def _literal_ok(code, title):
-    return code == 'tick_stuck' and bool(LITERAL_TITLE.fullmatch(str(title or '')))
+# PLN0759: the canary's refused-version alert (rollout): under "minimum" only its fixed head goes up (version, plugin,
+# instance); the reasons after ":" stay in the session (== VERSAO RECUSADA block)
+ROLLOUT_TITLE = re.compile(r'^(Versao [0-9A-Za-z.+-]+ de [A-Za-z0-9._-]+ recusada no canario [A-Za-z0-9._-]+)(?:: .*)?$', re.S)
+
+# PLN0759: what "minimum" sends in place of the session's free text, the same verb and recipient Planou itself writes under
+# minimum (MinimumContent.cs). Planou still swaps the neutral titles other than "Pergunta do agente (hex)" for its own and
+# notes the title as dropped; what matters here is that none of the session's text leaves
+MINIMUM_VERB = 'executar uma ação'
+MINIMUM_DRAFT_TO = 'destinatário omitido'
+
+
+def _literal_title(code, title):
+    """The title `alert --literal-title` sends under "minimum": the runner's own tick_stuck title as written, the fixed
+    head of a rollout alert; None for anything else (the neutral title then)."""
+    t = str(title or '')
+    if code == 'tick_stuck' and LITERAL_TITLE.fullmatch(t): return t
+    m = ROLLOUT_TITLE.fullmatch(t) if code == 'rollout' else None
+    return m.group(1) if m else None
 
 
 def neutral_title(seed, label=QUESTION_LABEL):
@@ -6574,7 +6599,8 @@ def main(argv=None):
     ap.add_argument('--reversible', action='store_true')
     ap.add_argument('--literal-title', action='store_true',
                     help='alert: the title goes up as written under every level, "minimum" too (no neutral title). Only for a title '
-                         'the runner or the plugin writes itself (instance name, time, command), never one with source or client text')
+                         'the runner or the plugin writes itself (instance name, time, command), never one with source or client text: '
+                         'tick_stuck as written, rollout only its head before ":"')
     ap.add_argument('--option', action='append', default=[], help='decision option "A=text" (repeat)')
     ap.add_argument('--recommended')
     ap.add_argument('--auto', action='store_true', help='pergunta: the agent already decided by --recommended; record it (task comment, or an alert that '
@@ -6774,7 +6800,9 @@ def main(argv=None):
         # hash of the real input (title, task and `parts`, case ignored), the very key _idem gave before PLN0743, kept on
         # this machine as the ref. The neutral title shows a short hash of that ref. The derived subject (subj) stays on
         # the real title: ask_subject already reduces it to a hash under "minimum".
-        if conf != 'minimum' or (a.cmd == 'alert' and a.literal_title and _literal_ok(a.code, a.title)): return a.title, a.ref
+        if conf != 'minimum': return a.title, a.ref
+        lit = _literal_title(a.code, a.title) if a.cmd == 'alert' and a.literal_title else None
+        if lit: return lit, a.ref
         ref = a.ref or _input_hash(a.title, task1, *parts)
         seed = [a.cmd, ref, task1, [list(o[:2]) for o in opts]]
         return neutral_title(json.dumps(seed, ensure_ascii=False), label), ref
@@ -6791,12 +6819,30 @@ def main(argv=None):
                 task1 = linked
             text = _text_arg(a.text)
             msg_subject = a.subject if conf == 'detail' else None
+            # PLN0759: under "minimum" the title is neutral too (the recipient and the text are dropped in submit_draft)
+            title, ref = shown('Rascunho do agente', a.to, text)
             try:
-                res = submit_draft(a.channel, a.to, text, a.title, ctx, task1, msg_subject, a.ref, subj(a.channel, a.to))
+                try:
+                    res = submit_draft(a.channel, a.to, text, title, ctx, task1, msg_subject, ref, subj(a.channel, a.to))
+                except PlanouError as e:
+                    if not (linked and e.status == 404): raise
+                    task1, linked, cands = None, None, [task1]            # Planou does not have it after all: as before
+                    title, ref = shown('Rascunho do agente', a.to, text)
+                    res = submit_draft(a.channel, a.to, text, title, ctx, None, msg_subject, ref, subj(a.channel, a.to))
             except PlanouError as e:
-                if not (linked and e.status == 404): raise
-                task1, linked, cands = None, None, [task1]            # Planou does not have it after all: as before
-                res = submit_draft(a.channel, a.to, text, a.title, ctx, None, msg_subject, a.ref, subj(a.channel, a.to))
+                # PLN0759 rework: the text stays here (local "minimum", or "drafts_in_planou": false) while Planou, by the
+                # agent screen, wants it ("Rascunhos no Planou" on, the screen not in Mínimo): a 422 on draft.text. Sending
+                # again cannot help, so say where the draft is and how to align the two sides; still a failure exit
+                if not (e.status == 422 and 'draft.text' in e.fields and (conf == 'minimum' or not _S['drafts_text'])): raise
+                why = ('a confidencialidade no config deste agente é Mínimo' if conf == 'minimum'
+                       else '"drafts_in_planou" está false no config deste agente')
+                fix = ('ponha Mínimo também na tela do funcionário no Planou, ou desligue "Rascunhos no Planou" lá'
+                       if conf == 'minimum' else
+                       'desligue "Rascunhos no Planou" na tela do funcionário, ou ponha "drafts_in_planou": true no config')
+                print(f'AVISO (planou): rascunho não aberto no Planou: o Planou pede o texto, mas {why}, então o texto não '
+                      f'sai desta máquina. O rascunho fica só na sessão (mostre-o ao usuário aqui); não reenvie, a resposta '
+                      f'será a mesma. Para alinhar: {fix}.', file=sys.stderr)
+                return 1
             code = res.get('code') or '?'
             if linked:
                 print(f'rascunho {code} ligado a pendencia {linked} (pelo --ref): fecha junto com ela; '
@@ -6813,7 +6859,10 @@ def main(argv=None):
             if not (a.type and a.verb and a.title): ap.error('approval precisa de --type, --verb e --title')
             desc = a.description if conf == 'detail' else None
             title, ref = shown('Pedido de aprovação do agente', a.type)
-            res = request_approval(a.type, a.verb, title, ctx, task1, ref, desc, not a.reversible, subj(a.type))
+            # PLN0759: --type is a fixed label and goes up; --verb is the session's words ("enviar a proposta a ..."):
+            # under "minimum" the neutral verb Planou itself uses
+            verb = MINIMUM_VERB if conf == 'minimum' else a.verb
+            res = request_approval(a.type, verb, title, ctx, task1, ref, desc, not a.reversible, subj(a.type))
         elif a.cmd == 'decision':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
@@ -6855,10 +6904,11 @@ def main(argv=None):
             title, ref = shown('Aviso do agente', a.code or 'agent')
             res = raise_alert(title, a.code or 'agent', a.severity or 'medium', ctx, task1, ref, subj(a.code or 'agent'))
         elif a.cmd == 'cancel':
-            res = {'cancelled': cancel_ask(a.arg[0], a.reason)}
+            # PLN0759: --reason is free text (it may name who answered outside): it stays here under "minimum"
+            res = {'cancelled': cancel_ask(a.arg[0], None if conf == 'minimum' else a.reason)}
         else:
             if len(a.arg) < 2 or a.arg[1] not in ('executed', 'failed'): ap.error('use: result CODE executed|failed [--reason]')
-            res = {'reported': report_result(a.arg[0], a.arg[1], a.reason)}
+            res = {'reported': report_result(a.arg[0], a.arg[1], None if conf == 'minimum' else a.reason)}
     except PlanouError as e:
         print(f'AVISO (planou): {e.message}', file=sys.stderr)
         return 1
