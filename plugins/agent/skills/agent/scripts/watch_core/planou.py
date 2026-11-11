@@ -859,6 +859,15 @@ def open_codes(root=None):
     return {c for c, e in tasks.items() if isinstance(e, dict) and _still_open(e)}
 
 
+def _task_known(code):
+    """PLN0755: Planou has the task (state.json) even if it is closed there; with open_codes it tells "closed" from
+    "never a task"."""
+    try:
+        return isinstance((_load('state.json', {}).get('tasks') or {}).get(code), dict)
+    except (AttributeError, TypeError):
+        return False
+
+
 def read_origin_urls(root):
     """{code: [origin urls]} of the task bodies last sent (sent.json) in that instance's folder, read without configuring
     this module (a source during the tick). None when it cannot be read, so "not read" never passes for "no links"."""
@@ -3975,6 +3984,24 @@ def _ask_reason(code):
     return str((res or {}).get('result_reason') or '') if (res or {}).get('state') in ('cancelled', 'expired') else None
 
 
+def ask_not_open_note(res):
+    """PLN0755: the line for an ask Planou did not leave open (a cancelled one: PLN0753 joins a repeated credential
+    decision to the system notice, with the reason "juntado a al-N"; an answered one when the key was already known), so
+    the session does not wait for an answer that never comes. None while it is open (open, in_window) or has no state.
+    The reason comes from the reply or, for a cancelled ask, from GET /asks/<code>; the warnings of the reply follow."""
+    state = (res or {}).get('state')
+    if state in (None, 'open', 'in_window'): return None
+    code = res.get('code') or '?'
+    if state == 'answered': return f'pedido {code} ja respondido no Planou; a resposta chega como DECISAO'
+    reason = str(res.get('result_reason') or '') or (_ask_reason(code) if state == 'cancelled' else None) or ''
+    if reason.startswith('juntado'):
+        note = f'pedido {code} {reason} no Planou (o aviso do sistema ja cobre); nada a esperar'
+    else:
+        note = f'pedido {code} nao ficou aberto no Planou (estado {state}' + (f': {reason}' if reason else '') + '); nada a esperar'
+    warns = [str(w) for w in (res.get('warnings') or []) if w]
+    return note + (' [' + '; '.join(warns) + ']' if warns else '')
+
+
 def _alert_expired(v, d, now):
     """PLN0487: True when the alert kept in open_asks.json (still wanted) was cancelled by Planou for expiring. Planou
     cancels an agent's alert with nothing to choose after 3 days with the reason "expirou"; asked only once the alert is
@@ -6776,7 +6803,8 @@ def main(argv=None):
                       f'se nao for essa, cancel {code} e publique de novo com --task pN --ref pN', file=sys.stderr)
             elif cands is not None:
                 why = (f'--ref bate com {", ".join(cands[:5])}' if len(cands) > 1 else
-                       f'{cands[0]} ainda nao e tarefa no Planou' if cands else
+                       (f'{cands[0]} nao e tarefa aberta no Planou' if _task_known(cands[0]) and cands[0] not in open_codes() else
+                        f'{cands[0]} ainda nao e tarefa no Planou') if cands else
                        'o --ref nao nomeia uma pendencia aberta' if a.ref else 'sem --task nem --ref')
                 print(f'AVISO: rascunho {code} sem pendencia ligada, nada o fecha sozinho ({why}); no proximo, '
                       f'draft ... --task pN --ref pN (a pendencia que ele responde), ou --assunto <rotulo> se nao ha pendencia',
@@ -6795,6 +6823,8 @@ def main(argv=None):
             title, ref = shown(QUESTION_LABEL, *[o[1] for o in opts], opts=opts)
             if conf == 'minimum': opts = [(k, f'Opção {k}', r) for k, _t, r in opts]     # as ask_question does
             res = request_decision(title, opts, ctx, task1, ref, free, subject=subj())
+            note = ask_not_open_note(res)
+            if note: print(note, file=sys.stderr)
         elif a.cmd == 'pergunta':
             opts = [(o.split('=', 1)[0].strip(), o.split('=', 1)[1].strip(), o.split('=', 1)[0].strip() == a.recommended)
                     for o in a.option if '=' in o]
@@ -6816,7 +6846,9 @@ def main(argv=None):
             if opts and not a.recommended:
                 print('dica: marque a opcao recomendada com --recommended <letra> (o botao sai destacado no Planou)',
                       file=sys.stderr)
-            print(f'pedido {res.get("code")} aberto no Planou; se o usuario responder no terminal antes: cancel {res.get("code")}',
+            note = ask_not_open_note(res)
+            print(note if note else
+                  f'pedido {res.get("code")} aberto no Planou; se o usuario responder no terminal antes: cancel {res.get("code")}',
                   file=sys.stderr)
         elif a.cmd == 'alert':
             if not a.title: ap.error('alert precisa de --title')

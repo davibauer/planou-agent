@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.114.7 (2026-11-11)
+- `pergunta` e `decision` agora dizem quando o Planou não deixou o pedido aberto (por exemplo, juntado ao aviso do sistema): a sessão não fica esperando uma resposta que não vem.
+- O aviso do rascunho para uma pendência cuja tarefa está fechada no Planou agora diz "não é tarefa aberta", em vez de "ainda não é tarefa".
+
 ## 0.114.6 (2026-11-11)
 - Rascunho de uma instância work-watch publicado sem `--task` nem `--assunto` agora se liga sozinho à pendência que o `--ref` nomeia (o `pN` ou a referência da fonte), desde que ela esteja aberta e já seja tarefa no Planou. Assim ele sai de Precisa de você quando a pendência fecha, em vez de ficar aberto para sempre. Nunca liga só pelo destinatário.
 - Em qualquer outro caso o rascunho sobe como antes e a saída traz uma linha `AVISO` com o comando certo (`--task pN --ref pN`, ou `--assunto` quando não há pendência). O exemplo de rascunho do núcleo e do work-triage passa a trazer o `--task pN`.
