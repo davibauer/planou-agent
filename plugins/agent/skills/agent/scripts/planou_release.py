@@ -4,6 +4,8 @@ and each deploy sent to the project's version history. Used by the hooks release
 - rules(): the "release" block of GET /v1/agent/projects/<project>, cached 10 min in cache/planou/release_rules.json (an
   answer without the block is cached too, so an older Planou is not asked on every tick; a failed call is not, so a short
   outage ends with Planou). None = use the local config.
+- autonomy(project): the project's current autonomy (default: the configured one) from the same answer and cache as
+  rules(), or None when the instance does not talk to Planou or Planou did not answer (project_autonomy, PLN0744).
 - limit(branches): the projects whose current autonomy holds a release back: each branch answers to the project of its
   task, not to the config written when the instance was created (PLN0566). Same answer and cache as rules(). An instance
   that talks to Planou but gets no answer is held too, until it answers (no OK to ask for). [] = nothing holds it.
@@ -66,6 +68,13 @@ def rules(now=None, ttl=RULES_TTL):
     p = _planou()
     if not p: return None
     return _project(p, p._S['project'], now or datetime.now(timezone.utc), ttl).get('data')
+
+
+def autonomy(project=None, now=None, ttl=RULES_TTL):
+    """'autonomous', 'semi_autonomous' or 'manual' for `project` (default: the configured one), or None."""
+    p = _planou()
+    if not p: return None
+    return _project(p, project or p._S['project'], now or datetime.now(timezone.utc), ttl).get('autonomy')
 
 
 def project_of(pid):

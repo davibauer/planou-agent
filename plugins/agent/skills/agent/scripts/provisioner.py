@@ -390,19 +390,11 @@ def slug(text):
     return s or 'projeto'
 
 
-AUTONOMY = {
-    'autonomous': {'can': ['branch e worktree', 'testes filtrados', 'push de branch', 'abrir PR'],
-                   'ask_first': ['dependencia nova', 'migration destrutiva ou que apaga dado']},
-    'semi_autonomous': {'can': ['branch e worktree', 'testes filtrados', 'push de branch'],
-                        'ask_first': ['abrir PR', 'dependencia nova', 'migration destrutiva ou que apaga dado']},
-    'manual': {'can': ['testes filtrados'],
-               'ask_first': ['branch e worktree', 'push de branch', 'abrir PR', 'dependencia nova',
-                             'migration destrutiva ou que apaga dado']},
-}
-# Written once, from the default project: after that the project of each branch and task decides (planou_release.limit
-# and the "autonomy" of `fila ver`), and this config can only make the instance stricter (PLN0566).
-RELEASE_CAN = ['release em lote pelo integrador (fast-forward na main, tag, push)',
-               'deploy com trava e linha no log de deploys']
+# The tables of each project autonomy live in project_autonomy (AUTONOMY, RELEASE_CAN). Written once, from the default
+# project: after that the current autonomy of the project is read through them (project_autonomy.effective: a config
+# still equal to the table of the level written below in "Autonomia no Planou" follows it, an edited one only gets
+# stricter), each task carries its own ("autonomy" of `fila ver`)
+# and planou_release.limit holds a release back (PLN0566, PLN0744).
 
 
 def role_defaults(cfg, role):
@@ -443,6 +435,7 @@ def render(a, template):
     projects = [p for p in a.get('projects') or [] if isinstance(p, dict)]
     prefix = str(projects[0].get('prefix') or '') if projects else ''
     from watch_core import behavior_names
+    from project_autonomy import table as autonomy_table
     # a role card of a Planou before PLN0295 names the behavior by its old name: the new one is written
     # every column role (PLN0368): Planou's `all_roles` (its roles then hold delegate-to-worker, code-review and
     # acceptance-testing plus the "Tambem cuida de" behaviors, never batch-release), or no role asked (an older Planou):
@@ -477,10 +470,8 @@ def render(a, template):
     if not cfg.get('behavior_config'): cfg.pop('behavior_config', None)
     # the gh tool of the template points at an example account: the person adds the real one
     cfg['tools'] = [t for t in cfg.get('tools') or [] if not (isinstance(t, dict) and t.get('kind') == 'cli')]
-    auto = AUTONOMY.get(a.get('autonomy'), AUTONOMY['semi_autonomous'])
     never = list((cfg.get('autonomy') or {}).get('never') or [])
-    can, ask = list(auto['can']), list(auto['ask_first'])
-    if batch: (can if a.get('autonomy') == 'autonomous' else ask).extend(RELEASE_CAN)
+    can, ask = autonomy_table(a.get('autonomy'), batch)
     if own:                             # the role's own autonomy instead of the dev one (branch, push, PR)
         can, ask = [], []
         for m in own:

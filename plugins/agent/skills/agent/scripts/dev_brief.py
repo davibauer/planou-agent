@@ -38,7 +38,7 @@ import permissions, schema
 from watch_core import column_roles
 
 DEV = 'delegate-to-worker'               # the dev worker's behavior (old name: dev-worker)
-RELEASE_ACTIONS = {'release', 'deploy'}  # what only goes alone in an autonomous project (provisioner.RELEASE_CAN, PLN0566)
+RELEASE_ACTIONS = {'release', 'deploy'}  # what only goes alone in an autonomous project (project_autonomy.RELEASE_CAN, PLN0566)
 RETURN = 'RESULTADO, O QUE MUDOU, LINKS, VALIDACAO, CONFERI (uma linha: "Conferi: ... Não conferi: ..."), PENDENTE DO USUARIO, RASCUNHOS, ESTADO SUGERIDO'
 # the independent review and QA workers (PLN0281): their worktree, their done criterion and the independence rule
 REVIEW_ROLES = {
@@ -193,7 +193,8 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
                        + (f'; uma linha por deploy em {rel["deploy_log"]}' if rel.get('deploy_log') else ''))
     out.append('CRITERIO DE PRONTO: ' + (own['done'] if own else (repo.get('done') or default_done(repo, rel))
                                           + ' (o instructions.md da instancia vale sobre este, quando diz outra coisa)'))
-    a = cfg.get('autonomy') if isinstance(cfg.get('autonomy'), dict) else {}
+    import project_autonomy          # the project's autonomy now, not the one of the day the instance was created
+    a = project_autonomy.current(cfg) or {}
     can, other = list(a.get('can') or []), []
     if perms:
         tools = [f'{t["kind"]}:{t["name"]}' for t in cfg.get('tools') or [] if isinstance(t, dict)
@@ -202,11 +203,15 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
         other = [x for x in can if not permissions.role_allows(x, perms['actions'])]
         can = [x for x in can if x not in other]
     ask = list(a.get('ask_first') or [])
-    moved = [x for x in can if permissions.classify(x) & RELEASE_ACTIONS]
-    held = release_limit() if moved else None
+    is_release = lambda x: bool(permissions.classify(x) & RELEASE_ACTIONS) and (
+        not perms or permissions.role_allows(x, perms['actions']))
+    moved = [x for x in can if is_release(x)]
+    # the config gave release alone and the project's autonomy now took it back: the same note, with the reason
+    written = [x for x in (cfg.get('autonomy') or {}).get('can') or [] if isinstance(x, str) and is_release(x)]
+    held = release_limit() if moved or written else None
     if held:                                 # the project in force, not the config of the day the instance was created
         can = [x for x in can if x not in moved]
-        ask += moved
+        ask += [x for x in moved if x not in ask]
         out.append(f'AUTONOMIA DO PROJETO: {held}: release e deploy so com o OK da pessoa, dito neste pedido')
     for k, label, v in (('can', 'PODE', can), ('ask_first', 'PERGUNTAR ANTES', ask),
                         ('never', 'NUNCA', a.get('never'))):

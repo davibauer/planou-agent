@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.4 (2026-11-11)
+- Funcionário já criado passa a seguir a autonomia de agora do projeto no Planou. Antes, o que ele podia fazer sozinho ficava preso ao dia da criação: com o projeto passado de Semi para Autônomo, ele continuava pedindo OK para abrir a PR e para o release em lote; de Manual para Semi, continuava pedindo antes de criar branch e fazer push. Agora as regras que a sessão lê e o pedido ao worker seguem o projeto padrão, para mais ou para menos, sem reescrever o config. Config que a pessoa editou à mão só fica mais restrito, nunca mais solto, mesmo quando ficou igual ao de outro nível; o que está em Nunca não aparece como permitido. Sem resposta do Planou, vale o config como está. Merge e marcar a PR pronta para revisão continuam pedindo OK mesmo em projeto Autônomo.
+
 ## 0.114.3 (2026-11-11)
 - Confidencialidade: o título também segue o nível. Em Mínimo, `decision`, `approval` e `alert` da linha de comando sobem com um título neutro, como a `pergunta` já fazia (e as opções da `decision` viram "Opção A/B"). Em Resumo sobe o título, que pode trazer o assunto (o de um e-mail, por exemplo), nunca o corpo nem o contexto; a tarefa que chega sem título curto sobe com um título neutro. Os cartões de viagem guardam o título deles. O assunto do rascunho (`draft --subject`) só sobe em Detalhe.
 

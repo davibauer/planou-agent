@@ -311,8 +311,8 @@ def docs_manifest(cfg, now=None):
     if memory: files.append(memory)
     files.append(_options_item(cfg, minimum))
     out = {'files': files}
-    autonomy = _autonomy(cfg)
-    if autonomy and not minimum: out['autonomy'] = autonomy
+    autonomy = None if minimum else _autonomy(cfg)
+    if autonomy: out['autonomy'] = autonomy
     cat = role_edit.catalog()
     if cat: out['catalog'] = cat
     return out
@@ -377,8 +377,11 @@ AUTONOMY_MAX = 30          # phrases per list, as Planou takes them (AgentDocs.M
 
 def _autonomy(cfg):
     """The instance's autonomy (config "autonomy": can, ask_first, never), the read only part of the Rules layer of the
-    Papel tab (PLN0257). Each list keeps up to AUTONOMY_MAX one-line phrases of up to 200 characters. None without it."""
-    a = cfg.get('autonomy') if isinstance(cfg.get('autonomy'), dict) else None
+    Papel tab (PLN0257). Each list keeps up to AUTONOMY_MAX one-line phrases of up to 200 characters. None without it.
+    Read through the project's current autonomy (project_autonomy, PLN0744): an untouched config follows it."""
+    import project_autonomy
+    a = project_autonomy.current(cfg)
+    a = a if isinstance(a, dict) else None
     if not a: return None
     out = {}
     for k in ('can', 'ask_first', 'never'):
