@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.9 (2026-11-11)
+- Confidencialidade Mínimo em vigor (na tela do funcionário ou no config) também fora da linha de comando. O pedido "Renove a credencial" sobe com título neutro ("Renove uma credencial do agente" com um código curto) e só diz o que houve e o próximo passo, sem o nome da ferramenta, o conserto e o impacto escritos no config. O registro da rotação do token do GitLab sobe com o título neutro dos pedidos da linha de comando ("Decidi: pergunta do agente" com um código curto), sem a ferramenta, a data de vencimento e o caminho do arquivo novo, que ficam na saída do tick. Resumo e Detalhe não mudam.
+
 ## 0.114.8 (2026-11-11)
 - Confidencialidade Mínimo: os pedidos abertos pela linha de comando não sobem mais nenhum texto livre da sessão. O rascunho sobe com título neutro, sem o texto e com "destinatário omitido"; o verbo da aprovação vira "executar uma ação"; o motivo de `cancel` e de `result` fica na máquina. Rótulos fixos (tipo da aprovação, código e gravidade do alerta, canal do rascunho) seguem subindo. Resumo e Detalhe não mudam.
 - O aviso de versão recusada no canário sobe em Mínimo com o começo fixo ("Versao X de P recusada no canario A") em vez de um título neutro; o motivo fica na sessão.

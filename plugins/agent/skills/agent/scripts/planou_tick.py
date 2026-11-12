@@ -292,6 +292,11 @@ PESSOAL = re.compile(r'\b401\b|recusad|unauthori[sz]ed|bad credentials|invalid_g
 # a TLS failure ("certificate has expired") is the server's or the network's, never the person's credential
 NAO_PESSOAL = re.compile(r'certificate|\bssl\b|\btls\b', re.I)
 JA_RENOVEI = [('S', 'Já renovei', False), ('N', 'Ainda não', False)]
+# PLN0768: what a credential ask says under "minimum" in force: the situation and the next step, no tool label, fix or
+# impact (the session's tick output says which credential and how)
+CREDENCIAL_MIN = 'Renove uma credencial do agente'
+CREDENCIAL_MIN_CTX = ('Uma credencial do agente foi recusada ou venceu e só você pode renovar. Qual é e como renovar '
+                      'estão na aba Ferramentas do funcionário e na sessão do agente (saída do tick).')
 
 
 def _pessoal(erro):
@@ -314,8 +319,11 @@ def pedidos_credenciais(ctx, conf):
         names that source and already asks;
       - a credential of the credenciais hook in state 'vencida' (a date in the past always; a command only when its
         error looks personal).
-    The title and the fix are what the Ferramentas tab already shows (tool label and fix, sent with any
-    confidentiality); the error itself goes only with "detail". Never a credential value."""
+    The title and the fix are what the Ferramentas tab already shows (tool label and fix); the error itself goes only
+    with "detail". Under "minimum" in force (the agent screen or the config, PLN0611) neither goes (PLN0768): the label
+    may be the config's own words ("rotulo_planou", the credential's name) and the fix and impact are free text, so the
+    title is neutral with a short hash of the ref (two credentials never share one) and the context says only what
+    happened and the next step. Never a credential value."""
     s = ctx.s
     fontes = getattr(ctx, 'fontes', None) or {}
     creds = (s.get('credenciais') or {}).get('itens') if isinstance(s.get('credenciais'), dict) else None
@@ -324,12 +332,16 @@ def pedidos_credenciais(ctx, conf):
 
     def pede(chave, rotulo, desde, fix, impacto, erro):
         ref = f'cred:{(planou.tool_key(chave) or "x").lower()}#{_h(desde)}'
-        titulo = (f'Renove a credencial de {rotulo}' if conf != 'minimum' else f'Renove uma credencial do agente ({rotulo})')
-        fix, impacto = planou.clean_text(fix, 1500) or 'veja a aba Ferramentas', planou.clean_text(impacto, 500) or '-'
-        ctx_txt = (f'Como consertar: {fix}\nO que para de funcionar: {impacto}\n'
-                   'Depois de renovar, responda "Já renovei": o próximo tick confere e este pedido sai sozinho quando a '
-                   'ferramenta voltar.')
-        if conf == 'detail' and erro: ctx_txt += f'\nErro: {planou.clean_text(erro) or "omitido"}'
+        depois = ('Depois de renovar, responda "Já renovei": o próximo tick confere e este pedido sai sozinho quando a '
+                  'ferramenta voltar.')
+        if conf == 'minimum':
+            titulo = planou.neutral_title(ref, CREDENCIAL_MIN)
+            ctx_txt = f'{CREDENCIAL_MIN_CTX}\n{depois}'
+        else:
+            titulo = f'Renove a credencial de {rotulo}'
+            fix, impacto = planou.clean_text(fix, 1500) or 'veja a aba Ferramentas', planou.clean_text(impacto, 500) or '-'
+            ctx_txt = f'Como consertar: {fix}\nO que para de funcionar: {impacto}\n{depois}'
+            if conf == 'detail' and erro: ctx_txt += f'\nErro: {planou.clean_text(erro) or "omitido"}'
         # PLN0506: one subject per credential, without the episode, so a new episode replaces the open ask
         out[ref] = {'kind': 'decision', 'title': titulo[:300], 'context': ctx_txt[:4000], 'free_text': True,
                     'options': JA_RENOVEI, 'subject': f'credencial:{(planou.tool_key(chave) or "x").lower()}'}
@@ -360,26 +372,38 @@ def pedidos_credenciais(ctx, conf):
 def decisoes(ctx, conf):
     """What the agent decided and did by itself during the tick, as the agent_decided record of `pergunta --auto`
     (PLN0225): today the GitLab token rotation (PLN0364), from the note s['gitlab']['rotacao'] the source leaves
-    (Planou is not configured while the sources tick). The note leaves the state once Planou took it. Returns AVISO
-    lines."""
+    (Planou is not configured while the sources tick). The note leaves the state once Planou took it. Under "minimum"
+    in force (PLN0768) the title is the neutral one of the CLI (neutral_title, as decide_question: "Decidi: pergunta do
+    agente (<hex6>)", "Pergunta do agente (<hex6>)" when the new token was not saved), with no tool label, expiry date
+    nor file path, and the context names neither: the tick output in the session has them. Returns AVISO lines."""
     st = ctx.s.get('gitlab') if isinstance(ctx.s.get('gitlab'), dict) else {}
     r = st.get('rotacao')
     if not isinstance(r, dict) or r.get('avisado'): return []
     f = (getattr(ctx, 'fontes', None) or {}).get(r.get('fonte'))
     rot = _rotulo(r.get('fonte'), f)[0] if f else 'GitLab'
+    minimum = conf == 'minimum'
     try: dia = datetime.fromisoformat(str(r.get('vence'))[:10]).strftime('%d/%m')
     except ValueError: dia = str(r.get('vence') or '?')
     if r.get('gravado') is False:
         titulo, sev = f'Renovei o token {rot}, mas não consegui gravar o novo no arquivo do token', 'high'
-        ctx_txt = ('O token antigo já foi revogado pelo GitLab. ' +
-                   (f'O novo ficou em {r["arquivo"]} (0600): mova para o arquivo do token.' if r.get('arquivo')
-                    else 'Gere um token novo e grave no arquivo do token.'))
+        if minimum:
+            ctx_txt = ('O token antigo já foi revogado. ' +
+                       ('O novo ficou num arquivo à parte (0600): o caminho está na saída do tick, na sessão do agente; '
+                        'mova para o arquivo do token.' if r.get('arquivo')
+                        else 'Gere um token novo e grave no arquivo do token.'))
+        else:
+            ctx_txt = ('O token antigo já foi revogado pelo GitLab. ' +
+                       (f'O novo ficou em {r["arquivo"]} (0600): mova para o arquivo do token.' if r.get('arquivo')
+                        else 'Gere um token novo e grave no arquivo do token.'))
         code = 'agent'
     else:
         titulo, sev, code = f'Decidi: renovei o token {rot}, vence em {dia}', 'low', 'agent_decided'
-        ctx_txt = ('O token de API ia vencer em poucos dias e ainda funcionava: o agente rodou a rotação pela API do GitLab '
-                   'e gravou o novo no mesmo arquivo (0600). O antigo foi revogado. Nada a fazer.')
+        ctx_txt = ('O token de API ia vencer em poucos dias e ainda funcionava: o agente rodou a rotação pela API '
+                   f'{"da ferramenta" if minimum else "do GitLab"} e gravou o novo no mesmo arquivo (0600). O antigo foi '
+                   'revogado. Nada a fazer.')
     ref = 'q-auto-token-' + _h(r.get('fonte'), r.get('vence'), r.get('quando'))
+    if minimum:   # the shapes Planou keeps as neutral (MinimumContent.NeutralAskTitle)
+        titulo = planou.neutral_title(ref, 'Decidi: pergunta do agente' if code == 'agent_decided' else planou.QUESTION_LABEL)
     try:
         planou.raise_alert(titulo[:300], code, sev, ctx_txt, None, ref)
     except planou.PlanouError as e:
