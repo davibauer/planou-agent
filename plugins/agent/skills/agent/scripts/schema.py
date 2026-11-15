@@ -26,7 +26,8 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    nao_acordar_junto (lists of names; a name in nao_acordar_junto that no hook has is a warning), ambiente
                    and fonte_clusters (text)
   behaviors        [str]: behaviors loaded by the session, in this order (behaviors/<name>/BEHAVIOR.md). An old name
-                   in BEHAVIOR_ALIASES is read as the new one (deduplicated, first position kept) and --validate warns
+                   in BEHAVIOR_ALIASES is read as the new one (deduplicated, first position kept) and --validate warns;
+                   one that left the plugin (REMOVED_BEHAVIORS) is dropped and --validate warns
   behavior_config  {behavior: {...}}: options per behavior; the options of the plugin's behaviors are in
                    BEHAVIOR_OPTIONS (unknown option: warning; wrong type: error). The options of an old name move to
                    the new one (the new one's own keys win)
@@ -97,6 +98,7 @@ DEFAULTS = {'schema': 1, 'tz_hours': -3, 'business_hours': [8, 19], 'interval_s'
             'behaviors': [], 'tools': []}
 # old behavior name -> the one that replaced it (watch_core.behavior_names: the runner's Planou module reads it too)
 BEHAVIOR_ALIASES = behavior_names.BEHAVIOR_ALIASES
+REMOVED_BEHAVIORS = behavior_names.REMOVED_BEHAVIORS
 behavior_name, old_behavior_names = behavior_names.behavior_name, behavior_names.old_names
 # options of the plugin's behaviors, documented in each BEHAVIOR.md: name -> 'str' | 'int' | 'num' | 'bool' | 'strs' |
 # 'ints' | 'command' | 'path'. 'command' is a text that ends up run as (or spliced into) a shell command on the agent's
@@ -192,11 +194,15 @@ def normalize(raw):
 
 def _behavior_aliases(c):
     """Old behavior names -> the new ones, in "behaviors" and "behavior_config". The old names used are kept in
-    c['_renamed_behaviors'] for the --validate warning. Never written back to config.json."""
-    b, renamed = c.get('behaviors'), {}
+    c['_renamed_behaviors'] for the --validate warning. A behavior that left the plugin (REMOVED_BEHAVIORS) is dropped
+    from both and kept in c['_removed_behaviors'], so --validate warns instead of refusing the config. Never written
+    back to config.json."""
+    b, renamed, removed = c.get('behaviors'), {}, []
     if isinstance(b, list):
         out = []
         for name in b:
+            if isinstance(name, str) and name in REMOVED_BEHAVIORS:
+                removed.append(name); continue
             new = BEHAVIOR_ALIASES.get(name) if isinstance(name, str) else None
             if new: renamed[name] = new; name = new
             if name in out and (new or name in renamed.values()): continue   # both names listed: one entry
@@ -205,6 +211,9 @@ def _behavior_aliases(c):
     bc = c.get('behavior_config')
     if isinstance(bc, dict):
         bc = dict(bc)
+        for name in [n for n in bc if n in REMOVED_BEHAVIORS]:
+            bc.pop(name)
+            if name not in removed: removed.append(name)
         for old, new in BEHAVIOR_ALIASES.items():
             if old in bc:
                 renamed[old] = new
@@ -213,6 +222,7 @@ def _behavior_aliases(c):
                 elif new not in bc: bc[new] = opts
         c['behavior_config'] = bc
     if renamed: c['_renamed_behaviors'] = renamed
+    if removed: c['_removed_behaviors'] = removed
 
 
 def option_problems(name, opts):
@@ -535,6 +545,9 @@ def validate(c, behavior_file=None, adapter_exists=None):
         what = 'agora faz parte de' if old == 'deploy-notice' else 'agora se chama'
         warn.append(f'comportamento "{old}" {what} "{new}" (o nome antigo continua valendo): '
                     f'trocar "{old}" por "{new}" em "behaviors" e em "behavior_config"')
+    for name in c.get('_removed_behaviors') or []:
+        warn.append(f'comportamento "{name}" saiu do plugin ({REMOVED_BEHAVIORS[name]}) e fica de fora: '
+                    f'tirar "{name}" de "behaviors" e de "behavior_config"')
     t = c.get('tools')
     if not isinstance(t, list): err.append('"tools" precisa ser uma lista')
     else:

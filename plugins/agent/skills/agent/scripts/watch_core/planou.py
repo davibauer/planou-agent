@@ -201,8 +201,6 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
       pergunta --title "Quer que eu ...?" [--option "A=..." --option "B=..." --recommended A] [--auto] [--task a12] [--context ...] [--ref ...] |
       cancel CODE [--reason ...] | result CODE executed|failed [--reason ...] |
       comentario PID --text - [--reply-to COMMENT_ID] | comentario PID --ver |
-      retro dados|ver|contribuir|votar|ata MEETING | refino ver|sugerir|lista MEETING |
-      daily ver MEETING | daily explicar MEETING --text - [--cost-usd N] [--tokens N] |
       tools | anexo CODE SOURCE_KEY FILE [--name NAME] | attach TASK FILE [--name NAME] |
       sugestao --title "..." --what "..." --expected "..." --example "..." [--subject "..."] [--priority P1..P4]
 
@@ -1012,9 +1010,7 @@ def payload(items, now=None, autonomy=None, default_project=None, take=()):
         if kt.get('refining') and state != 'closed':
             # scope being worked out with the person: the task sits in "Em refinamento" until she answers or moves it
             for k in ('state', 'resolution', 'completed_at', 'waiting'): task.pop(k, None)
-            # answered: Planou itself brings it back to A fazer (v0.83.1, or keeps it while another question is open);
-            # the sync sends no column at all until the task_changed of that move arrives
-            if not (kt['refining'] or {}).get('answered'): task['project_state'] = REFINEMENT
+            task['project_state'] = REFINEMENT
         elif kt.get('backlog') and state != 'closed' and not (autonomy == 'autonomous' and reason):
             # Planou keeps it in backlog (only the person takes it out here): no state, so no warning on every tick. A
             # close always goes: at worst one logged reason a day, and an accepted close tells the flag was stale
@@ -1377,12 +1373,9 @@ DELIVERING_RUNNERS = ('work-watch-', 'job-scout')
 # Capabilities an agent declares only when its own config turns the feature on: capability -> key of the "planou" block.
 OPT_IN = {'task_queue': 'task_queue', 'task_release': 'task_queue'}
 
-# Capabilities only an agent of the agent plugin declares: the retro behavior (behaviors/retrospective) lives there. Planou
-# (PLN0208) invites to a ceremony only the agents that declare `ceremony`; a runner that does not handle the events
-# would ack and drop them, and the round, the vote and the minutes would wait until due for it. The same for
-# `task_comment` (PLN0240): how to answer a comment with @ is in the agent plugin's SKILL.md, and for `ceremony_daily`
-# (PLN0127/PLN0283): the daily calls only the agents that declare it, the rest show "sem explicação do agente".
-AGENT_ONLY = ('ceremony', 'ceremony_daily', 'task_comment')
+# Capabilities only an agent of the agent plugin declares: how to answer a comment with @ (`task_comment`, PLN0240) is in
+# the agent plugin's SKILL.md, and Planou calls only the agents that declare it, so a mention is never dropped unread.
+AGENT_ONLY = ('task_comment',)
 
 
 def _opted_in(key):
@@ -1589,19 +1582,6 @@ EVENTS = {
     # cost-cap pause (Planou 0.42.0): wakes the session with `== PAUSADO` / `== DESPAUSADO`; the state is kept in
     # cache/planou/pause.json (pause_note), so the heavy tick may print it too when the light loop did not
     'agent_paused': {'wake': True}, 'agent_resumed': {'wake': True},
-    # project ceremonies (Planou PLN0126, the retro): the invited agent sends its contribution, the facilitator the
-    # minutes; the payload is kept in cache/planou/ceremonies.json (the heavy tick acknowledges and drops the event);
-    # ceremony_vote (PLN0195) opens the voting round of a retro that has one; the heartbeat declares `ceremony`
-    # (PLN0208), without it Planou leaves the agent out of the meeting
-    'ceremony_started': {'wake': True, 'capability': 'ceremony'}, 'ceremony_facilitate': {'wake': True, 'capability': 'ceremony'},
-    'ceremony_vote': {'wake': True, 'capability': 'ceremony'},
-    # the backlog refinement (PLN0210): ceremony_refine brings the project's backlog to every invited agent, which sends
-    # its suggestions (estimate, split, agent_can_do); ceremony_refine_facilitate brings them all to the facilitator
-    'ceremony_refine': {'wake': True, 'capability': 'ceremony'},
-    'ceremony_refine_facilitate': {'wake': True, 'capability': 'ceremony'},
-    # the project daily (Planou PLN0127): the minutes come from the data, the agent is called only to explain its tasks
-    # in Impedida, one line each (`daily explicar`); its own capability, so an older runner is never called for it
-    'ceremony_daily_explain': {'wake': True, 'capability': 'ceremony_daily'},
     # a person called this agent with @name in a task comment (Planou PLN0240): delivered like a message, acknowledged
     # only after the session saw it (Planou calls only agents with `task_comment`, so a mention is never dropped unread);
     # the session answers by comment (`comentario PID --text -`), which is not taking the task
@@ -1629,32 +1609,9 @@ MESSAGE_PREFIX = '-- MENSAGEM do usuario pelo Planou'
 QUEUE_PREFIX = '-- FILA'
 CHANGES_EVENT = 'task_changes_requested'
 CHANGES_PREFIX = '-- AJUSTE PEDIDO'
-DAILY_EVENT = 'ceremony_daily_explain'
-CEREMONY_EVENTS = ('ceremony_started', 'ceremony_facilitate', 'ceremony_vote', 'ceremony_refine', 'ceremony_refine_facilitate',
-                   DAILY_EVENT)
-CEREMONY_KEYS = {'ceremony_started': 'started', 'ceremony_facilitate': 'facilitate', 'ceremony_vote': 'vote',
-                 'ceremony_refine': 'started', 'ceremony_refine_facilitate': 'facilitate', DAILY_EVENT: 'started'}
-CEREMONY_PREFIX = '-- CERIMONIA'
 COMMENT_EVENT = 'task_comment_mentioned'
 COMMENT_PREFIX = '-- COMENTARIO'
 COMMENT_TEXT_MAX = 10000
-CEREMONY_GUIDE = 'behaviors/retrospective/BEHAVIOR.md do plugin agent'
-REFINE_GUIDE = 'behaviors/backlog-refinement/BEHAVIOR.md do plugin agent'
-DAILY_GUIDE = 'behaviors/daily/BEHAVIOR.md do plugin agent'
-DAILY_TEXT_MAX = 300
-# the scope question of the refinement (Planou PLN0128): asked in `refino sugerir|lista`, approved by the person, it opens
-# an ask the agent did not open itself; its answer is tied back to the task by pid (cache/planou/scope_questions.json)
-SCOPE_FILE = 'scope_questions.json'
-SCOPE_KEPT = 200
-SCOPE_PREFIX = '-- ESCOPO'
-QUESTION_MAX = 300
-ANSWER_STATE = 'A fazer'
-# since Planou v0.83.1 (PLN0330) the server closes the cycle of a scope answer on any task, the person's included
-SCOPE_SERVER = (f'o Planou registra a resposta como comentario na tarefa e a devolve de {REFINEMENT} para {ANSWER_STATE} '
-                '(se ainda esta la e nao ha outra pergunta aberta nela); nada a comentar nem a mover')
-DAILY_LINES = 12          # blocked tasks listed under the -- CERIMONIA daily line; the rest with `daily ver`
-TOKENS_MAX = 100_000_000
-CEREMONIES_KEPT = 20
 
 
 def _inbox():
@@ -1707,7 +1664,6 @@ def fetch(next_tick=None, poll_s=None, wait=None, info=None):
         info['waited'] = int(raw) if raw is not None and str(raw).isdigit() else None
     for ev in ([] if status == 204 or not res else res.get('events') or []):
         ib['events'].setdefault(str(ev['seq']), ev)
-        if ev.get('type') in CEREMONY_EVENTS: remember_ceremony(ev)
     _save('inbox.json', ib)
     return ib
 
@@ -2123,8 +2079,6 @@ def line(ev):
 
     if kind == COMMENT_EVENT:
         return comment_line(p)
-    if kind in CEREMONY_EVENTS:
-        return ceremony_line(kind, p)
     if kind == PROPOSAL_EVENT:
         return proposal_line(p)
     if kind == 'agent_paused':
@@ -2136,10 +2090,6 @@ def line(ev):
         return f'{QUEUE_PREFIX} SAIU {one_line(p.get("pid"), 20)}: {one_line(p.get("title"))} ({why}) -> parar o trabalho nela'
     ref = ' '.join(x for x in (p.get('code'), p.get('task_pid')) if x)
     who = f'(voce, {_when(p)}' + (', confirmado)' if p.get('confirmed') else ')')
-    if kind == 'decision_answered' and scope_question_of(ev) is not None:
-        # the answer to a scope question of the refinement: Planou (v0.83.1) comments it on the task and moves the task
-        return (f'{SCOPE_PREFIX} {one_line(p.get("task_pid"), 20)} respondida ({one_line(p.get("code"), 20)}): '
-                f'"{one_line(_answer_text(p), 300)}" {who} -> {SCOPE_SERVER}; guia: {REFINE_GUIDE}')
     if kind == 'decision_answered':
         # a question the session asked (pergunta): not an action of the daily page, nothing to close with --acao
         if ask_ref(ev).startswith('q-'): who += ' (pergunta da sessao)'
@@ -2390,8 +2340,7 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             # runners), with only the fields of its `changed` (the rest of the payload would erase local values)
             kind = 'task_changed'
         if kind not in TASK_EVENTS:
-            scope = scope_question_of(ev) is not None
-            handled = bool(on_ask and not scope and on_ask(ev))
+            handled = bool(on_ask and on_ask(ev))
             if kind in ASK_ANSWERS:
                 _answered(p.get('code'))
                 # the answer to a refinement ask: Planou brings the task back to A fazer; the sync stops holding it
@@ -2402,9 +2351,6 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
                     lines.append(f'PLANOU: {p.get("pid")} atribuida a voce pelo usuario: {p.get("title")}')
                 elif kind in WAKE_TYPES:
                     lines.append(line(ev) + (' -> aplicado' if handled else ''))
-            if scope:
-                done = scope_answered(ev, tasks)
-                if done: lines.append(done)
             pause_note(ev)              # after its line: the resume line reads the tasks held by the pause
             proposal_note(ev)
             ib['printed'][str(last)] = datetime.now(timezone.utc).isoformat()
@@ -2485,9 +2431,6 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
             if view['state'] == 'backlog': tasks[code]['backlog'] = True
             else: tasks[code].pop('backlog', None)
             if view['state'] != 'waiting' or (ps and state_key(ps) != state_key(REFINEMENT)): tasks[code].pop('refining', None)
-            elif ps and not tasks[code].get('refining') and _scope_entry(p.get('pid')) is not None:
-                # a scope question of the refinement, approved: the sync holds it in "Em refinamento" until the answer
-                tasks[code]['refining'] = {'ask': None, 'scope': True, 'since': datetime.now(timezone.utc).isoformat()}
         elif kind == 'task_deleted':
             tasks.pop(code, None)
             if code.startswith(ACT_PREFIX) and p.get('pid') and (current_task() or '') == str(p['pid']).upper():
@@ -5288,544 +5231,6 @@ def _fila(a, ap):
     return 0
 
 
-# ---------------------------------------------------------------- project ceremonies (the retro, Planou PLN0126)
-# ceremony_started reaches every invited agent: it sends its contribution from its own data (rework, blocks, time in
-# Precisa de você, cost, adjustments asked), each proposal citing real tasks. ceremony_facilitate reaches the
-# facilitator with every contribution: it groups them and sends the minutes (at most 3 actions, each with cases). When
-# the retro has voting (PLN0195), ceremony_vote reaches every invited agent between the two: it votes on the items
-# (`retro votar`), and the facilitator gets the votes in each item. The payloads stay in cache/planou/ceremonies.json by meeting_id, so `retro ver` still has them after the heavy tick
-# acknowledged the event. The guide is the agent plugin's behaviors/retrospective/BEHAVIOR.md.
-
-def _ceremonies():
-    c = _load('ceremonies.json', {})
-    if not isinstance(c.get('meetings'), dict): c['meetings'] = {}
-    return c
-
-
-def remember_ceremony(ev, now=None):
-    """Keeps the payload of a ceremony event by meeting_id (started, vote and facilitate apart), the newest CEREMONIES_KEPT."""
-    p = ev.get('payload') or {}
-    mid = str(p.get('meeting_id') or '')
-    if not mid: return
-    with _locked('ceremonies.json'):
-        c = _ceremonies()
-        m = c['meetings'].setdefault(mid, {})
-        m[CEREMONY_KEYS.get(ev.get('type'), 'facilitate')] = p
-        m['seen_at'] = m.get('seen_at') or (now or datetime.now(timezone.utc)).isoformat()
-        for old in sorted(c['meetings'], key=lambda k: c['meetings'][k].get('seen_at') or '')[:-CEREMONIES_KEPT]:
-            c['meetings'].pop(old, None)
-        _save('ceremonies.json', c)
-
-
-def ceremony(meeting_id):
-    """What this agent knows of a meeting: {'started': payload, 'vote': payload, 'facilitate': payload} ({} when unknown)."""
-    return _ceremonies()['meetings'].get(str(meeting_id)) or {}
-
-
-def _who(v):
-    return one_line((v or {}).get('display_name') or (v or {}).get('name'), 60) if isinstance(v, dict) else ''
-
-
-EFFECT_WORDS = {'improved': 'melhorou', 'same': 'igual', 'worse': 'piorou', 'unknown': 'sem dado'}
-
-
-def effects_note(p):
-    """What the line says of the earlier actions' effect (Planou PLN0129): each previous action with a metric that Planou
-    already checked, those that stayed the same or got worse by PID (they do not come back as they were: new approach or
-    drop), the others counted. Empty when no earlier action has an effect yet."""
-    checked = [x for x in p.get('previous_actions') or [] if isinstance(x, dict) and x.get('effect')]
-    if not checked: return ''
-    bad = [f'{one_line(x.get("pid") or x.get("title"), 40)} {one_line(x.get("metric"), 20)} {EFFECT_WORDS.get(x["effect"], x["effect"])}'
-           for x in checked if x['effect'] in ('same', 'worse')]
-    rest = {}
-    for x in checked:
-        if x['effect'] not in ('same', 'worse'):
-            w = EFFECT_WORDS.get(x['effect'], one_line(x['effect'], 12))
-            rest[w] = rest.get(w, 0) + 1
-    bits = bad[:5] + [f'{n} {w}' for w, n in rest.items()]
-    return (f'; abrir conferindo o efeito das acoes anteriores ({", ".join(bits)})'
-            + ('; igual ou piorou nao volta igual: muda a abordagem ou cai' if bad else ''))
-
-
-def ceremony_line(kind, p):
-    """The `-- CERIMONIA` line of a ceremony event (light loop and heavy tick)."""
-    name = one_line(p.get('ceremony') or 'retro', 20)
-    head = f'{name} #{p.get("number")} de {one_line((p.get("project") or {}).get("key"), 12)}'
-    mid, due = one_line(p.get('meeting_id'), 40), _when({'at': p.get('due_at')})
-    if kind == DAILY_EVENT:
-        return daily_lines(head, mid, due, p)
-    if kind == 'ceremony_refine':
-        fac = _who(p.get('facilitator'))
-        total = p.get('backlog_total')
-        total = total if isinstance(total, int) else len(p.get('backlog') or [])
-        return (f'{CEREMONY_PREFIX} {head}: sugestoes ate {due} ({total} tarefa{"" if total == 1 else "s"} no backlog'
-                + (f', facilita {fac}' if fac else '') + f') -> `refino ver {mid}` para o backlog, estimativa, quebra, '
-                f'selo agent_can_do ou pergunta de escopo (scope_checklist) so onde houver motivo real, e '
-                f'`refino sugerir {mid} --text -` ([] = nada a sugerir); '
-                f'guia: {REFINE_GUIDE}')
-    if kind == 'ceremony_refine_facilitate':
-        n = len(p.get('contributions') or [])
-        missing = ', '.join(_who(x) for x in p.get('missing') or [] if _who(x))
-        return (f'{CEREMONY_PREFIX} LISTA {head} (voce facilita; {n} contribuic{"ao" if n == 1 else "oes"}'
-                + (f', faltou: {missing}' if missing else '') + f'): lista ate {due} -> `refino ver {mid}` para as '
-                f'sugestoes de todos, uma estimativa por tarefa, e `refino lista {mid} --text -`; o usuario aprova cada '
-                f'uma na tela; guia: {REFINE_GUIDE}')
-    if kind == 'ceremony_started':
-        fac = _who(p.get('facilitator'))
-        return (f'{CEREMONY_PREFIX} {head}: contribuicao ate {due}' + (f' (facilita {fac})' if fac else '') +
-                f' -> `retro dados {mid}`, escrever a contribuicao a partir dos proprios dados, toda proposta citando '
-                f'PIDs reais, e `retro contribuir {mid} --text -`{effects_note(p)}; guia: {CEREMONY_GUIDE}')
-    if kind == 'ceremony_vote':
-        n = len(p.get('items') or [])
-        return (f'{CEREMONY_PREFIX} VOTO {head}: votos ate {due} (ate {p.get("votes_per_voter") or "?"} de {n} '
-                f'ite{"m" if n == 1 else "ns"}) -> `retro ver {mid}` para os itens e `retro votar {mid} <item_id> ...` '
-                f'(sem ids = voto em branco), nos itens de mais efeito real nos casos; guia: {CEREMONY_GUIDE}')
-    n = len(p.get('contributions') or [])
-    missing = ', '.join(_who(x) for x in p.get('missing') or [] if _who(x))
-    voted = (p.get('rules') or {}).get('votes_per_voter') is not None or bool(p.get('vote_closed_by'))
-    return (f'{CEREMONY_PREFIX} ATA {head} (voce facilita; {n} contribuic{"ao" if n == 1 else "oes"}'
-            + (f', faltou: {missing}' if missing else '') + f'): ata ate {due} -> `retro ver {mid}` para as '
-            f'contribuicoes' + (' e os votos (mais votados primeiro)' if voted else '') + f', agrupar, no maximo '
-            f'{(p.get("rules") or {}).get("max_actions") or 3} acoes com casos'
-            + (', cada uma com a metrica que deve mexer' if (p.get('rules') or {}).get('metrics') else '')
-            + f', marcar repeticao, e `retro ata {mid} --text -`{effects_note(p)}; guia: {CEREMONY_GUIDE}')
-
-
-def _blocked_hours(h):
-    try: h = float(h)
-    except (TypeError, ValueError): return '?'
-    return f'{h:.0f} h' if h >= 10 else f'{h:.1f} h'.replace('.0 h', ' h')
-
-
-def daily_lines(head, mid, due, p):
-    """The `-- CERIMONIA daily` block: the header with the command, then one indented line per blocked task of this agent
-    (pid, title, hours blocked, the blocking note, the open ask, the pids it waits on), so the session writes the
-    explanations from the block alone. Under "minimum" the titles and notes stay out (the session sees them with `daily
-    ver`) and the text asked for is neutral."""
-    blocked = [b for b in p.get('blocked') or [] if isinstance(b, dict) and b.get('pid')]
-    n, mx = len(blocked), p.get('text_max') or DAILY_TEXT_MAX
-    minimum = _S['confidentiality'] == 'minimum'
-    out = [f'{CEREMONY_PREFIX} {head}: explicar {n} tarefa{"" if n == 1 else "s"} Impedida{"" if n == 1 else "s"} ate {due} '
-           f'-> uma linha por tarefa (ate {mx} caracteres) a partir da nota do bloqueio e do pedido aberto, sem worker, '
-           f'e `daily explicar {mid} --text -` com {{"explanations": [{{"pid", "text"}}], "cost_usd", "tokens"}}'
-           + ('; confidencialidade minimum: texto neutro, sem nome, assunto ou dado de cliente' if minimum else '')
-           + f'; guia: {DAILY_GUIDE}']
-    for b in blocked[:DAILY_LINES]:
-        bits = [_blocked_hours(b.get('hours'))]
-        if not minimum:
-            if b.get('reason'): bits.append(f'nota: {one_line(b.get("reason"), 160)}')
-        if b.get('ask_code'): bits.append(f'pedido {one_line(b.get("ask_code"), 20)}')
-        waits = [one_line(x, 20) for x in b.get('blocked_by') or [] if x]
-        if waits: bits.append('bloqueada por ' + ', '.join(waits))
-        title = '' if minimum else f' {one_line(b.get("title"), 80)}'
-        out.append(f'    {one_line(b.get("pid"), 20)}{title} ({"; ".join(bits)})')
-    if n > DAILY_LINES: out.append(f'    ... mais {n - DAILY_LINES}: `daily ver {mid}`')
-    return '\n'.join(out)
-
-
-def _in_period(at, start, end):
-    d = _date_time(at)
-    return d is not None and (start is None or d >= start) and (end is None or d <= end)
-
-
-def ceremony_facts(meeting_id):
-    """The agent's own data for a meeting, from the caches it already keeps (nothing new is measured): adjustments asked
-    in the period (changes.json), tasks blocked or waiting in its queue (queue.json), asks still open with the person
-    (open_asks.json) and the earlier actions with their result. Each item carries the PID to cite."""
-    m = ceremony(meeting_id)
-    base = m.get('started') or m.get('facilitate') or {}
-    start, end = _date_time(base.get('period_from')), _date_time(base.get('period_to'))
-    adjustments = []
-    for t in _changes()['tasks'].values():
-        asks = [a for a in t.get('asks') or [] if _in_period(a.get('at'), start, end)]
-        if asks and t.get('pid'):
-            adjustments.append({'pid': t['pid'], 'title': one_line(t.get('title'), 120), 'adjustments': len(asks),
-                                'by': sorted({a.get('by_kind') or 'person' for a in asks})})
-    held = [{'pid': v.get('pid'), 'title': one_line(v.get('title'), 120), 'state': v.get('state'),
-             'note': one_line(v.get('note'), 200) or None, 'since': v.get('received_at')}
-            for v in _queue()['tasks'].values()
-            if not v.get('left') and v.get('pid') and v.get('state') in ('blocked', 'waiting', 'changes_requested')]
-    now = datetime.now(timezone.utc)
-    waiting = []
-    for ref, v in (_load('open_asks.json', {}) or {}).items():
-        if not isinstance(v, dict) or v.get('answered'): continue
-        since = _date_time(v.get('at') or v.get('created_at') or v.get('opened_at'))
-        waiting.append({'code': v.get('code'), 'task': v.get('task') or v.get('pid'), 'ref': ref,
-                        'hours_open': round((now - since).total_seconds() / 3600, 1) if since else None})
-    return {'meeting_id': str(meeting_id), 'known': bool(m), 'period_from': base.get('period_from'),
-            'period_to': base.get('period_to'), 'rules': base.get('rules'),
-            'previous_actions': base.get('previous_actions') or [], 'adjustments_asked': adjustments,
-            'held_in_queue': held, 'open_asks': waiting}
-
-
-def retro_facts(meeting_id):
-    """`retro dados`: the facts Planou measured in the meeting's period (GET /v1/agent/ceremonies/{id}/facts, PLN0207:
-    rework, blocked and waiting time, hours in Precisa de voce and cost, per agent, each with the PID) in `planou`, beside
-    the agent's own caches (ceremony_facts). An older Planou without the route, or Planou out of reach, leaves `planou`
-    null with the reason in `planou_aviso`: the local data still comes."""
-    out = ceremony_facts(meeting_id)
-    try:
-        _, res = _call('GET', f'/agent/ceremonies/{urllib.parse.quote(str(meeting_id))}/facts')
-        out['planou'], out['source'] = res, 'planou+cache'
-        if not out.get('period_from') and isinstance(res, dict):
-            out['period_from'], out['period_to'] = res.get('period_from'), res.get('period_to')
-    except PlanouError as e:
-        out['planou'], out['source'] = None, 'cache'
-        out['planou_aviso'] = f'sem os fatos do Planou ({e.status} {e.code}: {e.message}); so os dados locais'
-    return out
-
-
-def _metric_value(v):
-    """The starting value Planou measured for an action's metric (null: too few deliveries to measure)."""
-    if v is None: return 'sem dado'
-    try: v = float(v)
-    except (TypeError, ValueError): return '?'
-    return f'{v:g}' if v == int(v) else f'{v:.2f}'
-
-
-CEREMONY_REFUSALS = {
-    'cases_required': 'RECUSADA: toda proposta (e toda acao da ata) cita pelo menos um caso real: {"pid": "ABC0001", "note": "o que aconteceu"}.',
-    'unknown_case': 'RECUSADA: {m} Cite so tarefas que existem no Planou.',
-    'secret_refused': 'RECUSADA: o texto parece ter uma credencial; tire o valor e mande de novo.',
-    'round_closed': 'FECHADA: a rodada de contribuicoes ja fechou; nada a mandar (o facilitador ja esta com a reuniao).',
-    'not_invited': 'NAO CONVIDADO: {m} Nada a fazer.',
-    'not_facilitator': 'NAO FACILITA: {m} Quem facilita manda a ata; a sua parte e a contribuicao.',
-    'vote_not_open': 'AINDA NAO: a votacao abre quando a rodada de contribuicoes fechar; espere o -- CERIMONIA VOTO.',
-    'vote_closed': 'FECHADA: a votacao ja fechou; nada a mandar (o facilitador ja esta com a reuniao).',
-    'no_vote': 'SEM VOTACAO: esta reuniao nao tem rodada de votos; nada a mandar.',
-    'unknown_item': 'RECUSADA: {m} Vote so nos ids de item que vieram no -- CERIMONIA VOTO (`retro ver`).',
-    'unknown_task': 'RECUSADA: {m}',
-}
-
-
-def _json_arg(text, ap, use):
-    try:
-        body = json.loads(_text_arg(text) or '')
-    except ValueError:
-        ap.error(f'use: {use} (JSON invalido)')
-    if not isinstance(body, dict): ap.error(f'use: {use} (um objeto JSON)')
-    return body
-
-
-def _retro(a, ap):
-    """retro dados|ver|contribuir|votar|ata <meeting_id>: the agent's part in a project ceremony (Planou PLN0126, the vote
-    PLN0195)."""
-    sub, mid = (a.arg + ['', ''])[:2]
-    if sub not in ('dados', 'ver', 'contribuir', 'votar', 'ata') or not mid:
-        ap.error('use: retro dados|ver <meeting_id>; retro contribuir|ata <meeting_id> --text <json> (ou --text - do stdin); '
-                 'retro votar <meeting_id> [item_id ...] [--cost-usd N] (sem ids = voto em branco)')
-    if sub == 'dados':
-        print(json.dumps(retro_facts(mid), ensure_ascii=False, indent=1))
-        return 0
-    try:
-        if sub == 'ver':
-            _, res = _call('GET', f'/agent/ceremonies/{urllib.parse.quote(mid)}')
-            print(json.dumps({**res, 'cached': ceremony(mid)}, ensure_ascii=False, indent=1))
-            return 0
-        if sub == 'votar':
-            ids = a.arg[2:]
-            body = {'item_ids': ids, **({'cost_usd': a.cost_usd} if a.cost_usd is not None else {})}
-            _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/votes', body)
-            print(json.dumps(res, ensure_ascii=False))
-            print(f'VOTO ENVIADO: {", ".join(ids) if ids else "em branco"} '
-                  f'({"atualizado" if res.get("result") == "updated" else "registrado"}; reuniao {res.get("status")}).')
-            return 0
-        if sub == 'contribuir':
-            body = _json_arg(a.text, ap, 'retro contribuir <meeting_id> --text \'{"items": [...], "cost_usd": 0.1}\'')
-            _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions',
-                           {k: body[k] for k in ('items', 'cost_usd', 'tokens') if k in body})
-            print(json.dumps(res, ensure_ascii=False))
-            print(f'ENVIADA: contribuicao {"atualizada" if res.get("result") == "updated" else "registrada"} '
-                  f'(reuniao {res.get("status")}).')
-            return 0
-        body = _json_arg(a.text, ap, 'retro ata <meeting_id> --text \'{"summary": "...", "actions": [...]}\'')
-        _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/minutes',
-                       {k: body[k] for k in ('summary', 'decisions', 'actions', 'lessons', 'cost_usd') if k in body})
-        print(json.dumps(res, ensure_ascii=False))
-        acts = ', '.join(f'{x.get("pid")}' + (' (repete acao anterior)' if x.get('repeat_of') else '')
-                         + (f' [{x["metric"]}, partida {_metric_value(x.get("baseline"))}]' if x.get('metric') else '')
-                         for x in res.get('actions') or [])
-        print(f'ATA ENVIADA: {acts or "sem acoes"}; as acoes estao no backlog do projeto, esperando a aprovacao do usuario.'
-              if res.get('result') != 'unchanged' else 'ATA JA ESTAVA LA: nada mudou.')
-        return 0
-    except PlanouError as e:
-        msg = CEREMONY_REFUSALS.get(e.code)
-        if msg:
-            print(msg.replace('{m}', e.message) + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''))
-            return 3
-        print(f'AVISO (planou): {e.message}' + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''), file=sys.stderr)
-        return 1
-
-
-def _refino(a, ap):
-    """refino ver|sugerir|lista <meeting_id>: the agent's part in the backlog refinement (Planou PLN0210). `ver` shows the
-    meeting and the cached event (the backlog, and for the facilitator every suggestion); `sugerir` sends this agent's
-    suggestions (a resend replaces them); `lista` sends the facilitator's merged list, which the person approves. A scope
-    question (PLN0128, kind `question`) is checked here first (1 to QUESTION_MAX characters) and remembered by pid, so its
-    answer comes back to the task (scope_answered); `lista` drops the questions on tasks that left the backlog."""
-    sub, mid = (a.arg + ['', ''])[:2]
-    if sub not in ('ver', 'sugerir', 'lista') or not mid:
-        ap.error('use: refino ver <meeting_id>; refino sugerir|lista <meeting_id> --text <json> (ou --text - do stdin)')
-    try:
-        if sub == 'ver':
-            _, res = _call('GET', f'/agent/ceremonies/{urllib.parse.quote(mid)}')
-            print(json.dumps({**res, 'cached': ceremony(mid)}, ensure_ascii=False, indent=1))
-            return 0
-        if sub == 'sugerir':
-            body = _json_arg(a.text, ap, 'refino sugerir <meeting_id> --text \'{"suggestions": [...], "cost_usd": 0.1}\'')
-            if not isinstance(body.get('suggestions'), list): ap.error('use: refino sugerir: "suggestions" e uma lista ([] = nada a sugerir)')
-            bad = _question_problem(body['suggestions'])
-            if bad:
-                print(f'RECUSADA: {bad}')
-                return 3
-            _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions',
-                           {k: body[k] for k in ('suggestions', 'cost_usd', 'tokens') if k in body})
-            remember_scope_questions(mid, body['suggestions'])
-            print(json.dumps(res, ensure_ascii=False))
-            print(f'ENVIADAS: {len(body["suggestions"])} sugest{"ao" if len(body["suggestions"]) == 1 else "oes"} '
-                  f'({"atualizadas" if res.get("result") == "updated" else "registradas"}; reuniao {res.get("status")}).')
-            return 0
-        body = _json_arg(a.text, ap, 'refino lista <meeting_id> --text \'{"summary": "...", "suggestions": [...]}\'')
-        if not isinstance(body.get('suggestions', []), list): ap.error('use: refino lista: "suggestions" e uma lista')
-        bad = _question_problem(body.get('suggestions') or [])
-        if bad:
-            print(f'RECUSADA: {bad}')
-            return 3
-        body = {k: body[k] for k in ('summary', 'decisions', 'suggestions', 'cost_usd') if k in body}
-        res, dropped = send_refinement_list(mid, body)
-        for line_ in dropped: print(line_)
-        print(json.dumps(res, ensure_ascii=False))
-        print(f'LISTA ENVIADA: {res.get("suggestions") or 0} sugestoes; a aprovacao fica com a pessoa.'
-              if res.get('result') != 'unchanged' else 'LISTA JA ESTAVA LA: nada mudou.')
-        return 0
-    except PlanouError as e:
-        # a field the Planou refused (estimate out of range, split with one part) is the agent's to fix, like a case
-        msg = CEREMONY_REFUSALS.get(e.code) or ('RECUSADA: {m}' if e.code == 'validation' else None)
-        if msg:
-            print(msg.replace('{m}', e.message) + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''))
-            return 3
-        print(f'AVISO (planou): {e.message}' + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''), file=sys.stderr)
-        return 1
-
-
-# ---------------------------------------------------------------- the scope question of the refinement (PLN0128)
-
-def _questions(suggestions):
-    return [x for x in suggestions or [] if isinstance(x, dict) and x.get('kind') == 'question']
-
-
-def _question_problem(suggestions):
-    """What Planou would refuse in the scope questions of a list of suggestions ('' = nothing): the text from 1 to
-    QUESTION_MAX characters and one question per task."""
-    seen = set()
-    for i, x in enumerate(suggestions or []):
-        if not isinstance(x, dict) or x.get('kind') != 'question': continue
-        q = ' '.join(str(x.get('question') or '').split())
-        pid = str(x.get('pid') or '').strip().upper()
-        if not q or len(q) > QUESTION_MAX:
-            return f'a pergunta de escopo de {pid or "?"} tem de 1 a {QUESTION_MAX} caracteres. Campos: suggestions[{i}].question.'
-        if pid in seen: return f'uma pergunta de escopo por tarefa ({pid} tem duas). Campos: suggestions[{i}].pid.'
-        seen.add(pid)
-    return ''
-
-
-def _scope_cache():
-    c = _load(SCOPE_FILE, {})
-    return c if isinstance(c, dict) else {}
-
-
-def _scope_entry(pid):
-    return _scope_cache().get(str(pid or '').strip().upper())
-
-
-def remember_scope_questions(meeting_id, suggestions, now=None):
-    """Keeps by pid the scope questions this agent sent (`refino sugerir`, or the facilitator's `refino lista`): Planou
-    opens the ask in the name of who asked it (the first guest, else the facilitator), and the decision_answered that
-    brings the answer is tied back to the task only by its task_pid. The newest SCOPE_KEPT pids stay."""
-    qs = [x for x in _questions(suggestions) if x.get('pid')]
-    if not qs: return
-    stamp = (now or datetime.now(timezone.utc)).isoformat()
-    ev = ceremony(meeting_id)
-    number = ((ev.get('facilitate') or ev.get('started') or {}).get('number'))
-    with _locked(SCOPE_FILE):
-        c = _scope_cache()
-        for x in qs:
-            pid = str(x['pid']).strip().upper()
-            old = c.get(pid) or {}
-            if old.get('meeting') != str(meeting_id): old = {}
-            c[pid] = {**old, 'meeting': str(meeting_id), 'number': number, 'question': one_line(x.get('question'), QUESTION_MAX),
-                      'at': old.get('at') or stamp}
-        for k in sorted(c, key=lambda k: c[k].get('at') or '')[:-SCOPE_KEPT]:
-            c.pop(k, None)
-        _save(SCOPE_FILE, c)
-
-
-def scope_question_of(ev):
-    """The scope question (cache entry) a decision_answered answers, or None: an ask this agent did not open itself
-    (no idempotency key of its own, not one of its open asks) about a task it asked a scope question on."""
-    if (ev or {}).get('type') != 'decision_answered': return None
-    p = ev.get('payload') or {}
-    if ask_ref(ev) or not p.get('task_pid'): return None
-    code = p.get('code')
-    if code and any(v.get('code') == code for v in (_load('open_asks.json', {}) or {}).values() if isinstance(v, dict)):
-        return None
-    return _scope_entry(p.get('task_pid'))
-
-
-def _answer_text(p):
-    """The person's answer in words: the free text, or the option with its note."""
-    if p.get('value') == 'other': return ' '.join(str(p.get('note') or '').split())
-    opt = p.get('option_text') or p.get('value') or ''
-    return ' '.join(str(opt).split()) + (f' ({" ".join(str(p["note"]).split())})' if p.get('note') else '')
-
-
-def scope_answered(ev, tasks=None, now=None):
-    """Heavy tick: the person answered a scope question of the refinement (an ask Planou opened in this agent's name when
-    she approved the question). Since Planou v0.83.1 (PLN0330) the server writes the answer as a comment on the task
-    and brings the task back from "Em refinamento" to A fazer, on any task: nothing is commented or moved here. The
-    agent's own task held in "Em refinamento" by the sync is marked answered, so the sync stops sending that column
-    (the task_changed of the server's move then clears the hold). Delivery is at least once: the same answer again
-    returns None. `tasks` is the state.json tasks apply_events holds (saved by it); without it state.json is read and
-    saved here. Returns the tick line, or None (not a scope answer, or already seen)."""
-    q = scope_question_of(ev)
-    if q is None: return None
-    p = ev.get('payload') or {}
-    pid = str(p.get('task_pid')).strip().upper()
-    code = str(p.get('code') or '')
-    answer = _answer_text(p)
-    done = (q.get('answers') or {}).get(code) or {}
-    if done.get('text') == answer: return None
-    own = tasks is None
-    st = _load('state.json', {}) if own else None
-    if own: tasks = st.setdefault('tasks', {})
-    mine = next((v for v in tasks.values() if str((v or {}).get('pid') or '').upper() == pid), None)
-    hold = (mine or {}).get('refining') or {}
-    if hold.get('scope'):
-        hold['answered'] = (now or datetime.now(timezone.utc)).isoformat()
-        if own: _save('state.json', st)
-    with _locked(SCOPE_FILE):
-        c = _scope_cache()
-        if pid in c:
-            c[pid].setdefault('answers', {})[code] = {'text': answer, 'by': 'planou'}
-            _save(SCOPE_FILE, c)
-    head = 'resposta mudou: ' if done.get('text') else ''
-    return f'{SCOPE_PREFIX} {pid} ({code}): {head}o Planou comenta a resposta e devolve a tarefa sozinho; nada a fazer aqui'
-
-
-def send_refinement_list(meeting_id, body):
-    """`refino lista`: POST /minutes with the facilitator's list. A scope question is valid only on a task still in the
-    backlog, and one refused makes Planou refuse the whole list (422): the questions on tasks out of the facilitate
-    event's backlog are dropped first (only when that backlog came whole: it brings up to 30 of backlog_total), and a 422
-    on the pid of a question drops it and sends again. Returns (response, lines about what was dropped)."""
-    body = dict(body)
-    sugg = list(body.get('suggestions') or [])
-    dropped = []
-    fac = ceremony(meeting_id).get('facilitate') or {}
-    backlog = fac.get('backlog')
-    if isinstance(backlog, list) and isinstance(fac.get('backlog_total'), int) and len(backlog) >= fac['backlog_total']:
-        pids = {str((t or {}).get('pid') or '').upper() for t in backlog}
-        keep = []
-        for x in sugg:
-            if isinstance(x, dict) and x.get('kind') == 'question' and str(x.get('pid') or '').strip().upper() not in pids:
-                dropped.append(f'TIRADA: a pergunta de escopo de {one_line(x.get("pid"), 20)} (a tarefa ja saiu do Backlog).')
-            else:
-                keep.append(x)
-        sugg = keep
-    path = f'/agent/ceremonies/{urllib.parse.quote(meeting_id)}/minutes'
-    for _ in range(len(_questions(sugg)) + 1):
-        body['suggestions'] = sugg
-        try:
-            _, res = _call('POST', path, body)
-            remember_scope_questions(meeting_id, sugg)
-            return res or {}, dropped
-        except PlanouError as e:
-            m = re.match(r'^suggestions\[(\d+)\]\.pid$', (e.fields or [''])[0]) if e.status == 422 and e.fields else None
-            i = int(m.group(1)) if m else -1
-            if not (0 <= i < len(sugg)) or not isinstance(sugg[i], dict) or sugg[i].get('kind') != 'question': raise
-            dropped.append(f'TIRADA: a pergunta de escopo de {one_line(sugg[i].get("pid"), 20)} ({one_line(e.message, 200)})')
-            sugg = sugg[:i] + sugg[i + 1:]
-    raise PlanouError(422, 'validation', 'a lista continua recusada depois de tirar as perguntas de escopo')
-
-
-DAILY_REFUSALS = {
-    'unknown_case': 'RECUSADA: {m} Explique so os PIDs da linha -- CERIMONIA daily (`daily ver`).',
-    'validation': 'RECUSADA: {m}',
-}
-
-
-def daily_explanations(meeting_id, body, cost_usd=None, tokens=None):
-    """The body of `daily explicar`, checked here before anything goes up: `explanations` is a list of {pid, text}, one
-    per pid, each text one line (line breaks become spaces) of 1 to text_max characters; with the event cached, only the
-    pids it brought. --cost-usd and --tokens fill what the JSON left out. Returns (body, warnings); raises PlanouError
-    (code 'validation') on what Planou would refuse anyway."""
-    ev = ceremony(meeting_id).get('started') or {}
-    mx = int(ev.get('text_max') or DAILY_TEXT_MAX)
-    known = [str(b.get('pid')) for b in ev.get('blocked') or [] if isinstance(b, dict) and b.get('pid')]
-    rows = body.get('explanations')
-    if not isinstance(rows, list) or not rows:
-        raise PlanouError(0, 'validation', '"explanations" e uma lista com um {"pid", "text"} por tarefa Impedida')
-    out, seen = [], set()
-    for i, r in enumerate(rows):
-        pid = str((r or {}).get('pid') or '').strip() if isinstance(r, dict) else ''
-        text = ' '.join(str((r or {}).get('text') or '').split()) if isinstance(r, dict) else ''
-        if not pid: raise PlanouError(0, 'validation', f'explanations[{i}]: falta o "pid"')
-        if pid in seen: raise PlanouError(0, 'validation', f'{pid} aparece duas vezes: uma linha por tarefa')
-        if known and pid not in known:
-            raise PlanouError(0, 'validation', f'{pid} nao veio neste evento (so {", ".join(known)})')
-        if not 1 <= len(text) <= mx:
-            raise PlanouError(0, 'validation', f'{pid}: a explicacao tem de 1 a {mx} caracteres ({len(text)})')
-        seen.add(pid); out.append({'pid': pid, 'text': text})
-    res = {'explanations': out}
-    cost = body.get('cost_usd', cost_usd)
-    if cost is not None:
-        try: cost = float(cost)
-        except (TypeError, ValueError): raise PlanouError(0, 'validation', '"cost_usd" e um numero em USD') from None
-        if cost < 0: raise PlanouError(0, 'validation', '"cost_usd" nao pode ser negativo')
-        res['cost_usd'] = cost
-    tok = body.get('tokens', tokens)
-    if tok is not None:
-        try: res['tokens'] = _count('tokens', tok, TOKENS_MAX)
-        except PlanouError as e: raise PlanouError(0, 'validation', e.message) from None
-    missing = [x for x in known if x not in seen]
-    warnings = [f'sem explicacao para {", ".join(missing)}: fica "sem explicacao do agente" na ata'] if missing else []
-    return res, warnings
-
-
-def _daily(a, ap):
-    """daily ver|explicar <meeting_id>: the agent's part in the project daily (Planou PLN0127). `ver` shows the meeting
-    and the cached event (the blocked tasks); `explicar` sends one line per blocked task in ONE call, with the cost and
-    the tokens of the turn (a resend replaces; the last agent called closes the daily, so never one pid per call)."""
-    sub, mid = (a.arg + ['', ''])[:2]
-    if sub not in ('ver', 'explicar') or not mid:
-        ap.error('use: daily ver <meeting_id>; daily explicar <meeting_id> --text <json> (ou --text - do stdin) '
-                 '[--cost-usd N] [--tokens N]')
-    try:
-        if sub == 'ver':
-            _, res = _call('GET', f'/agent/ceremonies/{urllib.parse.quote(mid)}')
-            print(json.dumps({**res, 'cached': ceremony(mid)}, ensure_ascii=False, indent=1))
-            return 0
-        use = ('daily explicar <meeting_id> --text \'{"explanations": [{"pid": "ABC0001", "text": "..."}], '
-               '"cost_usd": 0.01, "tokens": 1800}\'')
-        try:
-            body, warnings = daily_explanations(mid, _json_arg(a.text, ap, use), a.cost_usd, a.tokens)
-        except PlanouError as e:
-            ap.error(f'{e.message} (use: {use})')
-        for w in warnings: print(f'AVISO (planou): {w}', file=sys.stderr)
-        _, res = _call('POST', f'/agent/ceremonies/{urllib.parse.quote(mid)}/contributions', body)
-        print(json.dumps(res, ensure_ascii=False))
-        n = len(body['explanations'])
-        print(f'ENVIADAS: {n} explicac{"ao" if n == 1 else "oes"} '
-              f'({"atualizadas" if res.get("result") == "updated" else "registradas"}; reuniao {res.get("status")}).')
-        return 0
-    except PlanouError as e:
-        msg = DAILY_REFUSALS.get(e.code) or CEREMONY_REFUSALS.get(e.code)
-        if msg:
-            print(msg.replace('{m}', e.message) + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''))
-            return 3
-        print(f'AVISO (planou): {e.message}' + (f' Campos: {", ".join(e.fields)}.' if e.fields else ''), file=sys.stderr)
-        return 1
-
-
 def _worker_start_cli(tasks, a):
     try:
         key, warning = worker_start(tasks, a.role, a.label)
@@ -6576,7 +5981,7 @@ def main(argv=None):
     ap.add_argument('cmd', choices=['key', 'status', 'active', 'heartbeat', 'poll', 'cursor-commit', 'ack-delivered', 'ack',
                                     'events', 'draft', 'approval', 'decision', 'pergunta', 'alert', 'cancel', 'result', 'tarefa',
                                     'fila', 'tools', 'anexo', 'attach', 'pronta', 'autonomia', 'sugestao',
-                                    'retro', 'refino', 'daily', 'worker', 'comentario'])
+                                    'worker', 'comentario'])
     ap.add_argument('arg', nargs='*')
     ap.add_argument('--next-heavy', help='epoch of the next heavy tick (poll, heartbeat)')
     ap.add_argument('--poll-s', type=int, help='light loop interval, sent with the poll')
@@ -6618,7 +6023,7 @@ def main(argv=None):
     ap.add_argument('--estimate-h', help='fila: estimate in hours (with started, or fila tempo)')
     ap.add_argument('--remaining-h', help='fila: hours left (every step; done without it sends 0)')
     ap.add_argument('--role', help='fila worker: dev or integrator; fila worker-start: also other')
-    ap.add_argument('--tokens', help='fila worker: the subagent tokens; daily explicar: the tokens of the turn')
+    ap.add_argument('--tokens', help='fila worker: the subagent tokens')
     ap.add_argument('--steps', help='fila worker: tool uses of the worker')
     ap.add_argument('--duration-ms', help='fila worker: how long the worker ran, in ms')
     ap.add_argument('--result', help='fila worker, worker end: feito, parcial or falhou')
@@ -6646,7 +6051,6 @@ def main(argv=None):
     ap.add_argument('--resolution', help='tarefa concluir: done (default), no_action or discarded')
     ap.add_argument('--completed-at', help='tarefa nova|concluir: when the work really closed (YYYY-MM-DD or ISO 8601; '
                                            'not in the future, up to 30 days back); tarefa nova: implies --done')
-    ap.add_argument('--cost-usd', type=float, help='retro votar, daily explicar: the cost, in USD (optional)')
     a = ap.parse_args(argv)
     if a.cmd == 'sugestao':
         from . import suggestions
@@ -6698,12 +6102,6 @@ def main(argv=None):
         return _worker(a, ap)
     if a.cmd == 'comentario':
         return _comentario(a, ap)
-    if a.cmd == 'retro':
-        return _retro(a, ap)
-    if a.cmd == 'refino':
-        return _refino(a, ap)
-    if a.cmd == 'daily':
-        return _daily(a, ap)
     if a.cmd == 'autonomia':
         print(autonomy() or 'desconhecida (sem projeto, Planou desligado ou antigo): vale semi_autonomous')
         return 0

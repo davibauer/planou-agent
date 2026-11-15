@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.114.10 (2026-11-15)
+- O lado do agente das Cerimônias do Planou saiu, junto com as Cerimônias no próprio Planou (PLN0795): a retro, o refinamento do backlog e a daily do projeto. Saíram os comportamentos `retrospective`, `backlog-refinement` e `daily`, os comandos `retro`, `refino` e `daily` (e a opção `--cost-usd`, que só eles usavam), as linhas `-- CERIMONIA` e `-- ESCOPO` e as capacidades `ceremony` e `ceremony_daily` do heartbeat. Nenhuma cerimônia chegou a ser usada, então nada muda no trabalho de hoje.
+- Instância que ainda liste um desses comportamentos (ou os nomes antigos `retro` e `refinement`) continua rodando: o nome fica de fora e o `--validate` só avisa para tirar de `behaviors` e de `behavior_config`. A `daily-standup` (a daily do próprio agent na página do dia) e o `fila refinar` continuam como estão.
+
 ## 0.114.9 (2026-11-11)
 - Confidencialidade Mínimo em vigor (na tela do funcionário ou no config) também fora da linha de comando. O pedido "Renove a credencial" sobe com título neutro ("Renove uma credencial do agente" com um código curto) e só diz o que houve e o próximo passo, sem o nome da ferramenta, o conserto e o impacto escritos no config. O registro da rotação do token do GitLab sobe com o título neutro dos pedidos da linha de comando ("Decidi: pergunta do agente" com um código curto), sem a ferramenta, a data de vencimento e o caminho do arquivo novo, que ficam na saída do tick. Resumo e Detalhe não mudam.
 

@@ -101,23 +101,6 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     ou de papel que este agente fez; o `-- APROVADO ap-N ... -> proposta` da mesma não pede nada (quem aplica é o
     Planou). Comportamento `flow-metrics`, passo 4.
   - `PLANOU: <PID> concluida|reaberta pelo usuario`: só registro; mencionar se mudar algo em andamento.
-  - `-- CERIMONIA retro #N de <sigla>: contribuicao ate HH:MM` (convidado), `-- CERIMONIA VOTO ...` (convidado, só
-    na retro com votação) e `-- CERIMONIA ATA ...` (facilitador): a retro do projeto no Planou. Seguir
-    `behaviors/retrospective/BEHAVIOR.md` (vale sem ligar no config): contribuição a partir dos próprios dados com `retro
-    dados`/`retro contribuir`, voto com `retro ver`/`retro votar <reunião> <item_id> ...`, ata com `retro ver`/`retro
-    ata`, sempre citando PIDs reais.
-  - `-- CERIMONIA refinement #N de <sigla>: sugestoes ate HH:MM` (convidado) e `-- CERIMONIA LISTA refinement ...`
-    (facilitador): o refinamento do backlog do projeto no Planou. Seguir `behaviors/backlog-refinement/BEHAVIOR.md` (vale sem
-    ligar no config): `refino ver`, sugestões de estimativa, quebra, selo e pergunta de escopo com o motivo por
-    `refino sugerir` e a lista final por `refino lista`; nada muda na tarefa antes de o usuário aprovar (a tela de
-    Cerimônias saiu do Planou na PLN0441 e hoje não há onde aprovar a lista). A resposta da pergunta chega
-    como `-- ESCOPO <PID> respondida`: o próprio Planou registra a resposta como comentário e devolve a tarefa para A
-    fazer; o agente não comenta nem move de novo.
-  - `-- CERIMONIA daily #N de <sigla>: explicar N tarefas Impedidas ate HH:MM` (com uma linha por tarefa logo abaixo):
-    a daily do projeto no Planou, cuja ata sai dos dados; o agente só explica as tarefas dele que estão Impedidas.
-    Seguir `behaviors/daily/BEHAVIOR.md` (vale sem ligar no config; o heartbeat declara `ceremony_daily`): uma linha
-    por tarefa a partir da nota do bloqueio e do pedido aberto, sem worker, e tudo numa chamada só por `daily explicar
-    <reunião> --text -` com o custo e os tokens do turno; `daily ver` mostra o evento inteiro.
 - **`== PAPEL MUDOU (n)`**: a pessoa editou o papel na aba Papel do Planou e o runner já aplicou (gravou, validou e
   respondeu ao Planou). Reler agora o que cada linha `-- ...: aplicada -> reler <arquivo>` diz (o `instructions.md`, o
   `CONTEXT.md`, as opções em `"behavior_config"` do `config.json`, ou `agent.py <instância> --load` e o `BEHAVIOR.md` de

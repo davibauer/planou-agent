@@ -17,7 +17,7 @@ Não escreve código, não faz entrega, não mexe na fila dos outros agentes. `S
 Opções em `behavior_config.flow-metrics`:
 - `project`: o projeto medido (padrão: o `planou.project` da instância);
 - `deploys_log`: o log de deploys do release em lote, para o tamanho do lote (ex.: `~/.config/planou/deploys.log`); só as linhas de deploy contam, e as voltas de versão e os alertas de saúde do deploy aparecem à parte no relatório;
-- `report_weekday`: dia do resumo semanal, 0 = segunda (padrão 4, sexta, antes da retro);
+- `report_weekday`: dia do resumo semanal, 0 = segunda (padrão 4, sexta);
 - `report_hour`: hora do resumo (padrão 16);
 - `skip`: estados do catálogo que não viram proposta (ex.: `["todo"]` enquanto uma mudança de WIP ainda está sendo
   medida);
@@ -79,10 +79,7 @@ um JSON no mesmo formato. O que ele mede, das tarefas concluídas como feitas no
      pede nada: quem aplica é o Planou. Proposta ainda aberta na semana seguinte: não repetir; o `--followup` mostra `AGUARDANDO`.
 5. **Resumo semanal** para a sessão e para a Conversa do Planou, curto: o período e o aviso de dados (histórico curto
    ou reconstruído), lead time (mediana e p85), o gargalo com os 3 casos, as propostas (título, tipo, métrica e base) e
-   o efeito das anteriores. A proposta que não funcionou fica marcada no resumo e na tarefa dela (comentário), como na
-   retro.
-6. **Retro do projeto** (PLN0126, PLN0129): o coordenador é o facilitador. Levar o relatório da semana e o efeito das
-   ações da retro anterior; as ações da retro entram no mesmo registro (`--record`) para serem medidas na seguinte.
+   o efeito das anteriores. A proposta que não funcionou fica marcada no resumo e na tarefa dela (comentário).
 
 ## Ajustes de parâmetro e de papel
 

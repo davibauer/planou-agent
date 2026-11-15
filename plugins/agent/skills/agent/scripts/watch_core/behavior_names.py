@@ -11,8 +11,6 @@ BEHAVIOR_ALIASES = {
     # PLN0295
     'planou-queue': 'task-queue',
     'dev-worker': 'delegate-to-worker',
-    'refinement': 'backlog-refinement',
-    'retro': 'retrospective',
     'qa': 'acceptance-testing',
     'product': 'backlog-planning',
     'process-coach': 'flow-metrics',
@@ -24,6 +22,17 @@ BEHAVIOR_ALIASES = {
     'work-watch': 'work-triage',
     'job-scout': 'job-search',
     'travel-agent': 'flight-price-watch',
+}
+
+
+# Behaviors that left the plugin: name (current or old) -> why, for the --validate warning. An instance that still lists
+# one keeps running: schema.normalize drops it from "behaviors" and "behavior_config" and --validate only warns
+# (PLN0796: the project ceremonies left Planou in PLN0795, and with them the retro, the refinement and the project daily).
+CEREMONIES_GONE = 'as Cerimonias do projeto sairam do Planou (PLN0795)'
+REMOVED_BEHAVIORS = {
+    'retrospective': CEREMONIES_GONE, 'retro': CEREMONIES_GONE,
+    'backlog-refinement': CEREMONIES_GONE, 'refinement': CEREMONIES_GONE,
+    'daily': CEREMONIES_GONE,
 }
 
 
