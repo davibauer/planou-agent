@@ -171,7 +171,7 @@ def client_terms(agent, cfg=None):
 
 def instance_names():
     """Every work-watch instance on this machine is named after a client: ~/.config/agent/work-watch-<x> and
-    ~/.config/work-watch/<x>. Any agent (the weekly retro reads them all) must not write those names."""
+    ~/.config/work-watch/<x>. Any agent must not write those names."""
     out = set()
     base = config.agent_base()
     try: out.update(n[len('work-watch-'):] for n in os.listdir(base) if n.startswith('work-watch-'))

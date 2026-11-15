@@ -16,7 +16,7 @@ O que fica aqui (e so aqui):
   secoes antigas com o nome curto (acme, linkedin) continuam valendo na leitura;
 - as regras gerais que valem para todos os agents ficam em rules.md (a licao que nasce num agent e vale para os
   outros entra la, uma vez); a regra especifica de um agent fica nas instrucoes dele;
-- `propostas`: as linhas `[proposta]` ainda abertas de todos os agents (voltam na retro seguinte ate virar
+- `propostas`: as linhas `[proposta]` ainda abertas de todos os agents (voltam na licao seguinte ate virar
   `[aplicada …]` ou `[recusada]`).
 
 Uso pelo codigo de cada agent:

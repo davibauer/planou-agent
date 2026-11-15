@@ -86,7 +86,7 @@ No primeiro tick a partir do fechamento (18:00) de dia útil, o gancho imprime a
 aplicada) e as pistas do dia. Reler o dia na sessão e escrever 3 a 6 itens (dia sem fricção: "nada a mudar"), cada um
 `[aplicada em <onde>]`, `[proposta] <regra, limite e critério de segurança>` (amplia a autonomia: espera o OK),
 `[a aplicar]` ou `[recusada]`. Gravar com `$A --licoes set "<itens>"` e mostrar em até 10 linhas. `--licoes propostas`
-lista as propostas abertas desta instância, reapresentadas em toda retro até virarem aplicada ou recusada.
+lista as propostas abertas desta instância, reapresentadas na lição seguinte até virarem aplicada ou recusada.
 Regras gerais em `~/.config/watch-core/docs/lessons.md`.
 
 ## Custo e tempo por tarefa (gancho `custos`)

@@ -60,7 +60,7 @@ Contexto desta instância do work-watch, separado do estado da máquina (`~/.con
 - `meetings/` — uma pasta por reunião: `YYYY-MM-DD-HHMM-<assunto>/` (`minutes.md`, `transcript.md`, `transcript.json`, `speakers.json`).
 - `artifacts/` — o que o agent gera para você usar ou mandar: `YYYY-MM-DD-<assunto>.<ext>`.
 - `decisions/` — uma decisão por arquivo (ADR): `ADR-NNNN-<assunto>.md`.
-- `journal/` — a daily e a retro do dia em texto: `YYYY-MM-DD.md`.
+- `journal/` — o registro do dia em texto: `YYYY-MM-DD.md`.
 
 Nomes de pastas e arquivos fixos em inglês (padrão técnico); o conteúdo fica no idioma da instância.
 
