@@ -645,6 +645,9 @@ while true; do
   # Chat de sala sem mencao (26/09/2026, aprovado pelo usuario: 8 de 17 acordares de 25/09 eram so' isso): o cabecalho
   # `== CHAT (N msgs novas em M conversas)` e as linhas `+N msgs sem mencao em X` nao acordam; conversa com demanda
   # (`-- Nome (dm|grupo|sala) ...`) continua acordando.
+  # Slack de canal sem mencao (PLN0815: canal de memes e aniversarios acordavam a sessao): a mesma regra para
+  # `== SLACK (N msgs novas em M conversas)` e `+N msgs sem mencao em #x (canal)`; DM, grupo, mencao direta e thread
+  # sua (`-- #x (canal) ...`, `-- Nome (dm) ...`) continuam acordando.
   # "AVISO (planou): ..." sozinho nunca acorda (uma falha do Planou que dura vem como FONTE QUEBRADA (planou))
   # E-mail so' de automaticos (28/09/2026, decisao d-36: uma newsletter acordou a sessao): o cabecalho
   # `== E-MAIL (0 de pessoas, N automaticos)` e as linhas `   · ...` logo abaixo dele nao acordam, como a sala sem mencao.
@@ -665,7 +668,7 @@ while true; do
   fi
   WAKE_FIRST=
   QUIET_HOOKS=(-e '^LUNCH: status ' -e '^PRESENCA: \(away\|auto\) no Slack' -e '^AVISO (sugestoes):' -e '^AVISO (tick):')
-  n=$(acao "$D/tick.tmp" | grep -v -e '^AVISO (teams):' -e '^AVISO (planou):' -e '^[[:space:]]*$' -e '^== CHAT ([0-9]* msgs\{0,1\} novas\{0,1\} em [0-9]* conversas\{0,1\})$' -e '^[[:space:]]*+[0-9]* msgs\{0,1\} sem mencao em ' -e '^== PRESENCA$' -e '^-- APPEAR OFFLINE' -e '^[·-]* *BUSY ligado' -e '^-- daily republicada no Notion' -e '^== GRAVACOES$' -e '^-- \(NAO GRAVADA\|GRAVANDO\|FINALIZANDO\|TRANSCREVENDO\|AGUARDANDO GPU\)' -e '^ *✓ video movido' "${QUIET_HOOKS[@]}" | wc -c)
+  n=$(acao "$D/tick.tmp" | grep -v -e '^AVISO (teams):' -e '^AVISO (planou):' -e '^[[:space:]]*$' -e '^== CHAT ([0-9]* msgs\{0,1\} novas\{0,1\} em [0-9]* conversas\{0,1\})$' -e '^== SLACK ([0-9]* msgs\{0,1\} novas\{0,1\} em [0-9]* conversas\{0,1\})$' -e '^[[:space:]]*+[0-9]* msgs\{0,1\} sem mencao em ' -e '^== PRESENCA$' -e '^-- APPEAR OFFLINE' -e '^[·-]* *BUSY ligado' -e '^-- daily republicada no Notion' -e '^== GRAVACOES$' -e '^-- \(NAO GRAVADA\|GRAVANDO\|FINALIZANDO\|TRANSCREVENDO\|AGUARDANDO GPU\)' -e '^ *✓ video movido' "${QUIET_HOOKS[@]}" | wc -c)
   [ -n "$due" ] && n=$(( n + $(wc -c < "$ROOT/data/retido.json" 2>/dev/null || echo 1) ))
   grep "${QUIET_HOOKS[@]}" "$D/tick.tmp" | sed "s/^/$(date +%FT%T)\t/" >> "$D/avisos.log"
   sem_acordar "$D/tick.tmp" | sed "s/^/$(date +%FT%T)\t/" >> "$D/avisos.log"

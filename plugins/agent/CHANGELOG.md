@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.114.12 (2026-11-16)
+- Fonte slack: mensagem de canal sem menção direta a você e fora de thread sua (aberta por você ou em que você escreveu) vira uma linha só, `+N msgs sem mencao em #canal (canal)`, que não acorda a sessão, como já faz a sala sem menção do Google Chat. DM, grupo, menção direta e resposta em thread sua continuam acordando; @here e @channel contam como canal sem menção.
+- Fonte slack: opção `canais_ignorar` (nomes de canal, com ou sem #) tira o canal inteiro da saída, sem bloco e sem resumo, menções incluídas.
+
 ## 0.114.11 (2026-11-15)
 - Últimos restos de "retro" saíram dos textos do agent (lições, área de trabalho e regras do triage); as propostas abertas voltam na lição do dia.
 

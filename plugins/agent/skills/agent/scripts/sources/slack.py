@@ -6,6 +6,12 @@ search.messages brings DMs, group DMs and every channel the user sees; `after:` 
 The search index lags: the window goes back 5 min before the cursor and what was already shown is dropped by ts
 (state 'vistos').
 
+Channels (PLN0815): a channel message without a direct mention of me (<@me>; @here/@channel/@everyone do not count, as
+in google_chat), outside a thread I started or posted in, does not wake the session: the channel becomes one line
+`   +N msgs sem mencao em #x (canal)`, which the runner does not wake for (runner.sh keeps `== SLACK (...)` and that line
+out of the count). DMs, group DMs, a direct mention and a reply in a thread of mine still print the whole block. The
+threads I posted in are remembered in the state ('threads', last 500) so a later reply in them still counts.
+
 Pending queue ('slack'): a DM, an @mention or a reply in a thread of mine whose last message is not mine. It resolves
 when I send anything in that chat after it (thread replies included) or the chat's last message becomes mine. The item
 keeps the message that triggered it (channel, ts, thread_ts) and its permalink, so the task origin opens that message.
@@ -14,6 +20,7 @@ Config ("fontes": [{"tipo": "slack", ...}]):
   perfil          work-inbox profile name (required)
   teams_chat_dir  where slack_pull.py lives (default: paths.WORK_INBOX, the work-inbox skill of this plugin)
   bots_ignorar    usernames of apps that DM previews/reminders and are never a demand
+  canais_ignorar  channel names (without #) left out entirely: no block and no summary line, mentions included
   max_por_chat    messages shown per chat (default 20)
   lembrar_horas   business hours until the 1st reminder (default 4)
 """
@@ -26,6 +33,7 @@ from adapters import Fonte as Base
 PERFIL = None
 TEAMS_DIR = paths.WORK_INBOX
 BOTS_IGNORAR = set()
+CANAIS_IGNORAR = set()
 MAX_POR_CHAT = 20
 
 
@@ -67,8 +75,14 @@ def tick_slack(s, desde, dry):
     por_chat = {}
     for m in brutas: por_chat.setdefault((m.get('channel') or {}).get('id', '?'), []).append(m)
     meus = {}                              # ts das minhas msgs por chat, inclusive respostas em thread
+    threads = list(st.get('threads') or [])   # 'cid:thread_ts' das threads em que escrevi (desta e de rodadas anteriores)
     for m in brutas:
-        if m.get('user') == me: meus.setdefault((m.get('channel') or {}).get('id', '?'), []).append(float(m['ts']))
+        if m.get('user') != me: continue
+        cid = (m.get('channel') or {}).get('id', '?')
+        meus.setdefault(cid, []).append(float(m['ts']))
+        th = re.search(r'thread_ts=(\d+\.\d+)', m.get('permalink') or '')
+        if th and f'{cid}:{th.group(1)}' not in threads: threads.append(f'{cid}:{th.group(1)}')
+    participo = set(threads)
     pais = {}
     def autor_pai(cid, ts):
         if (cid, ts) not in pais:
@@ -84,7 +98,8 @@ def tick_slack(s, desde, dry):
         c = nomes.get(cid) or {}
         if ch.get('is_im'): nome, tipo = sp.nome_user(ch.get('user') or c.get('nome') or '?', users), 'dm'
         elif ch.get('is_mpim'): nome, tipo = c.get('nome') or 'grupo', 'grupo'
-        else: nome, tipo = '#' + (ch.get('name') or c.get('nome', cid).lstrip('#')), 'canal'
+        else: nome, tipo = '#' + (ch.get('name') or c.get('nome', cid)).lstrip('#'), 'canal'
+        if tipo == 'canal' and nome[1:] in CANAIS_IGNORAR: continue
         msgs = []
         for m in ms:
             th = re.search(r'thread_ts=(\d+\.\d+)', m.get('permalink') or '')
@@ -92,15 +107,18 @@ def tick_slack(s, desde, dry):
             msgs.append({'id': m['ts'], 'thread_ts': th.group(1) if th else None, 'quando': datetime.fromtimestamp(float(m['ts']), timezone.utc).isoformat(),
                          'de': sp.nome_user(m['user'], users) if m.get('user') else (m.get('username') or '?'), 'eu': m.get('user') == me,
                          'texto': texto, 'mencao': f'<@{me}>' in (m.get('text') or ''),
-                         'thread_minha': bool(th) and autor_pai(cid, th.group(1)) == me, 'url': m.get('permalink')})
+                         'thread_minha': bool(th) and (f'{cid}:{th.group(1)}' in participo or autor_pai(cid, th.group(1)) == me),
+                         'url': m.get('permalink')})
         ultimo_meu = msgs[-1]['eu']
         mencao = any(x['mencao'] and not x['eu'] for x in msgs)
         thread_minha = any(x['thread_minha'] and not x['eu'] for x in msgs)
+        # canal sem mencao direta e fora de thread minha: so a linha de resumo, que nao acorda (PLN0815)
+        resumo = tipo == 'canal' and not (mencao or thread_minha)
         out.append({'chat': nome, 'id': cid, 'tipo': tipo, 'respondido': ultimo_meu, 'mencao': mencao, 'thread_minha': thread_minha,
-                    'msgs': msgs[-MAX_POR_CHAT:], 'omitidas': max(0, len(msgs) - MAX_POR_CHAT)})
+                    'resumo': resumo, 'total': len(msgs), 'msgs': msgs[-MAX_POR_CHAT:], 'omitidas': max(0, len(msgs) - MAX_POR_CHAT)})
     if not dry: compartilhado.guarda_chats(out)   # links que pessoas mandaram -> <workspace>/messages/shared
-    # ordem: DMs, mencoes e respostas nas suas threads sem resposta primeiro; canais ja respondidos por ultimo
-    out.sort(key=lambda c: (c['respondido'], not (c['mencao'] or c['thread_minha'] or c['tipo'] == 'dm'), c['msgs'][-1]['quando']))
+    # ordem: DMs, mencoes e respostas nas suas threads sem resposta primeiro; canais ja respondidos e resumos por ultimo
+    out.sort(key=lambda c: (c['resumo'], c['respondido'], not (c['mencao'] or c['thread_minha'] or c['tipo'] == 'dm'), c['msgs'][-1]['quando']))
     resolvidas = []
     if not dry:
         # resolve: mandei qualquer msg no chat depois da pendencia (inclusive em thread — a busca traz as respostas
@@ -126,6 +144,7 @@ def tick_slack(s, desde, dry):
             url = permalinks.slack(sp.tp.cfg().get('slack_url'), c['id'], ult['id'], ult.get('thread_ts')) or ult.get('url')
             permalinks.guarda(p, url, ult['quando'], channel=c['id'], ts=ult['id'], thread_ts=ult.get('thread_ts'))
         st['cursor'] = agora.isoformat()
+        st['threads'] = threads[-500:]
         st['vistos'] = (list(vistos) + [m['ts'] for m in brutas])[-2000:]
     return {'baseline': False, 'chats': out, 'resolvidas': resolvidas}
 
@@ -135,8 +154,10 @@ def imprime_slack(r):
     if r['baseline']:
         print('== SLACK: cursor plantado agora (primeira rodada); a proxima mostra o que chegar depois.'); return True
     if not r['chats']: return False
-    print(f'== SLACK ({sum(len(c["msgs"]) for c in r["chats"])} msgs novas em {len(r["chats"])} conversas)')
+    print(f'== SLACK ({sum(c.get("total", len(c["msgs"])) for c in r["chats"])} msgs novas em {len(r["chats"])} conversas)')
     for c in r['chats']:
+        if c.get('resumo'):
+            print(f'   +{c["total"]} msgs sem mencao em {c["chat"]} (canal)'); continue
         estado = 'ultima msg e sua' if c['respondido'] else 'SEM RESPOSTA SUA'
         extra = (' · MENCIONA VOCE' if c['mencao'] else '') + (' · RESPONDE SUA THREAD' if c['thread_minha'] else '')
         print(f'-- {c["chat"]} ({c["tipo"]}) · {estado}{extra}')
@@ -156,10 +177,11 @@ class Fonte(Base):
     conserto = 'Slack down — refresh the session token (slack_pull.py --token --cookie, work-inbox skill)'
 
     def configura(self):
-        global PERFIL, TEAMS_DIR, BOTS_IGNORAR, MAX_POR_CHAT
+        global PERFIL, TEAMS_DIR, BOTS_IGNORAR, CANAIS_IGNORAR, MAX_POR_CHAT
         PERFIL = self.cfg.get('perfil') or sys.exit('slack: "perfil" faltando no config.json')
         TEAMS_DIR = paths.expande(self.cfg['teams_chat_dir']) if self.cfg.get('teams_chat_dir') else paths.WORK_INBOX
         BOTS_IGNORAR = set(self.cfg.get('bots_ignorar') or [])
+        CANAIS_IGNORAR = {str(n).lstrip('#') for n in self.cfg.get('canais_ignorar') or []}
         MAX_POR_CHAT = int(self.cfg.get('max_por_chat', 20))
 
     def tick(self, s, desde, dry): return tick_slack(s, desde, dry)
