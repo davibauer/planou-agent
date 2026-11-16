@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.15 (2026-11-16)
+- A janela do funcionário, quando ele é desligado pelo Planou, agora diz "Voce desligou <nome> pelo Planou", sem concordar o gênero com o nome.
+
 ## 0.114.14 (2026-11-16)
 - A resposta do agente a uma mensagem que a pessoa mandou pelo chat do Planou não entra mais recolhida em "voltas sem nada novo": "Runner reiniciado." ou "nada a fazer", em resposta a um pedido seu, aparece como resposta normal. A acordada que traz a mensagem é reconhecida pela linha `-- MENSAGEM do usuario pelo Planou` que a sessão lê na saída do runner; as voltas sem mensagem seguem recolhidas como antes.
 

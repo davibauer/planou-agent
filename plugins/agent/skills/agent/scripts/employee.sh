@@ -176,7 +176,7 @@ while :; do
       rm -f "$RESTART"
       echo; echo ">> claude saiu ($why)"
       case "$why" in
-        pausado*) echo "== $m foi pausado pelo Planou. Para religar: Ligar na pagina do funcionario, ou rode de novo este comando.";;
+        pausado*) echo "== Voce desligou $m pelo Planou. Para religar: Ligar na pagina do funcionario, ou rode de novo este comando.";;
         *) echo "== $m nao roda mais neste computador ($why). Esta janela pode ser fechada.";;
       esac
       exit 0;;
