@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.14 (2026-11-16)
+- A resposta do agente a uma mensagem que a pessoa mandou pelo chat do Planou não entra mais recolhida em "voltas sem nada novo": "Runner reiniciado." ou "nada a fazer", em resposta a um pedido seu, aparece como resposta normal. A acordada que traz a mensagem é reconhecida pela linha `-- MENSAGEM do usuario pelo Planou` que a sessão lê na saída do runner; as voltas sem mensagem seguem recolhidas como antes.
+
 ## 0.114.13 (2026-11-16)
 - Conversa do Planou: o resumo de turno que só diz que o runner foi relançado ou reiniciado ("Runner relançado.", "Relancei o runner", "runner reiniciado, nada a fazer") entra recolhido, como os resumos sem novidade. Se o resumo traz qualquer outra coisa ("Relancei o runner e abri a tarefa"), continua visível.
 

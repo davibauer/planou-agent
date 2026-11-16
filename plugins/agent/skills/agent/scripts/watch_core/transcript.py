@@ -259,9 +259,28 @@ def _tool_label(block):
     return ' '.join(str(inp.get('description') or inp.get('prompt') or block.get('name') or '').split())[:120]
 
 
+# A message the person sent through Planou's chat (PLN0833). The runner prints it as `-- MENSAGEM do usuario pelo Planou
+# (HH:MM): ...` (`(?)` when the time is missing) in the output that wakes the session, but the task notification only
+# names that output file: the line reaches the transcript in the tool result of the session reading the file (`cut`,
+# `cat`, Read with its line numbers).
+# Only at the start of a line, so the skill text and a grep of the scripts that quote it do not count.
+PLANOU_MESSAGE_RE = re.compile(r'^(?:[ \t]*\d+(?:\t|→))?' + re.escape(planou.MESSAGE_PREFIX) + r' \((?:\d{1,2}:\d{2}|\?)\):', re.M)
+
+
+def _results_of(content):
+    """The text of the tool results of a user entry ('' when it has none)."""
+    out = []
+    for x in content if isinstance(content, list) else []:
+        if not isinstance(x, dict) or x.get('type') != 'tool_result': continue
+        c = x.get('content')
+        out.append(c if isinstance(c, str) else _text_of(c))
+    return '\n'.join(out)
+
+
 def parse(entries):
     """Turns of [(offset, entry)]: [{'offset', 'kind', 'opening', 'start', 'end', 'closed', 'duration_ms', 'answers'
-    (message id -> (model, counters)), 'order' (ids), 'texts' [(uuid, ts, text, narration)], 'ops'}]."""
+    (message id -> (model, counters)), 'order' (ids), 'texts' [(uuid, ts, text, narration)], 'ops', 'planou_message'
+    (the session read a message of the person sent through Planou during the turn)}]."""
     out, cur = [], None
     for off, e in entries:
         kind = opener(e)
@@ -269,10 +288,13 @@ def parse(entries):
             if cur: cur['closed'] = True
             cur = {'offset': off, 'kind': kind, 'opening': e, 'start': _ts(e), 'end': _ts(e), 'closed': False,
                    'duration_ms': None, 'answers': {}, 'order': [], 'texts': [],
-                   'ops': {'commands': 0, 'files_read': 0, 'background': []}}
+                   'ops': {'commands': 0, 'files_read': 0, 'background': []}, 'planou_message': False}
             out.append(cur)
             continue
         if cur is None or cur['closed']: continue
+        if e.get('type') == 'user' and not e.get('isSidechain') and PLANOU_MESSAGE_RE.search(_results_of(_content(e))):
+            cur['planou_message'] = True                   # the session read a message the person sent through Planou
+            continue
         if e.get('type') == 'system' and e.get('subtype') == 'turn_duration':
             cur['closed'] = True
             cur['duration_ms'] = e.get('durationMs')
@@ -362,7 +384,7 @@ def agent_message(turn, session):
     last = [t for t in turn['texts'] if not t[3]] or turn['texts']
     if needs_action(text): kind = 'needs_action'
     elif WARNING_RE.search(text): kind = 'warning'
-    elif turn['kind'] in ('human', 'peer'): kind = 'reply'
+    elif turn['kind'] in ('human', 'peer') or turn.get('planou_message'): kind = 'reply'   # never folded as quiet
     else: kind = 'tick_summary'
     quiet = kind == 'tick_summary' and len(text) <= 400 and bool(QUIET_RE.search(text) or relaunch_only(text))
     dur = turn['duration_ms']
