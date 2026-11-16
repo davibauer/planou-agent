@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.13 (2026-11-16)
+- Conversa do Planou: o resumo de turno que só diz que o runner foi relançado ou reiniciado ("Runner relançado.", "Relancei o runner", "runner reiniciado, nada a fazer") entra recolhido, como os resumos sem novidade. Se o resumo traz qualquer outra coisa ("Relancei o runner e abri a tarefa"), continua visível.
+
 ## 0.114.12 (2026-11-16)
 - Fonte slack: mensagem de canal sem menção direta a você e fora de thread sua (aberta por você ou em que você escreveu) vira uma linha só, `+N msgs sem mencao em #canal (canal)`, que não acorda a sessão, como já faz a sala sem menção do Google Chat. DM, grupo, menção direta e resposta em thread sua continuam acordando; @here e @channel contam como canal sem menção.
 - Fonte slack: opção `canais_ignorar` (nomes de canal, com ou sem #) tira o canal inteiro da saída, sem bloco e sem resumo, menções incluídas.

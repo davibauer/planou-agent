@@ -49,6 +49,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 
 from . import config, fileio, planou, turns
@@ -307,6 +308,17 @@ REF_STOP = {'UTF', 'ISO', 'SHA', 'RFC', 'CVE', 'MD', 'TLS', 'SSL', 'HTTP', 'IPV'
             'RSA', 'CP', 'WIN', 'US', 'BR', 'EN', 'PT', 'GMT', 'UTC'}
 QUIET_RE = re.compile(r'nada (mais )?(de )?nov|nada para (voc|fazer)|sem nada para|nada a fazer|sem novidade|nada relevante|'
                       r'rodando normalmente|nothing new|nothing for you', re.I)
+# A summary that only says the runner was relaunched (PLN0830): it needs a relaunch verb next to "runner" and, once the
+# relaunch, the routine-cycle remarks and the no-news phrases are taken out, no word outside RELAUNCH_FILLER may be
+# left, and it may not name a task. "Relancei o runner e abri a PLN0900" keeps "abri" and "pln0900", so it stays visible.
+RELAUNCH_RE = re.compile(r'\b(relanc|reinici|relig)(ad[oa]|ei|ou|uei)\b')
+RELAUNCH_STRIP_RE = re.compile(r'\brunner d[aoe] [\w.-]+|\b\d{1,2}[:h]\d{2}\b|\b\d+ ?min(utos)?\b|'
+                               r'\bsem (trazer )?nada( de)?( novo)?|\bnada (de )?novo|\bsem (novidades?|conteudo|tick)\b|'
+                               r'\bnao (trouxe|tem|ha|teve) nada( de)?( novo)?|\bde novo\b')
+RELAUNCH_FILLER = set('''o a os as um uma e de do da dos das dele em no na ja so foi era que tinha essa esse esta este mais vez
+    outra novamente agora depois apos runner relancado relancada relancei relancou reiniciado reiniciada reiniciei
+    reiniciou religado religada religuei religou voltou volta rodar rodando normalmente background ciclo normal rotina
+    vazio fim fechou fechado encerrou encerrado terminou terminado acordada saida anterior tick para'''.split())
 WARNING_RE = re.compile(r'\bAVISO\b|FONTE QUEBRADA|\berro\b|\berror\b|falhou|falha\b|vencid|atrasad|⚠', re.I)
 
 
@@ -316,6 +328,18 @@ def task_refs(text):
         if '-' in m and m.split('-')[0] in REF_STOP: continue
         if m not in seen: seen.append(m)
     return seen[:20]
+
+
+def _plain(text):
+    return ''.join(c for c in unicodedata.normalize('NFKD', text.lower()) if not unicodedata.combining(c))
+
+
+def relaunch_only(text):
+    """True when the summary says nothing but that the runner was relaunched or restarted (PLN0830)."""
+    plain = _plain(text or '')
+    if 'runner' not in plain or not RELAUNCH_RE.search(plain) or task_refs(text): return False
+    words = re.findall(r'[a-z0-9]+', RELAUNCH_STRIP_RE.sub(' ', plain))
+    return all(w in RELAUNCH_FILLER for w in words)
 
 
 def needs_action(text):
@@ -340,7 +364,7 @@ def agent_message(turn, session):
     elif WARNING_RE.search(text): kind = 'warning'
     elif turn['kind'] in ('human', 'peer'): kind = 'reply'
     else: kind = 'tick_summary'
-    quiet = kind == 'tick_summary' and len(text) <= 400 and bool(QUIET_RE.search(text))
+    quiet = kind == 'tick_summary' and len(text) <= 400 and bool(QUIET_RE.search(text) or relaunch_only(text))
     dur = turn['duration_ms']
     secs = int(dur / 1000) if isinstance(dur, (int, float)) else int(((turn['end'] or turn['start']) - turn['start']).total_seconds())
     ops = {'duration_s': max(0, secs), 'commands': turn['ops']['commands'], 'files_read': turn['ops']['files_read'],
