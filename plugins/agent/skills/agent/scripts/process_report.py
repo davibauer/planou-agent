@@ -5,7 +5,6 @@ with real cases, the other flow numbers and at most 3 proposals, each with the m
   python3 process_report.py <instance> [--project KEY] [--days 7 | --from AAAA-MM-DD --to AAAA-MM-DD]
                             [--from-file flow.json] [--deploys-log PATH] [--json]
                             [--plan-out plan.json] [--record] [--followup]
-  python3 process_report.py <instance> --propose plan.json
 
 Data: Planou's GET /v1/agent/projects/{key}/flow (the instance's key; a read, so it works in test mode too) or, with
 `--from-file`, a JSON of the same shape (an older Planou without the route, a dry run, the tests). Optional: the deploys
@@ -32,28 +31,19 @@ Proposals: at most 3 (`--skip STATE` leaves out an entry, e.g. a change already 
 instead), from a fixed catalog keyed by the heaviest states and by rework and partial deliveries; each has
 `kind` (`param`: a low-risk parameter with the value to apply and the one to go back to; `task`: a backlog task;
 `role`: a rule or role change, which goes to the person), the metric and the direction it should move.
-- `--plan-out F` writes a `scripts/backlog.py` plan: the `task` proposals under "tasks" (with the agent seal) and the
-  `param` and `role` ones under "proposals", for `--propose`;
-- `--propose F` (Planou 0.53.0, only with `"live": true`; test mode prints what it would send) sends each entry of
-  "proposals" with POST /v1/agent/proposals: the person approves it with one click in Precisa de você and Planou applies
-  it, with a record and Desfazer. A `param` needs an absolute `value` (the release rules come with it; the dev's "Ao
-  mesmo tempo" has no route to read, so the coordinator writes today's value + 1) and the agent
-  (`behavior_config.flow-metrics.dev_agent` or "agent" in the plan); a `role` proposes the target agent's whole
-  instructions.md (the file on this machine plus the rule, with its sha256). A proposal Planou refuses (422 validation,
-  404, 403, a Papel 409 such as `not_reported`) or that cannot be built here goes back to the old way: a `Decidir:` task
-  in the plan's "tasks", with an AVISO; `422 unchanged` (already the value) is only said. The plan is rewritten with
-  what was sent ("sent": proposal_id, ask_code, status, before, after) and the record gets the proposal id, so a rerun
-  never sends twice (Planou's idempotency key also returns the same proposal);
+- `--plan-out F` writes a `scripts/backlog.py` plan, everything under "tasks": a `task` proposal as a task (with the
+  agent seal); a `param` or `role` one as a `Decidir:` task, since the person decides and applies it (the agent it
+  touches, `behavior_config.flow-metrics.dev_agent`, is named in the text). Planou's agent proposals route (Planou
+  0.53.0) left with PLN0869/PLN0870: nothing is sent to Planou from here;
 - `--record` keeps the proposals with the metric's baseline in data/coach_proposals.json (not in test mode);
 - `--followup` compares each recorded proposal older than 6 days with this week's value and marks it `funcionou` or
-  `nao funcionou` (moved less than 10% in the expected direction); with `--record` the marks are saved. A proposal sent
-  to Planou is read first (GET /v1/agent/proposals/{id}): only an applied one is measured; rejected, withdrawn, failed
-  or reverted ones are marked as such, and one still open waits.
+  `nao funcionou` (moved less than 10% in the expected direction); with `--record` the marks are saved. An old record
+  of a proposal sent to Planou and never answered is marked `retirada` (the route is gone), not measured.
 
-Output: the report in pt-BR (or the analysis as JSON with `--json`). Exit 0 ok, 1 no data (Planou off or refused; with
-`--propose`, Planou unreachable), 2 bad arguments or file.
+Output: the report in pt-BR (or the analysis as JSON with `--json`). Exit 0 ok, 1 no data (Planou off or refused), 2 bad
+arguments or file.
 """
-import argparse, hashlib, json, os, re, statistics, sys
+import argparse, json, os, re, statistics, sys
 from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -377,7 +367,6 @@ CATALOG = {
                 'Volta: 30 min.',
         'why': 'A maior parte do lead time das entregas é a PR pronta esperando a revisão e o lote.',
         'param': {'name': 'release.max_wait_min', 'to': 15, 'back': 30},
-        'proposal': {'param': 'release_max_wait_min', 'value': 15},
         'metric': 'stage_in_review_median_h', 'direction': 'down'},
     'todo': {
         'kind': 'param', 'code': 'wip-dev',
@@ -385,7 +374,6 @@ CATALOG = {
         'what': 'Aba Fila do dev: "Ao mesmo tempo" +1 (até 8), por uma semana. Volta: o valor de hoje.',
         'why': 'As tarefas prontas passam mais tempo na fila (A fazer) do que em qualquer outro estado.',
         'param': {'name': 'queue.wip', 'to': '+1', 'back': 'atual'},
-        'proposal': {'param': 'wip', 'delta': 1},
         'metric': 'stage_todo_median_h', 'direction': 'down'},
     'agent': {
         'kind': 'task', 'code': 'tarefas-menores',
@@ -471,38 +459,31 @@ def propose(a, skip=()):
 
 
 def short_title(title, limit):
-    """At most `limit` characters, cut at a word with "..." (a refused proposal becomes a `Decidir:` task)."""
+    """At most `limit` characters, cut at a word with "..." (a `param` or `role` proposal becomes a `Decidir:` task)."""
     title = ' '.join(str(title).split())
     if len(title) <= limit: return title
     cut = title[:limit - 3].rsplit(' ', 1)[0].rstrip(' ,;:')
     return cut + '...'
 
 
-PROPOSAL_END = {'rejected': 'recusada', 'cancelled': 'retirada', 'failed': 'falhou', 'reverted': 'desfeita'}
-FINAL = ('funcionou', 'nao funcionou') + tuple(PROPOSAL_END.values())
+# the last four: marks of proposals sent to Planou before its proposals route left (PLN0870); never judged again
+FINAL = ('funcionou', 'nao funcionou', 'recusada', 'retirada', 'falhou', 'desfeita')
 
 
-def followup(a, recorded, now, states=None):
-    """`states` ({proposal_id: GET /v1/agent/proposals/{id}}): a proposal sent to Planou is measured only once applied;
-    rejected, withdrawn, failed or reverted ones get that mark, an open one waits."""
-    out, states = [], states or {}
+def followup(a, recorded, now):
+    """Marks each recorded proposal older than 6 days by its metric. A record with a `proposal_id` (sent to Planou's
+    proposals route, gone since PLN0869) and no verdict is marked `retirada`: nothing says it was applied."""
+    out = []
     for p in recorded:
         if p.get('status') in FINAL: continue
         at = parse_ts(p.get('recorded_at'))
         if not at or now - at < FOLLOWUP_AFTER: continue
-        st = states.get(p.get('proposal_id')) if p.get('proposal_id') else None
-        if st:
-            p['proposal_status'] = st.get('status')
-            if st.get('status') == 'open':
-                p['note'] = f'proposta {st.get("ask_code")} ainda sem resposta em Precisa de você'
-                out.append(dict(p, status='aguardando'))
-                continue
-            if st.get('status') in PROPOSAL_END:
-                p['status'] = PROPOSAL_END[st['status']]
-                p['note'] = f'proposta {st.get("ask_code")}' + (f': {st.get("result")}' if st.get('result') else '')
-                p['checked_at'] = now.isoformat()
-                out.append(p)
-                continue
+        if p.get('proposal_id'):
+            p['status'] = 'retirada'
+            p['note'] = f'proposta {p.get("ask_code") or "?"} sem resposta; o Planou não tem mais propostas do agente'
+            p['checked_at'] = now.isoformat()
+            out.append(p)
+            continue
         base, cur = p.get('baseline'), a['metrics'].get(p.get('metric'))
         if base in (None, 0) or cur is None:
             p['status'], p['note'] = 'sem dados', f'base {base}, agora {cur}'
@@ -517,11 +498,11 @@ def followup(a, recorded, now, states=None):
 
 
 def plan_for(a, props, bc=None):
-    """The backlog.py plan: `task` proposals under "tasks"; `param` and `role` ones under "proposals", for --propose
-    (the agent of the "Ao mesmo tempo" and of the Papel: behavior_config.flow-metrics.dev_agent)."""
+    """The backlog.py plan, everything under "tasks": a `task` proposal as a task; a `param` or `role` one as a
+    `Decidir:` task (the person decides and applies it; the agent it touches is behavior_config.flow-metrics.dev_agent)."""
     bc = bc or {}
     week = date.fromisoformat(a['to']).isocalendar()
-    tasks, proposals = [], []
+    tasks = []
     for p in props:
         done = [f'{p["metric"]} {"cai" if p["direction"] == "down" else "sobe"} pelo menos 10% na semana '
                 f'seguinte (base {p["baseline"]})']
@@ -529,181 +510,18 @@ def plan_for(a, props, bc=None):
             tasks.append({'code': p['code'], 'title': p['title'], 'what': p['what'], 'why': p['why'], 'done_when': done,
                           'priority': 'P3', 'decide': False,
                           'agent_can_do': 'mudança de processo pequena, com métrica e volta definidas'})
-            continue
-        e = {'code': p['code'], 'change': p['kind'], 'title': p['title'], 'what': p['what'], 'why': p['why'],
-             'done_when': done, 'metric': p['metric'], 'direction': p['direction'], 'baseline': p['baseline']}
-        pr = p.get('proposal') or {}
-        if p['kind'] == 'param':
-            e['param'] = pr.get('param')
-            if str(pr.get('param', '')).startswith('release_'):
-                e.update(project=a['project'], value=pr.get('value'))
-            else:
-                # no route reads another agent's "Ao mesmo tempo": the coordinator writes today's value + delta here
-                e.update(agent=bc.get('dev_agent'), value=pr.get('value'), delta=pr.get('delta'))
         else:
-            e.update(agent=bc.get('dev_agent'), doc=pr.get('doc') or 'instructions', rule=p['what'])
-        proposals.append(e)
+            tasks.append(decision_task(p, done, bc.get('dev_agent')))
     return {'goal': {'ref': f'coach-{week[0]}-w{week[1]:02d}', 'title': f'Processo {a["project"]}: semana {week[1]}'},
-            'project': a['project'], 'week': a['to'], 'tasks': tasks, 'proposals': proposals}
+            'project': a['project'], 'week': a['to'], 'tasks': tasks}
 
 
-# ---------------------------------------------------------------- proposals in Planou (--propose)
-
-REFUSED = (400, 403, 404, 409, 422)     # Planou will not take it: back to a `Decidir:` task
-ROLE_FILES = {'instructions': 'instructions.md'}
-
-
-class NotProposable(Exception):
-    """The proposal cannot be built on this machine (no value, no agent, the file is not here)."""
-
-
-def proposal_fields(e, plan):
-    """The body of POST /v1/agent/proposals for a plan entry (without change, title and idempotency key)."""
-    arrow = 'cair' if e.get('direction') == 'down' else 'subir'
-    reason = (f'{e.get("why") or ""} {e.get("what") or ""} Métrica: {e.get("metric")} deve {arrow} pelo menos 10% na semana '
-              f'seguinte (base {e.get("baseline")}). {(plan.get("goal") or {}).get("title") or ""}').strip()[:4000]
-    if e.get('change') == 'param':
-        v = e.get('value')
-        if isinstance(v, bool) or not isinstance(v, int):
-            raise NotProposable('sem o valor absoluto: escreva "value" no plano'
-                                + (' (o "Ao mesmo tempo" de hoje + 1)' if e.get('param') == 'wip' else ''))
-        f = {'param': e.get('param'), 'value': v, 'reason': reason}
-        if e.get('param') == 'wip':
-            if not e.get('agent'): raise NotProposable('sem o agente: behavior_config.flow-metrics.dev_agent ou "agent" no plano')
-            f['agent'] = e['agent']
-        elif e.get('param') == 'priority':
-            if not e.get('task'): raise NotProposable('sem a tarefa ("task") da prioridade')
-            f['task'] = e['task']
-        else:
-            f['project'] = e.get('project') or plan.get('project')
-        return f
-    agent, doc = e.get('agent'), e.get('doc') or 'instructions'
-    if not agent: raise NotProposable('sem o agente do papel: behavior_config.flow-metrics.dev_agent ou "agent" no plano')
-    if doc not in ROLE_FILES: raise NotProposable(f'papel "{doc}": só instructions sai daqui')
-    from watch_core import config as C
-    path = os.path.join(C.agent_root(agent), 'config', ROLE_FILES[doc])
-    try:
-        with open(path, 'rb') as fh: raw = fh.read()
-    except OSError:
-        raise NotProposable(f'{ROLE_FILES[doc]} do {agent} não está nesta máquina') from None
-    text = raw.decode('utf-8', 'replace')
-    rule = ' '.join(str(e.get('rule') or e.get('what') or '').split())
-    if not rule: raise NotProposable('sem o texto da regra ("rule")')
-    if rule in ' '.join(text.split()): raise NotProposable('UNCHANGED')
-    content = e.get('content') or f'{text.rstrip()}\n\n## {e.get("title")}\n\n{rule}\n'
-    return {'agent': agent, 'doc': doc, 'name': ROLE_FILES[doc], 'content': content,
-            'base_sha256': hashlib.sha256(raw).hexdigest(), 'reason': reason, **({'task': e['task']} if e.get('task') else {})}
-
-
-def decision_task(e, why):
-    """A refused proposal goes back to the old way: a `Decidir:` task in the Backlog."""
-    return {'code': e['code'], 'title': e['title'],
-            'what': f'{e.get("what") or ""} (A proposta pelo Planou não foi aceita: {why}. Quem aplica é a pessoa.)'.strip(),
-            'why': e.get('why') or '', 'done_when': e.get('done_when') or [], 'priority': 'P3', 'decide': True,
-            'agent_can_do': False}
-
-
-def send_proposals(instance, root, cfg, plan_path, now=None):
-    """--propose: sends the plan's "proposals"; see the module doc. Returns the exit code."""
-    now = now or datetime.now(timezone.utc)
-    try:
-        with open(os.path.expanduser(plan_path), encoding='utf-8') as fh:
-            plan = json.load(fh)
-    except (OSError, ValueError) as e:
-        print(f'ERRO: plano ilegível: {e}', file=sys.stderr)
-        return 2
-    entries = [e for e in plan.get('proposals') or [] if isinstance(e, dict)]
-    todo = [e for e in entries if not e.get('sent') and not e.get('fallback')]
-    if not todo:
-        print('PROPOSTAS: nada a enviar')
-        return 0
-    if cfg.get('live') is not True:
-        for e in todo:
-            print(f'MODO TESTE: proposta {e.get("code")} não enviada ({e.get("change")} '
-                  f'{e.get("param") or e.get("doc") or "?"}): {e.get("title")}')
-        return 0
-    from watch_core import planou as P
-    P.configure_agent(instance)
-    if not P.active():
-        print('ERRO: Planou desligado para esta instância (config ou chave): propostas não enviadas', file=sys.stderr)
-        return 1
-    tasks = plan.setdefault('tasks', [])
-    failed, sent = False, []
-    ref_of = (plan.get('goal') or {}).get('ref') or 'coach'
-    for e in todo:
-        try:
-            fields = proposal_fields(e, plan)
-            res = P.propose(e.get('change'), e.get('title'), ref=f'{ref_of}-{e.get("code")}', **fields)
-        except NotProposable as x:
-            if str(x) == 'UNCHANGED':
-                e['sent'] = {'status': 'unchanged'}
-                print(f'JA ESTA: {e.get("code")}: a regra já está no papel do {e.get("agent")}')
-                continue
-            e['fallback'] = str(x)
-            tasks.append(decision_task(e, str(x)))
-            print(f'AVISO: proposta {e.get("code")} não montada ({x}): vai como Decidir: no Backlog')
-            continue
-        except P.PlanouError as x:
-            if x.status == 422 and x.code == 'unchanged':
-                e['sent'] = {'status': 'unchanged'}
-                print(f'JA ESTA: {e.get("code")}: o Planou já tem esse valor ({x.message})')
-            elif x.status in REFUSED:
-                why = f'{x.status} {x.code}' + (f': {x.message}' if x.message else '')
-                e['fallback'] = why
-                tasks.append(decision_task(e, why))
-                print(f'AVISO: o Planou não aceitou a proposta {e.get("code")} ({why}): vai como Decidir: no Backlog')
-            else:
-                failed = True
-                print(f'ERRO: proposta {e.get("code")} não enviada ({x.status} {x.code}: {x.message}); rodar de novo', file=sys.stderr)
-            continue
-        e['sent'] = {k: res.get(k) for k in ('proposal_id', 'ask_code', 'status', 'before', 'after')}
-        sent.append(e)
-        change = f': {res.get("before")} -> {res.get("after")}' if res.get('before') is not None or res.get('after') is not None else ''
-        print(f'PROPOSTA {res.get("ask_code")} {e.get("code")}{change}: {e.get("title")}'
-              + (' (já existia)' if res.get('reused') else '') + ' -> Precisa de você, Aprovações')
-    from watch_core import fileio
-    fileio.write_json(os.path.expanduser(plan_path), plan, ensure_ascii=False, indent=1)
-    if sent:
-        rec_path = os.path.join(root, 'data', RECORD)
-        try:
-            with open(rec_path, encoding='utf-8') as fh: recorded = json.load(fh)
-        except (OSError, ValueError):
-            recorded = []
-        week = plan.get('week') or ''
-        for e in sent:
-            r = next((x for x in recorded if x.get('code') == e['code'] and x.get('week', '') == week), None)
-            if r is None:
-                r = {'code': e['code'], 'week': week, 'title': e['title'], 'kind': e['change'], 'metric': e.get('metric'),
-                     'direction': e.get('direction'), 'baseline': e.get('baseline'), 'recorded_at': now.isoformat(),
-                     'status': 'aberta', 'param': e.get('param')}
-                recorded.append(r)
-            r.update({'proposal_id': e['sent']['proposal_id'], 'ask_code': e['sent']['ask_code'],
-                      'before': e['sent']['before'], 'after': e['sent']['after']})
-        os.makedirs(os.path.dirname(rec_path), exist_ok=True)
-        fileio.write_json(rec_path, recorded, ensure_ascii=False, indent=1)
-    if tasks and any(e.get('fallback') for e in todo):
-        print(f'PLANO: {len(tasks)} tarefa(s) para o backlog.py (as recusadas viraram Decidir:)')
-    return 1 if failed else 0
-
-
-def proposal_states(instance, recorded):
-    """{proposal_id: GET /v1/agent/proposals/{id}} of the recorded proposals still waiting for a verdict; {} when Planou
-    does not answer (the followup then measures them as before)."""
-    ids = [p['proposal_id'] for p in recorded if p.get('proposal_id') and p.get('status') not in FINAL]
-    if not ids: return {}
-    from watch_core import planou as P
-    try:
-        P.configure_agent(instance)
-    except Exception:
-        return {}
-    if not (P._S.get('base_url') and P._key()): return {}
-    out = {}
-    for i in ids:
-        try:
-            out[i] = P.proposal_state(i)
-        except P.PlanouError:
-            continue
-    return out
+def decision_task(p, done, agent=None):
+    """A parameter or role change is the person's: a `Decidir:` task in the Backlog (backlog.py adds the prefix)."""
+    who = f' Agente: {agent}.' if agent and p['kind'] != 'task' else ''
+    return {'code': p['code'], 'title': p['title'],
+            'what': f'{p.get("what") or ""}{who} Quem aplica é a pessoa; o coordenador mede o efeito na semana seguinte.'.strip(),
+            'why': p.get('why') or '', 'done_when': done, 'priority': 'P3', 'decide': True, 'agent_can_do': False}
 
 
 # ---------------------------------------------------------------- output
@@ -771,8 +589,8 @@ def render(a, props, follow=()):
             L.append(f'  {p.get("status", "?").upper()}: {p.get("title")} ({p.get("note")})')
     L.append('')
     L.append(f'PROPOSTAS ({len(props)}):')
-    kinds = {'param': 'parâmetro, proposta no Planou com Desfazer', 'task': 'tarefa no backlog',
-             'role': 'regra do papel, proposta no Planou com Desfazer'}
+    kinds = {'param': 'parâmetro, Decidir: para a pessoa', 'task': 'tarefa no backlog',
+             'role': 'regra do papel, Decidir: para a pessoa'}
     for i, p in enumerate(props, 1):
         L.append(f'  {i}. {p["title"]} [{kinds[p["kind"]]}]')
         L.append(f'     o que: {p["what"]}')
@@ -824,7 +642,6 @@ def main(argv=None):
     ap.add_argument('--plan-out')
     ap.add_argument('--record', action='store_true')
     ap.add_argument('--followup', action='store_true')
-    ap.add_argument('--propose', metavar='PLAN', help='send the plan\'s param and role proposals to Planou (live only)')
     ap.add_argument('--skip', action='append', default=[], metavar='STATE',
                     help='a catalog entry not to propose (a change already made this week: measure it instead)')
     a = ap.parse_args(argv)
@@ -832,8 +649,6 @@ def main(argv=None):
     root, cfg = instance_config(a.instance)
     from watch_core import behavior_names
     bc = behavior_names.options(cfg, BEHAVIOR)
-    if a.propose:
-        return send_proposals(a.instance, root, cfg, a.propose)
     project = a.project or bc.get('project') or (cfg.get('planou') or {}).get('project')
     if a.from_file:
         try:
@@ -875,7 +690,7 @@ def main(argv=None):
             recorded = json.load(fh)
     except (OSError, ValueError):
         recorded = []
-    follow = followup(an, recorded, now, proposal_states(a.instance, recorded)) if a.followup else []
+    follow = followup(an, recorded, now) if a.followup else []
 
     if a.plan_out:
         with open(os.path.expanduser(a.plan_out), 'w', encoding='utf-8') as fh:

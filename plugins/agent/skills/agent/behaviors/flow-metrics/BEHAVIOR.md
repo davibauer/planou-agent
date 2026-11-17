@@ -21,8 +21,8 @@ Opções em `behavior_config.flow-metrics`:
 - `report_hour`: hora do resumo (padrão 16);
 - `skip`: estados do catálogo que não viram proposta (ex.: `["todo"]` enquanto uma mudança de WIP ainda está sendo
   medida);
-- `dev_agent`: o nome do agente dev do projeto, de quem as propostas mudam o "Ao mesmo tempo" e o papel (sem ele, essas
-  propostas voltam como `Decidir:`).
+- `dev_agent`: o nome do agente dev do projeto, citado na tarefa `Decidir:` que muda o "Ao mesmo tempo" ou o papel
+  dele.
 
 ## De onde vêm os números
 
@@ -47,36 +47,21 @@ um JSON no mesmo formato. O que ele mede, das tarefas concluídas como feitas no
 
 ## Toda semana (`report_weekday`, a partir de `report_hour`)
 
-1. **Mudanças da semana**: ler o log de deploys e as propostas gravadas (`data/coach_proposals.json`; as aplicadas
-   pelo Planou aparecem também em Mudanças aprovadas, no fim de Precisa de você). Uma mudança de
+1. **Mudanças da semana**: ler o log de deploys e as propostas gravadas (`data/coach_proposals.json`). Uma mudança de
    processo que já entrou nesta semana (ex.: WIP maior, regra do lote) é linha de base: medir, não propor de novo
    (`--skip <estado>` para a proposta do catálogo sobre aquilo).
 2. `$PR --followup --plan-out data/coach-<semana>.json [--skip ...]`: o relatório, o efeito das propostas de 7 dias
-   atrás (`FUNCIONOU`, `NAO FUNCIONOU`, `SEM DADOS`; uma proposta do Planou só é medida se foi aplicada, senão sai
-   `RECUSADA`, `RETIRADA`, `FALHOU`, `DESFEITA` ou `AGUARDANDO`) e o plano das propostas novas.
+   atrás (`FUNCIONOU`, `NAO FUNCIONOU`, `SEM DADOS`; um registro antigo de proposta enviada ao Planou, que não tem mais
+   essa rota, sai `RETIRADA`) e o plano das propostas novas.
 3. Ler o relatório inteiro. Ajustar as propostas quando os casos mostram outra causa (o catálogo é o ponto de partida,
    não a resposta): editar o JSON do plano, no máximo 3 tarefas, cada uma com a métrica e o valor de base no
    `done_when`.
-4. Publicar as propostas, nesta ordem:
-   - `param` e `role` estão em `proposals` no plano e vão ao Planou como **proposta** (`POST /v1/agent/proposals`,
-     Planou 0.53.0): a pessoa aprova com um clique em Precisa de você (Aprovações) e o Planou aplica sozinho, com
-     registro e Desfazer. Antes, conferir cada uma: o "Ao mesmo tempo" do dev não tem rota de leitura, então escrever
-     no `value` da proposta `wip` o valor de hoje + 1 (o que a pessoa ou o dev disse; sem `value` ela volta como
-     `Decidir:`). A regra do papel vai no arquivo inteiro: o `instructions.md` do `dev_agent` desta máquina mais a regra
-     (`rule`), com o sha256 dele. Depois `$PR --propose data/coach-<semana>.json` (só com `"live": true`; em modo teste
-     só mostra o que mandaria);
-   - o que o Planou não aceita (422 `validation`, 404, 403, um 409 do papel como `not_reported`) ou que não dá para
-     montar aqui volta ao jeito antigo: o `--propose` põe como tarefa `Decidir: ...` nas `tasks` do plano e escreve
-     `AVISO`; dizer isso no resumo. `JA ESTA` (422 `unchanged`) quer dizer que o valor já é esse: não vira nada. Planou
-     fora do ar (`ERRO`): rodar de novo mais tarde, a proposta fica no plano;
-   - `task` (e as recusadas) viram tarefas no Backlog: `$BL data/coach-<semana>.json --dry` e, com a instância `live`,
-     `$BL data/coach-<semana>.json` (só se o plano tem `tasks`);
+4. Publicar as propostas no Backlog (o plano traz todas em `tasks`):
+   - `task` vira tarefa no Backlog; `param` e `role` viram tarefa `Decidir: ...`, porque quem decide e aplica é a
+     pessoa (ver Ajustes de parâmetro e de papel abaixo);
+   - `$BL data/coach-<semana>.json --dry` e, com a instância `live`, `$BL data/coach-<semana>.json`;
    - `$PR --record` grava as propostas com o valor de base (só com `"live": true`); é o que o `--followup` da semana
-     seguinte lê. As enviadas ao Planou já estão lá com o `proposal_id`.
-   - Acompanhar: o evento `proposal_changed` acorda a sessão com `-- PROPOSTA ap-N APLICADA|RECUSADA|FALHOU|DESFEITA`.
-     Aplicada: é linha de base, medir na semana seguinte. Recusada: não aplicar à mão. Falhou (o alvo mudou desde a
-     proposta): refazer a proposta na semana seguinte se o caso continua. O `-- APROVADO ap-N` da mesma proposta não
-     pede nada: quem aplica é o Planou. Proposta ainda aberta na semana seguinte: não repetir; o `--followup` mostra `AGUARDANDO`.
+     seguinte lê.
 5. **Resumo semanal** para a sessão e para a Conversa do Planou, curto: o período e o aviso de dados (histórico curto
    ou reconstruído), lead time (mediana e p85), o gargalo com os 3 casos, as propostas (título, tipo, métrica e base) e
    o efeito das anteriores. A proposta que não funcionou fica marcada no resumo e na tarefa dela (comentário).
@@ -84,11 +69,10 @@ um JSON no mesmo formato. O que ele mede, das tarefas concluídas como feitas no
 ## Ajustes de parâmetro e de papel
 
 Parâmetros de baixo risco ("Ao mesmo tempo" do dev, de 1 a 8; regra do lote do projeto: mínimo de branches, espera
-máxima, e2e a cada N h; prioridade de uma tarefa, de 1 a 4) e mudanças de papel (o `instructions.md` inteiro do agente)
-saem **como proposta pela rota do Planou**, nunca como `Decidir:` quando o Planou aceita. A pessoa aprova ou recusa num
-clique; o Planou aplica, guarda o valor de antes e o Desfazer fica em Mudanças aprovadas por 30 dias. O coordenador não
-aplica nada sozinho e não chama o Desfazer: se a métrica piorar na semana seguinte, diz no resumo e propõe a volta
-(outra proposta, com o valor de antes). Planou antigo, sem a rota (404), ou que recusa: volta ao `Decidir:`, com aviso.
+máxima, e2e a cada N h; prioridade de uma tarefa, de 1 a 4) e mudanças de papel (uma regra no `instructions.md` do
+agente) saem como tarefa `Decidir:` no Backlog, com o que muda, onde (aba Fila do dev, seção Release do projeto, aba
+Papel do agente), o valor de hoje e a volta. Quem aplica é a pessoa; o coordenador não aplica nada sozinho. Se a
+métrica piorar na semana seguinte, diz no resumo e propõe a volta (outra `Decidir:`, com o valor de antes).
 
 ## O que o coordenador não faz
 

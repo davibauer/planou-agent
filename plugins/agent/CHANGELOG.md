@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.16 (2026-11-17)
+- Coordenador de desenvolvimento (`flow-metrics`): ajuste de parâmetro (WIP, lote, prioridade) e mudança de papel voltam a sair como tarefa `Decidir:` no Backlog, que a pessoa decide e aplica. As propostas do agente pelo Planou saíram (o Planou apagou a rota e a tela em PLN0869): o `process_report.py` não tem mais `--propose`, o plano não tem mais `proposals`, o runner não traz mais `-- PROPOSTA ap-N ...` e a cópia do contrato `/v1` ficou sem as rotas de propostas. Um registro antigo de proposta enviada e sem resposta sai como `RETIRADA` no acompanhamento da semana.
+
 ## 0.114.15 (2026-11-16)
 - A janela do funcionário, quando ele é desligado pelo Planou, agora diz "Voce desligou <nome> pelo Planou", sem concordar o gênero com o nome.
 

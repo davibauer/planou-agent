@@ -253,15 +253,6 @@ queue task's description cites. Only what passes attachable() goes: a type Plano
 type (50 MB for a video, .webm or .mp4; 10 MB for the rest; a 413 too_large is final until the file changes), outside
 secrets/, .ssh, caches and git, no credential-looking name, no credential in a text file.
 
-Proposals (Planou 0.53.0, "Propostas do agente"): propose(change, title, ref, ...) asks the person to approve a parameter
-("Ao mesmo tempo" of an agent, the project's release rules, a task's priority) or a Papel change (a whole file or the list
-of behaviors) with POST /v1/agent/proposals; she approves with one click in Precisa de você and Planou applies it itself,
-with a record and Desfazer. The idempotency key is `<agent>:proposal:<ref>`, so a rerun gets the same proposal back
-(`reused`). The proposal and its ask code are kept in cache/planou/proposals.json; proposal_state(id) reads it again (GET)
-and cancel_proposal(id) withdraws one not answered yet. The event `proposal_changed` (applied, rejected, failed,
-reverted) wakes the session with `-- PROPOSTA <ap-N> ...`; the `approved`/`rejected` of the same ask says Planou
-applies it (nothing for the agent to do).
-
 Allocation (Planou 0.63.0, PLN0227/PLN0234): an employee creates tasks only in the projects it is allocated to. Before the
 sync, allocation() reads GET /v1/agent/projects (default_project and the allocated keys), cached 5 min in
 cache/planou/projects.json (a failure, an older Planou without the route or an empty list is cached as unknown: nothing
@@ -1586,8 +1577,6 @@ EVENTS = {
     # only after the session saw it (Planou calls only agents with `task_comment`, so a mention is never dropped unread);
     # the session answers by comment (`comentario PID --text -`), which is not taking the task
     'task_comment_mentioned': {'wake': True, 'deliver': True, 'capability': 'task_comment'},
-    # a proposal of this agent was applied, rejected, failed or reverted (Planou 0.53.0)
-    'proposal_changed': {'wake': True},
     # an edit of the Papel tab (instructions, context, the behaviors on): not a wake type, the light loop never prints it
     # unapplied; the heavy tick hands it to the handler of set_docs_handler() (docs_ack answers Planou), which prints
     # `== PAPEL MUDOU` for the session. Without a handler (a plugin whose manifest is read only) it is acknowledged unread
@@ -2079,8 +2068,6 @@ def line(ev):
 
     if kind == COMMENT_EVENT:
         return comment_line(p)
-    if kind == PROPOSAL_EVENT:
-        return proposal_line(p)
     if kind == 'agent_paused':
         return pause_lines(p, p.get('in_progress'))
     if kind == 'agent_resumed':
@@ -2097,12 +2084,6 @@ def line(ev):
             return f'-- DECISAO {ref}: resposta livre "{p.get("note") or ""}" {who}'
         opt = f'opcao {p.get("value")}' + (f' "{p.get("option_text")}"' if p.get('option_text') else '')
         return f'-- DECISAO {ref}: {opt} {who}' + (f' nota: {p.get("note")}' if p.get('note') else '')
-    if kind in ('approved', 'rejected') and p.get('code') in _proposal_asks():
-        # the ask of a proposal: Planou applies the change itself when the Desfazer window closes
-        verb = 'APROVADO' if kind == 'approved' else 'RECUSADO'
-        then = ('Planou aplica sozinho quando o Desfazer fecha; nada a fazer (vem -- PROPOSTA)' if kind == 'approved'
-                else 'nada muda; nao aplicar a mao')
-        return f'-- {verb} {ref}: {p.get("title")} {who} -> proposta: {then}'
     if kind == 'approved':
         # Phase 3 hard rule: the approval only records the OK; nothing is sent because of it.
         return (f'-- APROVADO {ref}: {p.get("title")} {who} -> OK registrado; nada foi enviado. '
@@ -2181,7 +2162,6 @@ def cursor_commit(now=None):
         queue_note(ev)
         changes_note(ev)
         pause_note(ev)
-        proposal_note(ev)
         if ev.get('type') in DELIVER_TYPES:
             msgs['delivered'][_message_id(ev)] = {'seq': int(k), 'at': stamp}
             if int(k) not in msgs['to_ack']: msgs['to_ack'].append(int(k))
@@ -2352,7 +2332,6 @@ def apply_events(events, apply, on_ask=None, on_change=None, on_state=None):
                 elif kind in WAKE_TYPES:
                     lines.append(line(ev) + (' -> aplicado' if handled else ''))
             pause_note(ev)              # after its line: the resume line reads the tasks held by the pause
-            proposal_note(ev)
             ib['printed'][str(last)] = datetime.now(timezone.utc).isoformat()
             continue
         if not key.startswith(prefix): continue
@@ -3834,87 +3813,6 @@ def report_result(code, result, reason=None):
     if not active(): return False
     _call('POST', f'/asks/{urllib.parse.quote(code)}/result', {'result': result, 'reason': reason})
     return True
-
-
-# ---------------------------------------------------------------- proposals (Planou 0.53.0)
-
-PROPOSAL_EVENT = 'proposal_changed'
-PROPOSAL_CHANGES = ('param', 'role')
-PROPOSAL_PARAMS = ('wip', 'release_min_branches', 'release_max_wait_min', 'release_e2e_every_h', 'priority')
-PROPOSAL_DOCS = ('instructions', 'context', 'behavior_config', 'behaviors')
-PROPOSAL_FIELDS = ('reason', 'param', 'value', 'agent', 'project', 'task', 'doc', 'name', 'content', 'enabled',
-                   'base_sha256')
-PROPOSAL_STATUS = {'open': 'ABERTA', 'applied': 'APLICADA', 'rejected': 'RECUSADA', 'failed': 'FALHOU',
-                   'cancelled': 'RETIRADA', 'reverted': 'DESFEITA'}
-PROPOSAL_THEN = {'applied': 'no ar; medir o efeito', 'rejected': 'nada mudou; nao aplicar a mao',
-                 'failed': 'nada mudou (o alvo mudou desde a proposta)', 'reverted': 'voltou o valor de antes',
-                 'cancelled': 'retirada'}
-
-
-def _proposal_asks():
-    return {v.get('ask_code') for v in _load('proposals.json', {}).values() if v.get('ask_code')}
-
-
-def _keep_proposal(res, ref=None):
-    props = _load('proposals.json', {})
-    pid = str(res.get('proposal_id'))
-    old = props.get(pid) or {}
-    props[pid] = {**old, 'ask_code': res.get('ask_code'), 'change': res.get('change'), 'target': res.get('target'),
-                  'status': res.get('status'), 'before': res.get('before'), 'after': res.get('after'),
-                  'result': res.get('result'), 'ref': ref if ref is not None else old.get('ref'),
-                  'at': datetime.now(timezone.utc).isoformat()}
-    _save('proposals.json', props)
-
-
-def propose(change, title, ref=None, **fields):
-    """POST /agent/proposals: a parameter (`param`, `value`, and `agent`, `project` or `task`) or a Papel change (`doc`
-    with `name`, `content` and `base_sha256`, or `enabled`). Returns Planou's answer (201 new, 200 `reused` for the same
-    ref). Raises PlanouError: 422 `validation` or `unchanged` (already the current value), 404, 409 on a Papel change
-    (`not_reported`, `stale`, `no_content`, ...), 0 `inactive` when this agent does not publish to Planou."""
-    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
-    if change not in PROPOSAL_CHANGES: raise ValueError(f'change {change!r}')
-    body = {'change': change, 'title': ' '.join(str(title or '').split())[:300]}
-    body.update({k: v for k, v in fields.items() if k in PROPOSAL_FIELDS and v is not None})
-    body['idempotency_key'] = _idem('proposal', ref, change, title, json.dumps(fields, sort_keys=True, default=str))
-    _, res = _call('POST', '/agent/proposals', body)
-    _keep_proposal(res, ref)
-    return res
-
-
-def proposal_state(proposal_id):
-    """GET /agent/proposals/{id} (a read: works whenever there is a key). Raises PlanouError."""
-    _, res = _call('GET', f'/agent/proposals/{urllib.parse.quote(str(proposal_id))}')
-    if str(proposal_id) in _load('proposals.json', {}): _keep_proposal(res)
-    return res
-
-
-def cancel_proposal(proposal_id, reason=None):
-    if not active(): return None
-    _, res = _call('POST', f'/agent/proposals/{urllib.parse.quote(str(proposal_id))}/cancel',
-                   {'reason': reason} if reason else {})
-    if str(proposal_id) in _load('proposals.json', {}): _keep_proposal(res)
-    return res
-
-
-def proposal_note(ev):
-    """A `proposal_changed` updates the proposal kept in cache/planou/proposals.json (status, before, after, result)."""
-    if (ev or {}).get('type') != PROPOSAL_EVENT: return
-    p = ev.get('payload') or {}
-    if str(p.get('proposal_id')) in _load('proposals.json', {}): _keep_proposal(p)
-
-
-def proposal_line(p):
-    """The `proposal_changed` line: the ask code, what changed, before -> after (a parameter), the result and who."""
-    status = str(p.get('status') or '')
-    head = f'-- PROPOSTA {one_line(p.get("ask_code"), 20)} {PROPOSAL_STATUS.get(status, status.upper() or "?")}'
-    what = f'{one_line(p.get("change"), 10)} {one_line(p.get("target"), 80)}'
-    if p.get('before') is not None or p.get('after') is not None:
-        what += f': {one_line(p.get("before"), 40)} -> {one_line(p.get("after"), 40)}'
-    by = p.get('by') or {}
-    who = one_line(by.get('display_name') or by.get('name'), 60) if isinstance(by, dict) else ''
-    extra = f' ({one_line(p.get("result"), 200)})' if p.get('result') else ''
-    return (f'{head}: {what}{extra}' + (f' por {who}' if who else '') + f' ({_when(p)})'
-            + f' -> {PROPOSAL_THEN.get(status, "ver GET /v1/agent/proposals/{id}")}')
 
 
 ASK_ANSWERS = ('decision_answered', 'approved', 'rejected', 'draft_sent', 'draft_discarded', 'alert_acknowledged')

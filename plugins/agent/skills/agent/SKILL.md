@@ -97,9 +97,6 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
     terminar o que está `EM ANDAMENTO` (ou `fila blocked` com a nota). `== DESPAUSADO (...)`: pode seguir; `RETOMAR
     <PID>` volta com `fila started`. Comportamento `task-queue`, "Pausado no teto de custo". Também vem fora do
     bloco, no tick pesado, quando o runner liga com a pausa em vigor.
-  - `-- PROPOSTA ap-N APLICADA|RECUSADA|FALHOU|DESFEITA: ...` (Planou 0.53.0): o resultado de uma proposta de parâmetro
-    ou de papel que este agente fez; o `-- APROVADO ap-N ... -> proposta` da mesma não pede nada (quem aplica é o
-    Planou). Comportamento `flow-metrics`, passo 4.
   - `PLANOU: <PID> concluida|reaberta pelo usuario`: só registro; mencionar se mudar algo em andamento.
 - **`== PAPEL MUDOU (n)`**: a pessoa editou o papel na aba Papel do Planou e o runner já aplicou (gravou, validou e
   respondeu ao Planou). Reler agora o que cada linha `-- ...: aplicada -> reler <arquivo>` diz (o `instructions.md`, o
