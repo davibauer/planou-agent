@@ -188,7 +188,7 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
   python3 -m watch_core.planou --agent job-scout key set | status | active |
       heartbeat PHASE [--next-heavy EPOCH] [--session-id ID] |
       poll [--next-heavy EPOCH] [--poll-s 90] [--wait 50] | cursor-commit | ack-delivered | events | ack SEQ | tarefa [PID | -] |
-      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] [--self-review TEXT|-] |
+      fila ver | fila started|in_review|done|blocked|handoff [PID] [--pr-url URL] [--no-code] [--note TEXT|-] [--ask-first ACTION[,ACTION]] [--estimate-h H] [--remaining-h H] [--pr-checks passed|failed|running] [--self-review TEXT|-] |
       fila tempo [PID] --remaining-h H [--estimate-h H] | fila refinar [PID] --note TEXT|- |
       fila worker PID --role dev|integrator --tokens N --steps N --duration-ms N --result feito|parcial|falhou [--model M] [--key K] [--phases-from ARQ] |
       fila worker-start PID [--task PID2 ...] --role dev|integrator|other --label TEXT |
@@ -2972,7 +2972,7 @@ def discover_pr_checks(pr_url, timeout=20):
 
 
 def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None, remaining_h=None, ask_first=None,
-             resolution=None, pr_checks=None, self_review=None):
+             resolution=None, pr_checks=None, self_review=None, no_code=False):
     """POST /agent/tasks/{id}/progress for a task of the agent's queue (ref: pid, task_id or source_key; empty = the only
     one). started when the work begins; in_review with the draft PR (pr_url); done concludes the task; blocked with a
     note opens a decision in "Precisa de você" (the note never goes up under "minimum"). Returns the server answer.
@@ -2993,6 +2993,10 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     at once, from whatever column it sits in, instead of walking the review and release columns. Planou 0.105.0 accepts
     `resolution` (done|no_action|discarded) in the progress body only with state done (other state or a bad value is a
     422), so it goes up only when the request sent is `done`, never on a handoff. Without it the server closes as done.
+
+    No code (PLN0693, `fila done --no-code`): a task delivered without branch or PR (an investigation, a file attached)
+    concludes at once as done, resolution done, never a handoff to the review and release columns. It refuses (PlanouError
+    no_code) with a `pr_url` given or already on the queue entry: a task with a PR walks the review.
 
     `ask_first` (blocked only): the autonomy actions that made the agent stop (ASK_FIRST_ACTIONS); Planou then shows
     "O agente parou no limite da autonomia". An action name is no free text, so it goes up under "minimum" too.
@@ -3047,7 +3051,12 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     if resolution is not None and resolution not in DONE_RESOLUTIONS:
         raise PlanouError(0, 'resolution', f'--resolution: {", ".join(DONE_RESOLUTIONS)}')
     if resolution and state != 'done': raise PlanouError(0, 'resolution', '--resolution so vale com `fila done`')
-    discarding = state == 'done' and resolution in ('discarded', 'no_action')
+    if no_code:
+        if state != 'done': raise PlanouError(0, 'no_code', '--no-code so vale com `fila done`')
+        if pr_url or (entry or {}).get('pr_url'):
+            raise PlanouError(0, 'no_code', '--no-code recusado: a tarefa tem PR; ela segue pela revisao (`fila done` sem a flag)')
+        resolution = resolution or 'done'
+    discarding = state == 'done' and (no_code or resolution in ('discarded', 'no_action'))
     sent = 'handoff' if state == 'done' and not discarding and owns_a_column(entry, now) else state
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     # queue.json is read under its lock only after the answer: the runner may note events meanwhile (no lock over HTTP)
@@ -5041,6 +5050,7 @@ def _fila(a, ap):
         return 0
     if a.resolution and (sub != 'done' or a.resolution not in DONE_RESOLUTIONS):
         ap.error('--resolution (done|no_action|discarded) so vale com `fila done`')
+    if a.no_code and sub != 'done': ap.error('--no-code so vale com `fila done`')
     if a.self_review and sub not in SELF_REVIEW_STATES:
         ap.error('--self-review so vale com `fila in_review|done|handoff`')
     if a.self_review == '-' and a.note == '-':
@@ -5078,7 +5088,8 @@ def _fila(a, ap):
             checks = _pr_checks(a.pr_checks) or (discover_pr_checks(a.pr_url) if a.pr_url else None)
             res = progress(sub, ref, a.pr_url, note, estimate_h=a.estimate_h, remaining_h=a.remaining_h,
                            ask_first=a.ask_first, resolution=a.resolution if sub == 'done' else None, pr_checks=checks,
-                           self_review=_text_arg(a.self_review) if a.self_review else None)
+                           self_review=_text_arg(a.self_review) if a.self_review else None,
+                           no_code=bool(a.no_code))
             if sub == 'blocked' and paused():
                 tid, entry = _queue_entry(res.get('pid') or ref)
                 pause_hold(res.get('task_id') or tid, res.get('pid') or (entry or {}).get('pid'), (entry or {}).get('title'))
@@ -5946,6 +5957,7 @@ def main(argv=None):
     ap.add_argument('--area', help='tarefa nova: the subject that picks the epic (default: agente)')
     ap.add_argument('--epic', help='tarefa nova: the epic (pid or source_key)')
     ap.add_argument('--until', help='tarefa estado ... Aguardando: the day the task comes back to A fazer by itself (YYYY-MM-DD, a real date, never a guess)')
+    ap.add_argument('--no-code', action='store_true', help='fila done: task without branch or PR (investigation): concludes now, no handoff')
     ap.add_argument('--resolution', help='tarefa concluir: done (default), no_action or discarded')
     ap.add_argument('--completed-at', help='tarefa nova|concluir: when the work really closed (YYYY-MM-DD or ISO 8601; '
                                            'not in the future, up to 30 days back); tarefa nova: implies --done')

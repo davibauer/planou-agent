@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.17 (2026-11-17)
+- `fila done <PID> --no-code` conclui na hora a tarefa que não tem branch nem PR (uma investigação entregue como resposta ou arquivo anexo), sem passar pelas colunas de revisão e de release. O comando recusa quando a tarefa tem PR, que segue pela revisão como antes.
+
 ## 0.114.16 (2026-11-17)
 - Coordenador de desenvolvimento (`flow-metrics`): ajuste de parâmetro (WIP, lote, prioridade) e mudança de papel voltam a sair como tarefa `Decidir:` no Backlog, que a pessoa decide e aplica. As propostas do agente pelo Planou saíram (o Planou apagou a rota e a tela em PLN0869): o `process_report.py` não tem mais `--propose`, o plano não tem mais `proposals`, o runner não traz mais `-- PROPOSTA ap-N ...` e a cópia do contrato `/v1` ficou sem as rotas de propostas. Um registro antigo de proposta enviada e sem resposta sai como `RETIRADA` no acompanhamento da semana.
 
