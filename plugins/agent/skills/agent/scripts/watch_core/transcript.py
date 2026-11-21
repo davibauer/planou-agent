@@ -95,13 +95,37 @@ def _alive(pid):
         return False
 
 
+def _proc_start(pid):
+    """Field 22 of /proc/<pid>/stat (start time in clock ticks since boot), as text; None when unreadable."""
+    try:
+        raw = open(f'/proc/{int(pid)}/stat').read()
+        return raw[raw.rindex(')') + 2:].split()[19]
+    except (OSError, ValueError, IndexError, TypeError):
+        return None
+
+
+def _owned(d, pid):
+    """The session file still belongs to the process now running under its pid. A file left by a session that died
+    without removing it names a pid the system may give to another process later (after a restart pids start low
+    again): Claude Code writes procStart (the start time field of /proc/<pid>/stat), so a file whose procStart differs
+    from the live process is older than that process and is not its session (PLN0917). A file without procStart (an
+    older Claude Code) or a pid whose start cannot be read is kept, as before. Only compared with the kernel's own
+    counter: startedAt against the boot time drifts by minutes under WSL."""
+    if d.get('pid') is not None and str(d.get('pid')) != str(pid): return False
+    want = d.get('procStart')
+    if want is None or str(want) == '': return True
+    now = _proc_start(pid)
+    return now is None or str(want) == now
+
+
 def find_session(agent=None, pid=None):
-    """The session this process belongs to (its sessions/<pid>.json as a dict), or None."""
+    """The session this process belongs to (its sessions/<pid>.json as a dict), or None. A session file whose pid now
+    runs another process (_owned) is skipped."""
     pid = pid or os.getpid()
     for _ in range(64):
         if pid <= 1: break
         d = _read_session(pid)
-        if d: return d
+        if d and _owned(d, pid): return d
         pid = _parent(pid)
     if not agent: return None
     found = []
@@ -109,19 +133,21 @@ def find_session(agent=None, pid=None):
         name = os.path.basename(f)[:-5]
         if not name.isdigit(): continue
         d = _read_session(name)
-        if d and d.get('name') == agent and _alive(d.get('pid') or name):
+        if d and d.get('name') == agent and _alive(d.get('pid') or name) and _owned(d, d.get('pid') or name):
             found.append(d)
     return max(found, key=lambda d: d.get('updatedAt') or 0) if found else None
 
 
 def session_alive(session_id):
-    """True when a live Claude Code process has this session (its sessions/<pid>.json says so and the pid runs)."""
+    """True when a live Claude Code process has this session (its sessions/<pid>.json says so, the pid runs and
+    still belongs to that file, _owned)."""
     if not session_id: return False
     for f in glob.glob(os.path.join(_claude_dir(), 'sessions', '*.json')):
         name = os.path.basename(f)[:-5]
         if not name.isdigit(): continue
         d = _read_session(name)
-        if d and d.get('sessionId') == session_id and _alive(d.get('pid') or name):
+        if d and d.get('sessionId') == session_id and _alive(d.get('pid') or name) \
+                and _owned(d, d.get('pid') or name):
             return True
     return False
 
@@ -581,6 +607,7 @@ def pump(agent, root=None, pid=None, now=None):
     lines = []
     if info != _session_info():
         planou._save('session.json', info)
+        planou.session_seen(session)
         with open(os.path.join(planou._cache_dir(), 'transcript.path'), 'w') as f:
             f.write(path + '\n')
         lines += planou.heartbeat('poll')

@@ -3285,12 +3285,18 @@ def worker_delivery(ref, role, tokens, steps, duration_ms, result, model=None, n
 # session closes the ones this cache still has open from a session that is gone (reap_workers). Planou's /end takes only
 # done, partial or failed ("interrupted" is set by session_closed alone), so they go as failed and are kept here as
 # interrupted. Closed entries stay WORKERS_KEEP (a repeated delivery without --key finds its key again).
+# The worker's session is the caller's CLAUDE_CODE_SESSION_ID (the sessions/<pid>.json of an ancestor only without it):
+# a stale session file of a reused pid once gave workers the session of another transcript, and the next tick closed
+# them while they ran (PLN0917). So the reap closes only a worker whose session was once this agent's current session
+# (cache/planou/sessions_seen.json, kept by the runner's transcript pump and by the reap); any other session gets one
+# line in warnings.log and the worker stays open.
 
 WORKER_ROLES = {'dev': 'dev', 'integrator': 'integrator', 'integrador': 'integrator', 'other': 'other', 'outro': 'other'}
 WORKER_KEY = re.compile(r'^[A-Za-z0-9._:-]{1,200}$')
 WORKER_TASKS_MAX = 20
 WORKERS_KEEP = timedelta(days=7)
 WORKER_LABELS = {'done': 'feito', 'partial': 'parcial', 'failed': 'falhou', 'interrupted': 'interrompido'}
+SESSIONS_SEEN_MAX = 50
 
 
 def _workers():
@@ -3306,9 +3312,33 @@ def _workers_save(w, now=None):
     _save('workers.json', w)
 
 
+def session_seen(sid, now=None):
+    """Records sid as a session that was this agent's current one (cache/planou/sessions_seen.json, the last
+    SESSIONS_SEEN_MAX): only a worker of one of these is closed by the reap."""
+    sid = str(sid or '').strip()
+    if not sid: return
+    try:
+        with _locked('sessions_seen.json'):
+            seen = _load('sessions_seen.json', {})
+            if not isinstance(seen, dict): seen = {}
+            if sid in seen: return
+            seen[sid] = (now or datetime.now(timezone.utc)).isoformat()
+            _save('sessions_seen.json', dict(sorted(seen.items(), key=lambda kv: str(kv[1]))[-SESSIONS_SEEN_MAX:]))
+    except OSError:
+        pass
+
+
+def _sessions_seen():
+    seen = _load('sessions_seen.json', {})
+    return set(seen) if isinstance(seen, dict) else set()
+
+
 def _caller_session():
-    """The Claude Code session running this command (its sessions/<pid>.json among the ancestors), else the one the
-    runner last saw (cache/planou/session.json). None outside a session."""
+    """The Claude Code session running this command: CLAUDE_CODE_SESSION_ID (Claude Code sets it in the commands it
+    runs); without it, the sessions/<pid>.json among the ancestors that still belongs to the process under that pid
+    (transcript.find_session); else the one the runner last saw (cache/planou/session.json). None outside a session."""
+    env = str(os.environ.get('CLAUDE_CODE_SESSION_ID') or '').strip()
+    if env: return env[:200]
     try:
         from . import transcript
         d = transcript.find_session()
@@ -3477,12 +3507,17 @@ def _session_gone(sid):
 def reap_workers(now=None):
     """The heavy tick of a new session: the workers this cache still has open from a session that is gone (its terminal
     died without session_closed) are closed on Planou (/end failed: the route has no interrupted) and kept here as
-    interrupted. Only when the current session is known, differs from the worker's and the worker's is not alive.
-    Returns lines for the tick output."""
+    interrupted. Only when the current session is known, differs from the worker's, the worker's was once this agent's
+    current session (sessions_seen.json) and is not alive. A worker of a session never seen as current (a session file
+    of another transcript, PLN0917) stays open, with one line in warnings.log. Returns lines for the tick output."""
     cur = _session_now()
     if not cur: return []
-    stale = [v for v in _workers()['workers'].values()
-             if v.get('state') == 'running' and v.get('session') and v['session'] != cur and _session_gone(v['session'])]
+    session_seen(cur, now)
+    seen = _sessions_seen()
+    running = [v for v in _workers()['workers'].values()
+               if v.get('state') == 'running' and v.get('session') and v['session'] != cur]
+    stale = [v for v in running if v['session'] in seen and _session_gone(v['session'])]
+    _warn_foreign_workers([v for v in running if v['session'] not in seen and not v.get('foreign_warned')], now)
     out = []
     for v in stale:
         if v.get('sent') and active():
@@ -3496,6 +3531,23 @@ def reap_workers(now=None):
         out.append(f'-- WORKER INTERROMPIDO {v["key"]} ({tasks}): {one_line(v.get("label"), 120)} -> a sessao anterior acabou '
                    'sem fechar este worker; fechado no Planou. Se a tarefa segue com o agente, delegar de novo (worker-start novo)')
     return out
+
+
+def _warn_foreign_workers(workers, now=None):
+    """One line per worker in warnings.log, once: its session was never this agent's current one, so the reap leaves it
+    open (closed by its delivery or `worker end`)."""
+    if not workers: return
+    with _locked('workers.json'):
+        w = _workers()
+        for v in workers:
+            cur = w['workers'].get(v['key'])
+            if not cur or cur.get('foreign_warned'): continue
+            cur['foreign_warned'] = True
+            tasks = ', '.join(cur.get('tasks') or []) or 'sem tarefa'
+            _log('warnings.log', f'worker {cur["key"]} ({tasks}): a sessao dele ({str(cur.get("session"))[:12]}) nunca foi a '
+                                 'sessao atual deste agente; nao fechado pelo tick. Se acabou, fechar com a entrega ou '
+                                 '`worker end`', now)
+        _workers_save(w, now)
 
 
 def _workers_session_closed(session_id=None, now=None):

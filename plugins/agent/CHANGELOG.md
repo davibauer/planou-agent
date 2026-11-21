@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.114.18 (2026-11-21)
+- Worker registrado com `fila worker-start` grava a sessão de quem chamou pela variável `CLAUDE_CODE_SESSION_ID`; o arquivo de sessão por pid fica de reserva e é ignorado quando ficou de uma sessão morta cujo pid o sistema deu a outro processo (o `procStart` não bate). Antes, um arquivo velho desses dava ao worker a sessão de outra conversa.
+- O tick pesado só fecha como `-- WORKER INTERROMPIDO` o worker cuja sessão já foi a sessão atual deste agente e acabou (um arquivo de sessão velho, de pid reaproveitado, não mantém a sessão viva); worker de uma sessão que nunca foi a dele fica aberto, com uma linha no `warnings.log`.
+
 ## 0.114.17 (2026-11-17)
 - `fila done <PID> --no-code` conclui na hora a tarefa que não tem branch nem PR (uma investigação entregue como resposta ou arquivo anexo), sem passar pelas colunas de revisão e de release. O comando recusa quando a tarefa tem PR, que segue pela revisão como antes.
 

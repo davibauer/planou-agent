@@ -183,7 +183,8 @@ consegue, sem cada comportamento em `behaviors`:
   worker novo depois da entrega abre outra com `worker-start`. `$PL worker ver` lista os guardados aqui.
   `AVISO (planou): ...` no início não impede nada: a key sai assim mesmo, seguir o trabalho.
   `-- WORKER INTERROMPIDO <key> (<PID>): ...` no tick: a sessão anterior acabou sem fechar esse worker e o runner o
-  fechou no Planou; se a tarefa ainda está com o agente, delegar de novo (com `worker-start` novo).
+  fechou no Planou; se a tarefa ainda está com o agente, delegar de novo (com `worker-start` novo). Worker de uma
+  sessão que nunca foi a deste agente não é fechado pelo tick (só uma linha no `warnings.log`).
 - `$PL comentario <PID> --ver`: os comentários da tarefa; `$PL comentario <PID> --text - [--reply-to <comment_id>]`
   (lê do stdin): responde a um `-- COMENTARIO` (seção acima). Só na tarefa do agente, em que a pessoa o chamou com @
   ou liberada por um pedido dele (abaixo).
