@@ -2671,7 +2671,9 @@ def pause_hold(tid, pid, title=None):
 # phases: `pending` from the event until the queue releases the task again (task_queued_for_agent released or
 # task_released with a higher seq), `rework` while the agent works on it, and a `cleared` tombstone (so a late copy of
 # the event never brings it back) once the agent delivers again (in_review, done, handoff), the task leaves the queue
-# (task_dequeued) or a 409 not_in_queue comes after the redelivery.
+# (task_dequeued) or a 409 not_in_queue comes after the redelivery. The tombstones the agent's own actions leave (here and
+# in queue.json) take the highest event seq already here (_high_water(), local files only, PLN0925), and `fila ver` ends
+# the adjustment of a task Planou's queue no longer lists (events not fetched yet when the agent acted).
 
 def _changes():
     c = _load('changes.json', {})
@@ -2777,14 +2779,54 @@ def changes_open():
     return {k: v for k, v in _changes()['tasks'].items() if v.get('phase') in ('pending', 'rework')}
 
 
-def _clear_change(tid, why, now=None):
+def _clear_change(tid, why, now=None, seq=None, pid=None, upto=None):
+    """Ends the adjustment of a task with a `cleared` tombstone. `seq` (the high water of _high_water(), read before the
+    action) raises the tombstone's seq, and with it a tombstone is written even when no adjustment was noted here yet, so
+    an older task_changes_requested applied late never reopens it (PLN0925). `upto` is a ceiling: an open adjustment
+    noted (or released) above it is a newer round the runner noted after the caller looked, and stays as it is."""
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     with _locked('changes.json'):
         c = _changes()
         cur = c['tasks'].get(tid)
-        if not cur or cur.get('phase') == 'cleared': return
-        c['tasks'][tid] = {'pid': cur.get('pid'), 'phase': 'cleared', 'why': why, 'seq': cur.get('seq'), 'at': stamp}
+        top = max(int((cur or {}).get('seq') or 0), int((cur or {}).get('released_seq') or 0), int(seq or 0))
+        if cur is None and not seq: return
+        if (upto is not None and cur and cur.get('phase') != 'cleared'
+                and max(int(cur.get('seq') or 0), int(cur.get('released_seq') or 0)) > int(upto)): return
+        if cur and cur.get('phase') == 'cleared' and int(cur.get('seq') or 0) >= top: return
+        c['tasks'][tid] = {'pid': (cur or {}).get('pid') or pid, 'phase': 'cleared',
+                           'why': cur.get('why') if cur and cur.get('phase') == 'cleared' else why, 'seq': top, 'at': stamp}
         _save('changes.json', c)
+
+
+def _high_water():
+    """The highest event seq this agent already has here, read from local files only: the inbox (events and printed),
+    the seqs of queue.json and changes.json and the person's messages delivered (messages.json). The inbox drops the
+    acknowledged events, so the caches keep the high water after an ack.
+
+    The agent's own marks (a task it delivered, concluded or saw leave the queue) take it as their seq. Planou sends no
+    event when the agent concludes a task itself, so the mark is what stops an older event the heavy tick applies late
+    (the light loop already brought it here, the heavy tick is behind) from bringing the task back; the seq of the local
+    entry alone is not enough, since those events came after it (PLN0925). Read before the call that acts: what Planou
+    sends because of the action itself (a handoff to this same agent) comes with a higher seq and still applies.
+
+    Never a GET /agent/events: in Planou that read is a sign of life and a delivery (it marks the events delivered, pumps
+    the queue as if the runner were alive and ends the silence alert), wrong precisely when the runner is down. Events
+    the agent has not fetched yet (the runner down) are above it and still apply when the runner comes back; `fila ver`
+    then drops what Planou's queue no longer lists (_forget_gone)."""
+    ib = _inbox()
+    seqs = [int(k) for k in ib['events']] + [int(k) for k in ib['printed']]
+    for v in _queue()['tasks'].values(): seqs.append(int(v.get('seq') or 0))
+    for v in _changes()['tasks'].values(): seqs += [int(v.get('seq') or 0), int(v.get('released_seq') or 0)]
+    for v in _messages()['delivered'].values():
+        if isinstance(v, dict): seqs.append(int(v.get('seq') or 0))
+    return max(seqs, default=0)
+
+
+def _left_entry(old, left, stamp, seq=None, pid=None):
+    """The tombstone of a local queue entry: its seq is the entry's or the high water, the higher one."""
+    old = old or {}
+    return {'pid': pid or old.get('pid'), 'title': old.get('title'), 'left': left,
+            'seq': max(int(old.get('seq') or 0), int(seq or 0)), 'at': stamp}
 
 
 def _changes_to_state(code, p, tasks, kept_bodies, on_state=None):
@@ -3059,6 +3101,9 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     discarding = state == 'done' and (no_code or resolution in ('discarded', 'no_action'))
     sent = 'handoff' if state == 'done' and not discarding and owns_a_column(entry, now) else state
     stamp = (now or datetime.now(timezone.utc)).isoformat()
+    # a delivery, a conclusion or a 409 not_in_queue leaves marks that older events must not undo: the high water (local
+    # files only) is read before the call, so what Planou sends because of it still applies
+    hw = _high_water()
     # queue.json is read under its lock only after the answer: the runner may note events meanwhile (no lock over HTTP)
     try:
         try:
@@ -3076,13 +3121,11 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
                 # an adjustment asked: the task waits in the queue again, it did not leave
                 _wait_changes(tid, entry, ref)
             ctid, _ = _change_of(ref or tid, entry)
-            if ctid: _clear_change(ctid, 'not_in_queue', now)
+            if ctid: _clear_change(ctid, 'not_in_queue', now, seq=hw)
             with _locked('queue.json'):
                 q = _queue()
                 if entry is not None or tid in q['tasks']:
-                    old = q['tasks'].get(tid) or {}
-                    q['tasks'][tid] = {'pid': old.get('pid'), 'title': old.get('title'), 'left': 'not_in_queue',
-                                       'seq': old.get('seq') or 0, 'at': stamp}
+                    q['tasks'][tid] = _left_entry(q['tasks'].get(tid), 'not_in_queue', stamp, seq=hw)
                     _save('queue.json', q)
             _stop_marker((entry or {}).get('pid'), now)
         elif e.status == 409 and e.code == 'not_released':
@@ -3097,15 +3140,18 @@ def progress(state, ref=None, pr_url=None, note=None, now=None, estimate_h=None,
     # a rework sent as in_review whose column flows to another owner or to a role (Planou PLN0269/PLN0284) comes back
     # as a handoff: the task left this agent like any other handoff
     if sent == 'in_review' and res.get('state') == 'handoff': sent = 'handoff'
+    # the key of the local queue and of changes.json is the task_id: a `fila done PID` with no local entry (the runner
+    # had not noted the task yet) still leaves its marks under it
+    key = str(res.get('task_id') or (entry or {}).get('task_id') or tid)
     if sent in ('in_review', 'done', 'handoff'):
         ctid, _ = _change_of(ref or tid, entry)          # delivered again: the adjustment is answered
-        if ctid: _clear_change(ctid, sent, now)
+        if ctid or hw: _clear_change(ctid or key, sent, now, seq=hw, pid=pid)
     with _locked('queue.json'):
         q = _queue()
         if sent in ('done', 'handoff'):
             left = 'handoff' if res.get('state') == 'handoff' else 'done'
-            if tid in q['tasks']: q['tasks'][tid] = {'pid': pid, 'title': q['tasks'][tid].get('title'), 'left': left,
-                                                     'seq': q['tasks'][tid].get('seq') or 0, 'at': stamp}
+            for k in dict.fromkeys((tid, key)):
+                if k in q['tasks'] or (k == key and hw): q['tasks'][k] = _left_entry(q['tasks'].get(k), left, stamp, seq=hw, pid=pid)
         elif tid in q['tasks']:
             q['tasks'][tid].update(state=res.get('state') or state, pr_url=res.get('pr_url') or pr_url or q['tasks'][tid].get('pr_url'),
                                    progress_at=stamp)
@@ -3155,14 +3201,14 @@ def request_changes(text, ref=None, pr_url=None, now=None, to=None):
         text = CHANGES_MINIMUM_TEXT if (pr_url or (entry or {}).get('pr_url')) else CHANGES_MINIMUM_NO_PR_TEXT
     body = {'text': text, **({'pr_url': str(pr_url).strip()} if pr_url else {}), **({'to': to} if to else {})}
     stamp = (now or datetime.now(timezone.utc)).isoformat()
+    # read before the call: the adjustment Planou sends back to this same agent (its own dev column) comes after it
+    hw = _high_water()
 
     def drop(left, pid=None):
         with _locked('queue.json'):
             q = _queue()
             if entry is not None or tid in q['tasks']:
-                old = q['tasks'].get(tid) or {}
-                q['tasks'][tid] = {'pid': pid or old.get('pid'), 'title': old.get('title'), 'left': left,
-                                   'seq': old.get('seq') or 0, 'at': stamp}
+                q['tasks'][tid] = _left_entry(q['tasks'].get(tid), left, stamp, seq=hw, pid=pid)
                 _save('queue.json', q)
         _stop_marker(pid or (entry or {}).get('pid'), now)
 
@@ -4935,6 +4981,53 @@ def _text_arg(value):
     return sys.stdin.read().strip() if value == '-' else value
 
 
+def _queue_list():
+    """GET /agent/queue: everything still in the agent's queue in Planou (waiting, handed out, started, in review,
+    blocked). PlanouError when unreachable or older than the route."""
+    _, res = _call('GET', '/agent/queue')
+    if not isinstance((res or {}).get('tasks'), list): raise PlanouError(0, 'no_queue', 'sem a lista da fila')
+    return res
+
+
+def _gone(remote, asked):
+    """(queue task_ids, changes task_ids) noted here before `asked` whose task Planou's list does not have."""
+    pids = {str(v.get('pid') or '').upper() for v in remote.values()} - {''}
+    out = lambda tid, v: tid not in remote and str(v.get('pid') or '').upper() not in pids
+    q = [tid for tid, v in _queue()['tasks'].items() if not v.get('left') and out(tid, v) and (v.get('received_at') or '') < asked]
+    c = [tid for tid, v in changes_open().items() if out(tid, v) and (v.get('noted_at') or '') < asked]
+    return q, c
+
+
+def _forget_gone(remote, asked, now=None):
+    """`fila ver` with Planou's list (PLN0925): a local queue entry or an open adjustment whose task is not in it any more
+    (concluded, taken out, or events the runner applied after the agent concluded it) is tombstoned here, with the high
+    water as its seq, so neither `fila ver` nor `fila done` (ESPERE) shows it again and an older event applied later never
+    brings it back. This also covers the events the agent had not fetched when it concluded the task (the runner down),
+    which its own mark (_high_water(), local only) cannot know of.
+
+    Only what was noted before the list was asked. The high water is read first and the list asked again: a task that
+    came back meanwhile is in the second list. The runner may still note a new round while this writes (no lock over
+    HTTP): under each lock an entry noted after the list was asked or above the high water stays as it is."""
+    q, c = _gone(remote, asked)
+    if not q and not c: return
+    hw = _high_water()
+    try:
+        again = {str(r.get('task_id') or r.get('pid')): r for r in _queue_list().get('tasks') or []}
+    except PlanouError:
+        return
+    q, c = _gone({**remote, **again}, asked)
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    for tid in c: _clear_change(tid, 'not_in_queue', now, seq=hw, upto=hw)
+    if not q: return
+    with _locked('queue.json'):
+        qq = _queue()
+        for tid in q:
+            v = qq['tasks'].get(tid)
+            if not v or v.get('left') or int(v.get('seq') or 0) > hw or (v.get('received_at') or '') >= asked: continue
+            qq['tasks'][tid] = _left_entry(v, 'not_in_queue', stamp, seq=hw)
+        _save('queue.json', qq)
+
+
 def queue_view():
     """fila ver: the local queue (whole payloads) merged with Planou's GET /agent/queue, which says what is released
     (within the limit "Ao mesmo tempo") and what waits. Each task gets `status`: "liberada" or "na fila". Planou
@@ -4942,19 +5035,20 @@ def queue_view():
     tasks = {str(v.get('task_id') or v.get('pid')): dict(v) for v in queue_tasks()}
     out = {'task_queue': queue_enabled(), 'source': 'cache'}
     if active():
+        asked = datetime.now(timezone.utc).isoformat()
         try:
-            _, res = _call('GET', '/agent/queue')
-            if not isinstance((res or {}).get('tasks'), list): raise PlanouError(0, 'no_queue', 'sem a lista da fila')
+            res = _queue_list()
             remote = {}
             for r in res.get('tasks') or []:
                 tid = str(r.get('task_id') or r.get('pid'))
                 remote[tid] = {**tasks.get(tid, {}), **{k: v for k, v in r.items() if v is not None}}
-            tasks = remote
             out.update(source='planou', wip=res.get('wip'), busy=res.get('busy'))
+            _forget_gone(remote, asked)
+            tasks = remote
         except PlanouError:
             pass
     # an adjustment asked goes with its task (the brief of the rework), and a task that waits for one is listed even when
-    # neither list has it
+    # neither list has it (with Planou's list, only one noted after the list was asked: _forget_gone ended the others)
     for tid, chg in changes_open().items():
         row = tasks.get(tid) or next((v for v in tasks.values() if chg.get('pid') and v.get('pid') == chg.get('pid')), None)
         if row is None:
@@ -5459,12 +5553,15 @@ def _act_send(code, it, now, take=False):
 def _queue_left(pid, reason, now=None):
     """Tombstones the local queue entry of `pid` (queue.json), when there is one: the task left the agent's queue here."""
     if not pid: return
+    same = lambda v: not v.get('left') and str(v.get('pid') or '').upper() == str(pid).upper()
+    if not any(same(v) for v in _queue()['tasks'].values()): return
+    hw = _high_water()          # closing its own task sends this agent no event
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     with _locked('queue.json'):
         q = _queue()
         for tid, v in q['tasks'].items():
-            if not v.get('left') and str(v.get('pid') or '').upper() == str(pid).upper():
-                q['tasks'][tid] = {'pid': v.get('pid'), 'title': v.get('title'), 'left': reason, 'seq': v.get('seq') or 0, 'at': stamp}
+            if same(v):
+                q['tasks'][tid] = _left_entry(v, reason, stamp, seq=hw)
                 _save('queue.json', q)
                 return
 
