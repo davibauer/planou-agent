@@ -356,17 +356,22 @@ REF_STOP = {'UTF', 'ISO', 'SHA', 'RFC', 'CVE', 'MD', 'TLS', 'SSL', 'HTTP', 'IPV'
             'RSA', 'CP', 'WIN', 'US', 'BR', 'EN', 'PT', 'GMT', 'UTC'}
 QUIET_RE = re.compile(r'nada (mais )?(de )?nov|nada para (voc|fazer)|sem nada para|nada a fazer|sem novidade|nada relevante|'
                       r'rodando normalmente|nothing new|nothing for you', re.I)
-# A summary that only says the runner was relaunched (PLN0830): it needs a relaunch verb next to "runner" and, once the
-# relaunch, the routine-cycle remarks and the no-news phrases are taken out, no word outside RELAUNCH_FILLER may be
-# left, and it may not name a task. "Relancei o runner e abri a PLN0900" keeps "abri" and "pln0900", so it stays visible.
-RELAUNCH_RE = re.compile(r'\b(relanc|reinici|relig)(ad[oa]|ei|ou|uei)\b')
-RELAUNCH_STRIP_RE = re.compile(r'\brunner d[aoe] [\w.-]+|\b\d{1,2}[:h]\d{2}\b|\b\d+ ?min(utos)?\b|'
+# A summary that only says the runner was relaunched (PLN0830) or only states that it is running (PLN0924): it needs
+# "runner" or a synonym (vigia, monitor) and either a relaunch verb (pt-BR or "restarted") or "esta rodando"; once the
+# relaunch, the "<runner> da <agente>" cut, the pid, the next-check time, the routine-cycle remarks and the no-news
+# phrases are taken out, no word outside RELAUNCH_FILLER may be left, and it may not name a task. "Relancei o vigia e
+# abri a PLN0900" keeps "abri" and "pln0900", so it stays visible.
+RUNNER_RE = re.compile(r'\b(runner|vigia|monitor)\b')
+RELAUNCH_RE = re.compile(r'\b(relanc|reinici|relig)(ad[oa]|ei|ou|uei)\b|\brestarted\b|\besta rodando\b')
+RELAUNCH_STRIP_RE = re.compile(r'\b(runner|vigia|monitor) d[aoe] [\w.-]+|\b\d{1,2}[:h]\d{2}\b|\b\d+ ?min(utos)?\b|'
+                               r'\bpid:? ?\d+\b|\bproxima conferencia( sera)?\b|'
                                r'\bsem (trazer )?nada( de)?( novo)?|\bnada (de )?novo|\bsem (novidades?|conteudo|tick)\b|'
                                r'\bnao (trouxe|tem|ha|teve) nada( de)?( novo)?|\bde novo\b')
 RELAUNCH_FILLER = set('''o a os as um uma e de do da dos das dele em no na ja so foi era que tinha essa esse esta este mais vez
     outra novamente agora depois apos runner relancado relancada relancei relancou reiniciado reiniciada reiniciei
     reiniciou religado religada religuei religou voltou volta rodar rodando normalmente background ciclo normal rotina
-    vazio fim fechou fechado encerrou encerrado terminou terminado acordada saida anterior tick para'''.split())
+    vazio fim fechou fechado encerrou encerrado terminou terminado acordada saida anterior tick para vigia monitor
+    reinicio the restarted'''.split())
 WARNING_RE = re.compile(r'\bAVISO\b|FONTE QUEBRADA|\berro\b|\berror\b|falhou|falha\b|vencid|atrasad|⚠', re.I)
 
 
@@ -383,9 +388,9 @@ def _plain(text):
 
 
 def relaunch_only(text):
-    """True when the summary says nothing but that the runner was relaunched or restarted (PLN0830)."""
+    """True when the summary says nothing but that the runner was relaunched, restarted or is running (PLN0830, PLN0924)."""
     plain = _plain(text or '')
-    if 'runner' not in plain or not RELAUNCH_RE.search(plain) or task_refs(text): return False
+    if not RUNNER_RE.search(plain) or not RELAUNCH_RE.search(plain) or task_refs(text): return False
     words = re.findall(r'[a-z0-9]+', RELAUNCH_STRIP_RE.sub(' ', plain))
     return all(w in RELAUNCH_FILLER for w in words)
 

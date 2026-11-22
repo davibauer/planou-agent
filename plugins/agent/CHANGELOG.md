@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.20 (2026-11-22)
+- Conversa do Planou: mais linhas de estado do runner entram recolhidas em "voltas sem nada novo", junto com "Runner relançado.": "O runner está rodando (pid N); a próxima conferência é às HH:MM", "Vigia da <agente> religado às HH:MM, depois do reinício normal do ciclo", "Monitor reiniciado." e "The runner restarted.". "Vigia" e "monitor" valem como o runner. Se o resumo traz qualquer outra coisa ("Relancei o vigia e abri a tarefa") ele continua visível, e um resumo com falha ("O runner está rodando, mas o Gmail falhou") continua como aviso.
+
 ## 0.114.19 (2026-11-22)
 - Volta de vagas encerradas sem nenhuma vaga encerrada não acorda mais a sessão (PLN0921): quando o LinkedIn responde 429 logo no início, o job-scout acordava a cada 30 min só com o aviso de limite e a contagem do que falta. Esse caso agora sai como `== ENCERRADAS SEM ACORDAR (n; ...)`, que o runner trata como as regras de alerta silenciadas: vai para o `avisos.log` e para o `== SEM ACAO` da próxima acordada. O bloco com ao menos uma vaga encerrada continua acordando como antes
 
