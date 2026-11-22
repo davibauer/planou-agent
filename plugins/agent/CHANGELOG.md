@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.19 (2026-11-22)
+- Volta de vagas encerradas sem nenhuma vaga encerrada não acorda mais a sessão (PLN0921): quando o LinkedIn responde 429 logo no início, o job-scout acordava a cada 30 min só com o aviso de limite e a contagem do que falta. Esse caso agora sai como `== ENCERRADAS SEM ACORDAR (n; ...)`, que o runner trata como as regras de alerta silenciadas: vai para o `avisos.log` e para o `== SEM ACAO` da próxima acordada. O bloco com ao menos uma vaga encerrada continua acordando como antes
+
 ## 0.114.18 (2026-11-21)
 - Worker registrado com `fila worker-start` grava a sessão de quem chamou pela variável `CLAUDE_CODE_SESSION_ID`; o arquivo de sessão por pid fica de reserva e é ignorado quando ficou de uma sessão morta cujo pid o sistema deu a outro processo (o `procStart` não bate). Antes, um arquivo velho desses dava ao worker a sessão de outra conversa.
 - O tick pesado só fecha como `-- WORKER INTERROMPIDO` o worker cuja sessão já foi a sessão atual deste agente e acabou (um arquivo de sessão velho, de pid reaproveitado, não mantém a sessão viva); worker de uma sessão que nunca foi a dele fica aberto, com uma linha no `warnings.log`.

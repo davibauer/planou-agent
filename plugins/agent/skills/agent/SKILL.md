@@ -113,7 +113,7 @@ Sem instância (`/agent` sozinho): `python3 $S/scripts/agent.py` lista as instâ
 - **`== SEM ACAO (n linhas adiadas: so leitura, nada a fazer)`**, no fim do tick (PLN0155): linhas que não acordam a
   sessão sozinhas e esperaram por este tick, cada uma com a hora em que chegou: `PLANOU: <PID> alterada pelo
   usuario|Planou`, `-- ALERTA VISTO ...` e `== DEPLOY JA AVISADO (n)` (deploy do release que você fechou com
-  `--release-queue done` e já avisou) e `== ALERTAS SEM ACORDAR (...)` (regra de alerta da lista `nao_acordar` do gancho
+  `--release-queue done` e já avisou) e `== ALERTAS SEM ACORDAR (...)` e `== ENCERRADAS SEM ACORDAR (...)` (volta de vagas encerradas do job-scout sem nenhuma vaga encerrada, PLN0921) (regra de alerta da lista `nao_acordar` do gancho
   `alertas_azure`, e o bloco que só ela disparou). Não responder nem agir por elas; mencionar só se mudarem algo em andamento.
 
 ## Mesma instância: dev, revisão e QA

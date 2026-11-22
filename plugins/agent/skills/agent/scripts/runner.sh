@@ -393,7 +393,8 @@ else prox=$(cat "$D/next_heavy" 2>/dev/null); case "$prox" in ''|*[!0-9]*) prox=
 #   - `-- ALERTA VISTO ...` (the person saw an alert), from the light loop or the heavy tick;
 #   - `== DEPLOY JA AVISADO (n)` and its lines: a deploy of the release this session closed (`--release-queue done`), which
 #     the session announced when the integrator came back (hook deploy_log). `== DEPLOY NOVO` still wakes.
-#   - `== ALERTAS SEM ACORDAR (...)` and its indented lines (PLN0160): alert rules the instance listed in the alertas_azure
+#   - `== ENCERRADAS SEM ACORDAR (...)` (PLN0921: the job-scout's closed-jobs round with no closed job, only the 429 notice
+#     or the count left) and `== ALERTAS SEM ACORDAR (...)` and its indented lines (PLN0160): alert rules the instance listed in the alertas_azure
 #     hook's nao_acordar, and the blocks of nao_acordar_junto they alone set off. They also go to avisos.log every tick.
 # A cycle (`== RUNNER CICLO`) leaves them waiting. At most ADIADO_MAX lines are kept (the oldest go).
 QUIET_WAIT=(-e '^== PLANOU$' -e '^PLANOU: [^ ]* alterada pelo \(usuario\|Planou\)' -e '^-- ALERTA VISTO ')
@@ -408,10 +409,10 @@ adia() {   # stdin: lines that wait for the next wake
 acao() {   # $1 = file
   awk '/^== E-MAIL \(0 de pessoas, [0-9]+ automaticos\)$/ {so_auto=1; next} so_auto && /^   · / {next} {so_auto=0}
        /^== DEPLOY JA AVISADO \([0-9]+\)$/ {ja=1; next} ja && /^(-- |   )/ {next} {ja=0}
-       /^== ALERTAS SEM ACORDAR \(/ {sa=1; next} sa && /^   / {next} {sa=0; print}' "$1" | grep -v "${QUIET_WAIT[@]}"
+       /^== (ALERTAS|ENCERRADAS) SEM ACORDAR \(/ {sa=1; next} sa && /^   / {next} {sa=0; print}' "$1" | grep -v "${QUIET_WAIT[@]}"
 }
 sem_acordar() {   # $1 = file: the quiet alert blocks (PLN0160)
-  awk '/^== ALERTAS SEM ACORDAR \(/ {sa=1; print; next} sa && /^   / {print; next} {sa=0}' "$1"
+  awk '/^== (ALERTAS|ENCERRADAS) SEM ACORDAR \(/ {sa=1; print; next} sa && /^   / {print; next} {sa=0}' "$1"
 }
 quietas() {   # $1 = file: the lines of it that wait (what acao leaves out, minus the header and the automatic email)
   awk '/^== DEPLOY JA AVISADO \([0-9]+\)$/ {ja=1; print; next} ja && /^(-- |   )/ {print; next} {ja=0}

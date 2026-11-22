@@ -884,10 +884,17 @@ def check_closed(s, now, budget=CLOSED_BUDGET_S, clock=None):
             lines.append(f'-- {state}: {label} · voce esta em "{schema.label(v["status"])}", status mantido; a vaga nao recebe mais candidaturas')
     if not lines and not errors and not rate_limited: return ''
     left = len(closed_due(s, now))
-    txt = ['== ENCERRADAS (1 volta por dia: vagas do funil que fecharam ou sumiram no LinkedIn)'] + lines
-    if errors: txt.append(f'   ({errors} nao consultada(s) por erro de rede; tenta de novo amanha)')
-    if rate_limited: txt.append('   (LinkedIn limitou as consultas (HTTP 429); o resto fica para o proximo tick)')
-    if left: txt.append(f'   ({left} vaga(s) ainda sem consulta hoje; ficam para o proximo tick, ate {budget} s por tick)')
+    # PLN0921: no job closed (only the 429 notice, network errors and/or the count left) asks nothing of the session: the
+    # runner keeps this block quiet (log + `== SEM ACAO` of the next wake), like `== ALERTAS SEM ACORDAR`
+    quiet = not lines
+    notes = []
+    if errors: notes.append(f'   ({errors} nao consultada(s) por erro de rede; tenta de novo amanha)')
+    if rate_limited: notes.append('   (LinkedIn limitou as consultas (HTTP 429); o resto fica para o proximo tick)')
+    if left: notes.append(f'   ({left} vaga(s) ainda sem consulta hoje; ficam para o proximo tick, ate {budget} s por tick)')
+    if quiet:
+        txt = [f'== ENCERRADAS SEM ACORDAR ({len(notes)}; nenhuma vaga encerrada neste tick)'] + notes
+    else:
+        txt = ['== ENCERRADAS (1 volta por dia: vagas do funil que fecharam ou sumiram no LinkedIn)'] + lines + notes
     return '\n'.join(txt)
 
 # ---------------- Applications you made directly on LinkedIn (1x/day, only with logged_in_sources) ----------------
