@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.24 (2026-11-23)
+- `fila ver` não mostra mais o que já saiu da tarefa (Prazo, data, retenção, marca ou épico): quando o Planou manda o campo vazio, vale o vazio e não a cópia local. Com isso, o aviso de fila parada volta a disparar para a tarefa que deixou de estar retida. Planou antigo, que não manda o campo, segue com a cópia.
+
 ## 0.114.23 (2026-11-23)
 - Foco do dia: o agente passa a usar o Prazo (`deadline`) e as tarefas que cada uma segura (`blocks`) que a fila do Planou 0.157.0 devolve em cada tarefa. O corte de 14 dias vale também para a tarefa da fila (Prazo vazio conta como sem Prazo), e a tarefa que segura outra sobe como "outra tarefa espera esta" mesmo atrasada, no lugar da foto tirada quando a tarefa foi passada. Com um Planou mais antigo, sem esses campos, segue como antes (PLN0936).
 

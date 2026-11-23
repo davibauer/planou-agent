@@ -5028,6 +5028,10 @@ def _forget_gone(remote, asked, now=None):
         _save('queue.json', qq)
 
 
+# fields the contract marks nullable on purpose: a null from GET /agent/queue means "none", not "unknown"
+QUEUE_NULLABLE = ('deadline', 'due', 'held', 'mark', 'epic')
+
+
 def queue_view():
     """fila ver: the local queue (whole payloads) merged with Planou's GET /agent/queue, which says what is released
     (within the limit "Ao mesmo tempo") and what waits. Each task gets `status`: "liberada" or "na fila". Planou
@@ -5041,7 +5045,9 @@ def queue_view():
             remote = {}
             for r in res.get('tasks') or []:
                 tid = str(r.get('task_id') or r.get('pid'))
-                remote[tid] = {**tasks.get(tid, {}), **{k: v for k, v in r.items() if v is not None}}
+                # a null is Planou's answer for QUEUE_NULLABLE (Prazo, date, hold, mark or epic taken off the task): it beats
+                # the local copy; the other nulls and the keys it did not send (an older Planou) keep what the copy has
+                remote[tid] = {**tasks.get(tid, {}), **{k: v for k, v in r.items() if v is not None or k in QUEUE_NULLABLE}}
             out.update(source='planou', wip=res.get('wip'), busy=res.get('busy'))
             _forget_gone(remote, asked)
             tasks = remote
