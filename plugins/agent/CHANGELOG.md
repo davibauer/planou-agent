@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.25 (2026-11-23)
+- Fonte Slack: com a rede lenta, a busca de mensagens podia vir cortada e a fonte virava FONTE QUEBRADA em todo tick. Agora a busca tenta de novo a mesma página com menos mensagens por vez (100, 50, 20) antes de dar a fonte por quebrada; erro de credencial, limite de uso ou HTTP segue como antes.
+
 ## 0.114.24 (2026-11-23)
 - `fila ver` não mostra mais o que já saiu da tarefa (Prazo, data, retenção, marca ou épico): quando o Planou manda o campo vazio, vale o vazio e não a cópia local. Com isso, o aviso de fila parada volta a disparar para a tarefa que deixou de estar retida. Planou antigo, que não manda o campo, segue com a cópia.
 

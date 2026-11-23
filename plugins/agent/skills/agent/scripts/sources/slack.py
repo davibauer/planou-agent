@@ -24,7 +24,7 @@ Config ("fontes": [{"tipo": "slack", ...}]):
   max_por_chat    messages shown per chat (default 20)
   lembrar_horas   business hours until the 1st reminder (default 4)
 """
-import os, re, sys
+import http.client, os, re, sys
 from datetime import datetime, timezone, timedelta
 
 import core, paths, compartilhado, permalinks
@@ -35,6 +35,8 @@ TEAMS_DIR = paths.WORK_INBOX
 BOTS_IGNORAR = set()
 CANAIS_IGNORAR = set()
 MAX_POR_CHAT = 20
+TAMANHOS_PAGINA = (100, 50, 20)   # search.messages count, biggest first
+RESPOSTA_CORTADA = (http.client.IncompleteRead, ConnectionResetError)
 
 
 def _slack():
@@ -65,13 +67,20 @@ def tick_slack(s, desde, dry):
     dia = (desde - timedelta(days=2)).strftime('%Y-%m-%d')
     corte = desde.timestamp() - 300
     vistos = set(st.get('vistos') or [])
-    brutas, pagina = [], 1
-    while True:
-        d = sp.api('search.messages', query=f'after:{dia}', sort='timestamp', sort_dir='desc', count=100, page=pagina)['messages']
-        lote = d.get('matches', [])
-        brutas += [m for m in lote if float(m.get('ts', 0)) > corte and m.get('ts') not in vistos]
-        if not lote or float(lote[-1].get('ts', 0)) <= corte or pagina >= d.get('paging', {}).get('pages', 1): break
-        pagina += 1
+    # Slow link: a big page can come back cut (IncompleteRead) while smaller ones pass. Retry from page 1 with a smaller
+    # count (page is per count); ts cut and 'vistos' keep it free of duplicates. Other errors (auth, 429, HTTP) are untouched.
+    for count in TAMANHOS_PAGINA:
+        brutas, pagina = [], 1
+        try:
+            while True:
+                d = sp.api('search.messages', query=f'after:{dia}', sort='timestamp', sort_dir='desc', count=count, page=pagina)['messages']
+                lote = d.get('matches', [])
+                brutas += [m for m in lote if float(m.get('ts', 0)) > corte and m.get('ts') not in vistos]
+                if not lote or float(lote[-1].get('ts', 0)) <= corte or pagina >= d.get('paging', {}).get('pages', 1): break
+                pagina += 1
+            break
+        except RESPOSTA_CORTADA:
+            if count == TAMANHOS_PAGINA[-1]: raise
     por_chat = {}
     for m in brutas: por_chat.setdefault((m.get('channel') or {}).get('id', '?'), []).append(m)
     meus = {}                              # ts das minhas msgs por chat, inclusive respostas em thread
