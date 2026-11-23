@@ -268,7 +268,14 @@ posição, tarefa em `removed` não volta no dia, promessa aberta de hoje entra 
 este dia, que o Planou não fixa sozinho), e tarefa que o agente não conhece fica no empate. O agente vê só parte do
 projeto, então só sobe uma vaga do servidor: `blocks` nunca cai, atrasada ou vence hoje só cai quando ele conhece a data
 e o Prazo da tarefa, e a vaga que fica guarda o motivo do servidor. Dia que ninguém montou
-ainda (`last_change_at` vazio) fica com o servidor, que monta pela regra quando a pessoa abre o foco.
+ainda (`last_change_at` vazio) fica com o servidor, que monta pela regra quando a pessoa abre o foco. Tarefa atrasada há
+mais de 14 dias no dia do foco (a mais nova entre Data e Prazo; exatamente 14 ainda entra) não é candidata, como no
+servidor: só entra se bloqueia outra ou é P1. O agente não a manda (o servidor a descartaria e preencheria a vaga pela
+regra). Esse corte só vale quando o agente conhece a Data e o Prazo da tarefa (tarefa sincronizada); tarefa da fila sem
+Prazo sincronizado segue pela data como antes, porque o Prazo pode ter sido posto ou adiado depois da entrega e o servidor
+só preenche a vaga que ele mesmo descarta. A vaga do servidor com uma dessas, quando o agente conhece as duas datas e a prioridade e ela não bloqueia nada,
+dá lugar a uma tarefa que o agente conhece; sem substituta ela fica por último, e o servidor a troca pela regra.
+No foco de amanhã a conta é a partir de amanhã.
 
 Foco de amanhã: no fechamento do dia (primeiro tick pesado a partir das 18h BRT em dia útil, o mesmo da `== DAILY`), uma
 vez por projeto e dia, o tick também deixa pronto o foco do próximo dia útil (de sexta, a segunda), contado a partir do

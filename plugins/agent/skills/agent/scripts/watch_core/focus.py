@@ -16,7 +16,13 @@ The order (plan(), pure):
   2. a task in `removed` (the person took it out today) never comes back on this day;
   3. every open promise for today (`promises`, done false) is in the focus and never leaves it;
   4. the other places follow the server's rule over what the agent knows (its synced tasks in cache/planou/state.json and
-     its queue in cache/planou/queue.json): blocks another task, overdue or due today, P1, then priority and date;
+     its queue in cache/planou/queue.json): blocks another task, overdue or due today, P1, then priority and date. A
+     date late for more than LATE_TOO_LONG_DAYS on the focus day (the later of the due date and the Prazo; exactly 14 is
+     still in) is no reason any more (Planou 0.156.1, PLN0929/PLN0930): such a task enters only if it blocks another or
+     is P1, as on the server, which drops it from the agent's order without a refusal and fills the place by its rule.
+     The cut applies only when the agent knows both dates (`dates`); without the Prazo it orders by the date as before
+     (a Prazo set or moved forward after the hand-out would keep the task out all day, and the server only fills the
+     places it drops itself);
   5. a slot already in the focus wins a tie, and a task the agent does not know keeps the rank of its slot's reason_kind
      (the agent never sees the whole project: it never drops a slot only because it does not know the task). A partial
      view only raises a slot: `blocks` never falls (the server looks at the dependencies of the whole project, the agent
@@ -24,6 +30,9 @@ The order (plan(), pure):
      (`deadline`, kept in state.json for the tasks it synced) and `priority` only when it knows the priority. A slot that
      stays keeps the server's reason_kind and reason when the agent has no better one (the POST rewrites them);
   6. a known task that got closed, went to backlog, got blocked or waits on someone leaves (unless locked or promised).
+     A slot the server would drop by age (both dates and the priority known, not P1, blocking nothing) only falls to
+     rank 4: a task the agent knows takes its place, and without one it stays, last (an empty place is never written:
+     the server fills only the places it drops itself, by its rule over the whole project).
 A day nobody built yet (`last_change_at` null) is left to the server: it builds it by its rule, with the whole project
 in view, when the person opens the focus, and an order from the agent first would count as that build. The queue is read
 fresh (GET /agent/queue, once per tick that reads a focus) when the queue is on: queue.json is a snapshot of the
@@ -66,6 +75,7 @@ NOT_KEEPER_EVERY = timedelta(hours=1)
 REASON_MAX = 300
 ITEM_REASON_MAX = 200
 FROM_AGENT = ('promised', 'blocks', 'due_today', 'overdue', 'priority', 'other')
+LATE_TOO_LONG_DAYS = 14                                         # the server's DayFocus.LateTooLongDays (AskRules.OlderAfter)
 RANK_OF_KIND = {'promised': 0, 'person': 0, 'blocks': 1, 'overdue': 2, 'due_today': 2, 'priority': 3, 'other': 4}
 OUT_STATES = ('closed', 'backlog', 'blocked', 'waiting')       # a known task in one of these leaves (unless locked/promised)
 NEVER_SEND = ('closed', 'backlog')                             # the server refuses these outside their locked slot
@@ -74,6 +84,7 @@ KIND_TEXT = {'promised': 'prometida para hoje', 'blocks': 'outra tarefa espera e
 NEXT_TEXT = {**KIND_TEXT, 'promised': 'prometida para o dia', 'due_today': 'vence no dia'}
 NEXT_PREFIX = 'Fechamento do dia: '
 OUT_TEXT = {'closed': 'concluida', 'backlog': 'voltou ao backlog', 'blocked': 'bloqueada', 'waiting': 'aguardando alguem'}
+OLD_TEXT = f'atrasada ha mais de {LATE_TOO_LONG_DAYS} dias'
 _PID = re.compile(r'^([A-Z]{2,6})\d{3,}$')
 
 
@@ -134,13 +145,25 @@ def known(priorities=None, remote=None):
     return out
 
 
+def late_too_long(due, deadline, day):
+    """The server's DayFocus.LateTooLong: the later of the due date and the Prazo is more than LATE_TOO_LONG_DAYS before
+    `day` (a date moved recently, or a Prazo still ahead, makes the task current again). Exactly 14 days is not yet too
+    long; no date at all is never late."""
+    latest = max((d for d in (due, deadline) if d), default=None)
+    return latest is not None and latest < day - timedelta(days=LATE_TOO_LONG_DAYS)
+
+
 def rank(t, day):
-    """(rank, reason_kind) of a known task by the server's rule; rank 4 ('other') when nothing makes it urgent. Overdue
-    is a past date OR a past Prazo, even with a future Prazo (PLN0576); due today when either date is today or past."""
+    """(rank, reason_kind) of a known task by the server's rule on the focus `day` (today, or the next workday at the
+    day's close); rank 4 ('other') when nothing makes it urgent. Overdue is a past date OR a past Prazo, even with a
+    future Prazo (PLN0576); due today when either date is today or past. A date late for too long (late_too_long,
+    PLN0930) is no reason: such a task ranks only by `blocks` or P1, as the server's OutByAge. The cut needs both dates
+    (`dates`): a Prazo the agent does not know may have moved forward, so without it the date ranks as before."""
     if t.get('blocks'): return 1, 'blocks'
     due, dl = _day(t.get('due')), _day(t.get('deadline'))
-    if (dl and dl < day) or (due and due < day): return 2, 'overdue'
-    if (due and due <= day) or (dl and dl <= day): return 2, 'due_today'
+    if not (t.get('dates') and late_too_long(due, dl, day)):
+        if (dl and dl < day) or (due and due < day): return 2, 'overdue'
+        if (due and due <= day) or (dl and dl <= day): return 2, 'due_today'
     if t.get('priority') == 1: return 3, 'priority'
     return 4, 'other'
 
@@ -160,6 +183,14 @@ def _may_lower(kind, to, t):
     if to > 2 and not t.get('dates'): return False
     if to > 3 and t.get('priority') is None: return False
     return True
+
+
+def _out_by_age(kind, t, day):
+    """Whether a slot of the server's `kind` holding the known task `t` is one the server would drop from the order
+    (DayFocus.OutByAge, PLN0930): late for too long, with both dates and the priority known, not P1 and blocking
+    nothing (neither in the agent's view nor in the server's `blocks` slot). Only names why it left the order."""
+    if kind == 'blocks' or t.get('blocks') or not t.get('dates') or t.get('priority') in (None, 1): return False
+    return late_too_long(_day(t.get('due')), _day(t.get('deadline')), day)
 
 
 def plan(focus, tasks, refused=(), build=False):
@@ -229,8 +260,11 @@ None: the server's rule builds that day, with the whole project in view."""
     if build and len(out) < size: return None     # a short day: left to the server's rule (it sees the whole project)
     new = [x[0] for x in out]
     if new == current: return None
+    kinds = {s['pid']: s.get('reason_kind') if s.get('reason_kind') in RANK_OF_KIND else 'other' for s in slots}
     for pid in current:
-        if pid not in new and pid not in left: left[pid] = 'deu lugar a uma tarefa mais urgente'
+        if pid not in new and pid not in left:
+            old = tasks.get(pid) and _out_by_age(kinds.get(pid), tasks[pid], day)
+            left[pid] = OLD_TEXT if old else 'deu lugar a uma tarefa mais urgente'
     entered = [(pid, k, r) for pid, k, r, lk in out if pid not in current]
     parts = [f'entrou {pid} ({r or texts.get(k, k)})' for pid, k, r in entered]
     parts += [f'saiu {pid} ({why})' for pid, why in left.items() if pid in current and pid not in new]

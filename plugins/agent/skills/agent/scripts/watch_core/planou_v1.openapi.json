@@ -1123,6 +1123,7 @@
                             "other"
                           ],
                           "type": "string",
+                          "description": "\"promised\" is accepted for compatibility with older agents and stored as \"other\".",
                           "nullable": true
                         },
                         "reason": {
@@ -10054,6 +10055,7 @@
               "other"
             ],
             "type": "string",
+            "description": "\"promised\" is accepted for compatibility with older agents and stored as \"other\".",
             "nullable": true
           },
           "reason": {
@@ -10136,6 +10138,7 @@
                     "other"
                   ],
                   "type": "string",
+                  "description": "\"promised\" is accepted for compatibility with older agents and stored as \"other\".",
                   "nullable": true
                 },
                 "reason": {
