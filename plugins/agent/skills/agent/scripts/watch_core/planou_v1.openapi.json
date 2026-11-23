@@ -7818,10 +7818,12 @@
                 "reporter",
                 "blocked",
                 "blocked_by",
+                "blocks",
                 "epic",
                 "mark",
                 "autonomy",
-                "held"
+                "held",
+                "deadline"
               ],
               "type": "object",
               "properties": {
@@ -7879,6 +7881,12 @@
                   "type": "boolean"
                 },
                 "blocked_by": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/V1TaskRef"
+                  }
+                },
+                "blocks": {
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/V1TaskRef"
@@ -7947,6 +7955,12 @@
                   "type": "string",
                   "default": null,
                   "nullable": true
+                },
+                "deadline": {
+                  "type": "string",
+                  "format": "date",
+                  "default": null,
+                  "nullable": true
                 }
               }
             }
@@ -7969,10 +7983,12 @@
           "reporter",
           "blocked",
           "blocked_by",
+          "blocks",
           "epic",
           "mark",
           "autonomy",
-          "held"
+          "held",
+          "deadline"
         ],
         "type": "object",
         "properties": {
@@ -8030,6 +8046,12 @@
             "type": "boolean"
           },
           "blocked_by": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V1TaskRef"
+            }
+          },
+          "blocks": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/V1TaskRef"
@@ -8096,6 +8118,12 @@
           },
           "held": {
             "type": "string",
+            "default": null,
+            "nullable": true
+          },
+          "deadline": {
+            "type": "string",
+            "format": "date",
             "default": null,
             "nullable": true
           }

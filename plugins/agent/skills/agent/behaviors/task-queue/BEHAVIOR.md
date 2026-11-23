@@ -271,9 +271,12 @@ e o Prazo da tarefa, e a vaga que fica guarda o motivo do servidor. Dia que ning
 ainda (`last_change_at` vazio) fica com o servidor, que monta pela regra quando a pessoa abre o foco. Tarefa atrasada há
 mais de 14 dias no dia do foco (a mais nova entre Data e Prazo; exatamente 14 ainda entra) não é candidata, como no
 servidor: só entra se bloqueia outra ou é P1. O agente não a manda (o servidor a descartaria e preencheria a vaga pela
-regra). Esse corte só vale quando o agente conhece a Data e o Prazo da tarefa (tarefa sincronizada); tarefa da fila sem
-Prazo sincronizado segue pela data como antes, porque o Prazo pode ter sido posto ou adiado depois da entrega e o servidor
-só preenche a vaga que ele mesmo descarta. A vaga do servidor com uma dessas, quando o agente conhece as duas datas e a prioridade e ela não bloqueia nada,
+regra). Esse corte só vale quando o agente conhece a Data e o Prazo da tarefa: tarefa sincronizada, ou tarefa da fila
+lida na hora (`GET /v1/agent/queue` traz o `deadline` desde o Planou 0.157.0, e `null` conta como sem Prazo); a mesma
+lista traz em `blocks` as tarefas abertas que cada uma segura, e a que segura outra entra como "outra tarefa espera esta"
+mesmo atrasada. Com um Planou mais antigo, sem esses campos, tarefa da fila sem Prazo sincronizado segue pela data como
+antes, porque o Prazo pode ter sido posto ou adiado depois da entrega e o servidor só preenche a vaga que ele mesmo
+descarta. A vaga do servidor com uma dessas, quando o agente conhece as duas datas e a prioridade e ela não bloqueia nada,
 dá lugar a uma tarefa que o agente conhece; sem substituta ela fica por último, e o servidor a troca pela regra.
 No foco de amanhã a conta é a partir de amanhã.
 

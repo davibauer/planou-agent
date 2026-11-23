@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.114.23 (2026-11-23)
+- Foco do dia: o agente passa a usar o Prazo (`deadline`) e as tarefas que cada uma segura (`blocks`) que a fila do Planou 0.157.0 devolve em cada tarefa. O corte de 14 dias vale também para a tarefa da fila (Prazo vazio conta como sem Prazo), e a tarefa que segura outra sobe como "outra tarefa espera esta" mesmo atrasada, no lugar da foto tirada quando a tarefa foi passada. Com um Planou mais antigo, sem esses campos, segue como antes (PLN0936).
+
 ## 0.114.22 (2026-11-22)
 - Foco do dia: o agente deixa de mandar tarefa atrasada há mais de 14 dias (a mais nova entre Data e Prazo, contada no dia do foco, e amanhã no fechamento do dia), a mesma regra do Planou 0.156.1: ela só entra se bloqueia outra tarefa ou é P1. Antes o servidor a descartava em silêncio a cada tick, e num empate a antiga ganhava a vez de uma tarefa válida pela data mais velha. O corte vale quando o agente conhece a Data e o Prazo da tarefa; tarefa da fila sem Prazo conhecido segue pela data como antes, para não ficar fora do foco se o Prazo foi adiado (PLN0930).
 

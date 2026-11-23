@@ -20,15 +20,17 @@ The order (plan(), pure):
      date late for more than LATE_TOO_LONG_DAYS on the focus day (the later of the due date and the Prazo; exactly 14 is
      still in) is no reason any more (Planou 0.156.1, PLN0929/PLN0930): such a task enters only if it blocks another or
      is P1, as on the server, which drops it from the agent's order without a refusal and fills the place by its rule.
-     The cut applies only when the agent knows both dates (`dates`); without the Prazo it orders by the date as before
-     (a Prazo set or moved forward after the hand-out would keep the task out all day, and the server only fills the
-     places it drops itself);
+     The cut applies only when the agent knows both dates (`dates`: a synced task whose state.json entry keeps the
+     Prazo, or a queue task in the fresh GET /agent/queue, which carries `deadline` since Planou 0.157.0, PLN0936);
+     without the Prazo it orders by the date as before (a Prazo set or moved forward after the hand-out would keep the
+     task out all day, and the server only fills the places it drops itself);
   5. a slot already in the focus wins a tie, and a task the agent does not know keeps the rank of its slot's reason_kind
      (the agent never sees the whole project: it never drops a slot only because it does not know the task). A partial
      view only raises a slot: `blocks` never falls (the server looks at the dependencies of the whole project, the agent
      only at its queue's), `overdue`/`due_today` falls only when the agent knows both the due date and the Prazo
-     (`deadline`, kept in state.json for the tasks it synced) and `priority` only when it knows the priority. A slot that
-     stays keeps the server's reason_kind and reason when the agent has no better one (the POST rewrites them);
+     (`deadline`, kept in state.json for the tasks it synced, or in the fresh queue) and `priority` only when it knows
+     the priority. A slot that stays keeps the server's reason_kind and reason when the agent has no better one (the
+     POST rewrites them);
   6. a known task that got closed, went to backlog, got blocked or waits on someone leaves (unless locked or promised).
      A slot the server would drop by age (both dates and the priority known, not P1, blocking nothing) only falls to
      rank 4: a task the agent knows takes its place, and without one it stays, last (an empty place is never written:
@@ -36,8 +38,10 @@ The order (plan(), pure):
 A day nobody built yet (`last_change_at` null) is left to the server: it builds it by its rule, with the whole project
 in view, when the person opens the focus, and an order from the agent first would count as that build. The queue is read
 fresh (GET /agent/queue, once per tick that reads a focus) when the queue is on: queue.json is a snapshot of the
-hand-out, so without the fresh list its priority and dependencies are not used. A 422 that names an item (a task the
-agent does not know went to backlog or closed) drops it and tries once more.
+hand-out, so without the fresh list its priority, Prazo and dependencies are not used. Since Planou 0.157.0 (PLN0931)
+each queue task carries its Prazo (`deadline`) and the open tasks it holds (`blocks`): the age cut and the `blocks`
+reason use them; a queue without these fields (an older Planou) falls back to what state.json and blocked_by say. A
+422 that names an item (a task the agent does not know went to backlog or closed) drops it and tries once more.
 It writes only when the sequence of tasks changes, with the reason in one line (who entered and left, and why). Dates,
 priority, promises, pins and removals are the person's: the request carries only the order and the reasons.
 
@@ -104,9 +108,12 @@ def known(priorities=None, remote=None):
     fills the priority of synced tasks (state.json does not keep it). `dates` is True when both the due date and the Prazo
     are known (a synced task whose entry keeps `deadline`, None for none): only then can a date make a slot fall.
     `remote` is the tasks of GET /agent/queue (fresh priority, due date, block and blocked_by: a blocker of a queue task
-    blocks an open task; no Prazo). Without it, queue.json is a snapshot taken when the task was handed out: its
-    priority and dependencies may be stale, so they go without them (a partial view only raises a slot, never lowers
-    it)."""
+    blocks an open task). Since Planou 0.157.0 (PLN0931) each one also carries `deadline` (the Prazo, null for none) and
+    `blocks` (the open tasks it holds; another employee's comes with title and source_key null): a task whose row has
+    `deadline` knows both dates (`dates`, also with null), and one that holds an open task blocks. A row without these
+    fields (an older Planou) keeps the synced entry's Prazo, when it keeps one, and the blocks derived from blocked_by.
+    Without `remote`, queue.json is a snapshot taken when the task was handed out: its priority and dependencies may be
+    stale, so they go without them (a partial view only raises a slot, never lowers it)."""
     out, synced = {}, {}
     for t in (P._load('state.json', {}).get('tasks') or {}).values():
         if not isinstance(t, dict) or not t.get('pid'): continue
@@ -125,11 +132,14 @@ def known(priorities=None, remote=None):
             pid = str(r['pid'])
             kind = (r.get('mark') or {}).get('kind') if isinstance(r.get('mark'), dict) else None
             st = 'blocked' if r.get('blocked') or kind == 'blocked' else 'waiting' if kind == 'waiting' else 'todo'
-            s = synced.get(pid) or {}          # the queue view has no Prazo: the synced entry's, when it keeps one
+            s = synced.get(pid) or {}
+            if 'deadline' in r: dl, dates = r.get('deadline'), True      # the fresh Prazo (null: none), Planou 0.157.0
+            else: dl, dates = s.get('deadline'), bool(s.get('dates'))   # an older queue: the synced entry's, when kept
+            holds = r.get('blocks') if isinstance(r.get('blocks'), list) else []
             out[pid] = {'pid': pid, 'project': r.get('project') or _project_of(pid), 'state': st,
                         'priority': r.get('priority') if isinstance(r.get('priority'), int) else None,
-                        'due': r.get('due'), 'deadline': s.get('deadline'), 'dates': bool(s.get('dates')),
-                        'blocks': pid in blockers}
+                        'due': r.get('due'), 'deadline': dl, 'dates': dates,
+                        'blocks': pid in blockers or any(isinstance(b, dict) and b.get('open') is not False for b in holds)}
         for pid in blockers:
             if pid in out: out[pid]['blocks'] = True
             else: out[pid] = {'pid': pid, 'project': _project_of(pid), 'state': 'todo', 'priority': None, 'due': None,
@@ -298,7 +308,8 @@ def _projects():
 
 
 def _remote_queue():
-    """The tasks of GET /agent/queue (fresh priority, due date and dependencies), or None (queue off, Planou older or down)."""
+    """The tasks of GET /agent/queue (fresh priority, due date, dependencies and, since Planou 0.157.0, the Prazo and the
+    tasks each one holds), or None (queue off, Planou older or down)."""
     if not P.queue_enabled(): return None
     try:
         _, res = P._call('GET', '/agent/queue')
