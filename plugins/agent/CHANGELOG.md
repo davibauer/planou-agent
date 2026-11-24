@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.115.0 (2026-11-24)
+- Fonte teams: opção `chats_ignorar` tira o chat inteiro da saída, sem bloco, sem pendência e sem acordar a sessão, menções incluídas. Cada item é o id do chat (exato) ou um trecho do tópico de um chat com nome (sem diferença de maiúsculas); grupo sem nome só pelo id. Pendência aberta de um chat ignorado é resolvida como "chat ignorado", e o `--validate` recusa uma `chats_ignorar` que não seja uma lista de textos.
+
 ## 0.114.25 (2026-11-23)
 - Fonte Slack: com a rede lenta, a busca de mensagens podia vir cortada e a fonte virava FONTE QUEBRADA em todo tick. Agora a busca tenta de novo a mesma página com menos mensagens por vez (100, 50, 20) antes de dar a fonte por quebrada; erro de credencial, limite de uso ou HTTP segue como antes.
 

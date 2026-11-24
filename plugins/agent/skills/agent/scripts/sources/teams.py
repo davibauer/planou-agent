@@ -23,6 +23,10 @@ Config ("fontes": [{"tipo": "teams", ...}]):
   ref_regex         regex with two groups (path, number) of a link in a message that names the same demand as another
                     source (e.g. a merge request URL); the pending item gets p['mr'] = "path!number" (cruza_mr hook)
   max_por_chat      default 20
+  chats_ignorar     chats left out entirely (no block, no pending item, no wake, @mentions included); each entry is a
+                    chat id (exact, e.g. "19:exemplo@thread.v2") or a piece of a named chat's topic (case-insensitive).
+                    A group without a name has no topic: ignore it by id. An open pending item of an ignored chat is
+                    resolved ("chat ignorado")
   lembrar_horas     default 4
 """
 import os, re, sys, json, urllib.error, urllib.request
@@ -36,6 +40,13 @@ MAX_POR_CHAT = 20
 CHATSVC = 'https://teams.microsoft.com/api/chatsvc/amer/v1/users/ME/conversations?view=msnp24Equivalent&pageSize=100'
 TIPOS_CHAT = {'OneToOneChat', 'Chat', 'Meeting'}
 CFG = {}
+IGNORAR = set()      # chats_ignorar, stripped and lowercased
+
+
+def ignorado(cid, topico):
+    """chats_ignorar: the chat id exactly, or a piece of the named chat's topic (case-insensitive)."""
+    t = (topico or '').lower()
+    return (cid or '').lower() in IGNORAR or any(x in t for x in IGNORAR if t)
 
 
 def _baixa_imagens(m, max_por_msg=3):
@@ -173,6 +184,7 @@ def tick_teams(s, desde, dry):
 
     cache = slowfs.load_json(f'{tp.CFG_DIR}/chats.json')       # with a deadline on a Windows drive (PLN0245)
     nomes = {c['id']: c['nome'] for k in ('oneOnOne', 'grupos') for c in cache[k]}
+    grupos = {c['id']: c['nome'] for c in cache['grupos']}      # topic of a named group (a 1:1 name is a person's)
     aviso_fonte = []
     if rota == 'chatsvc':
         try:
@@ -190,9 +202,11 @@ def tick_teams(s, desde, dry):
         sondas = _sondas_conector()
     erros = [(c['id'], e) for c, _, _, e in sondas if e]
     out = []
+    fora = {c['id'] for c, _, _, _ in sondas if ignorado(c['id'], c.get('topic') or grupos.get(c['id']))}
     for c, ultimo, de, e in sondas:
         if e or not ultimo or dt(ultimo) < desde: continue
         cid = c['id']
+        if cid in fora: continue                       # chats_ignorar: not even read
         brutas = tp.mensagens(cid, 50)
         mencionado = {m.get('id') for m in brutas
                       if any(((x.get('mentioned') or {}).get('user') or {}).get('displayName') == me for x in m.get('mentions') or [])}
@@ -229,7 +243,9 @@ def tick_teams(s, desde, dry):
         # resolve: a ultima msg do chat passou a ser minha (sonda deste tick; sem 'de' = nao sondado ainda, deixa quieto)
         for p in pend_abertas(s, 'teams'):
             h = sond.get(p['ref']) or {}
-            if h.get('sondado') == agora.isoformat() and h.get('de') == me:
+            if p['ref'] in fora or ignorado(p['ref'], grupos.get(p['ref'])):
+                resolve(p, agora, 'chat ignorado'); resolvidas.append((p, 'chat ignorado'))
+            elif h.get('sondado') == agora.isoformat() and h.get('de') == me:
                 resolve(p, agora, 'voce respondeu'); resolvidas.append((p, 'voce respondeu'))
         # enfileira: 1:1 ou @mencao, ultima msg nao e minha (o modelo poda o que nao for demanda com --pendente pN status=ignorar)
         for c in out:
@@ -280,9 +296,12 @@ class Fonte(Base):
     conserto = 'Teams down — refresh the work-inbox session / connector'
 
     def configura(self):
-        global MAX_POR_CHAT, CFG
+        global MAX_POR_CHAT, CFG, IGNORAR
         CFG = dict(self.cfg)
         MAX_POR_CHAT = int(self.cfg.get('max_por_chat', 20))
+        ig = self.cfg.get('chats_ignorar') or []
+        if isinstance(ig, str): ig = [ig]             # one chat written as text, not a list of single letters
+        IGNORAR = {str(x).strip().lower() for x in ig if str(x).strip()}   # '' would match every topic
         ms365.configura(self.cfg.get('perfil') or sys.exit('teams: "perfil" faltando no config.json'), self.cfg.get('teams_chat_dir'))
 
     def tick(self, s, desde, dry): return tick_teams(s, desde, dry)

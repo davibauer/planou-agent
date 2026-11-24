@@ -24,7 +24,7 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
   meetings_include   [str]: recording stems "YYYY-MM-DD HH-MM-SS" forced into this instance (workspace.py)
   sources, hooks   [{type, ...options}]: adapters. Checked here: the alertas_azure hook's nao_acordar and
                    nao_acordar_junto (lists of names; a name in nao_acordar_junto that no hook has is a warning), ambiente
-                   and fonte_clusters (text)
+                   and fonte_clusters (text); the teams source's chats_ignorar (a list of chat ids or topic pieces)
   behaviors        [str]: behaviors loaded by the session, in this order (behaviors/<name>/BEHAVIOR.md). An old name
                    in BEHAVIOR_ALIASES is read as the new one (deduplicated, first position kept) and --validate warns;
                    one that left the plugin (REMOVED_BEHAVIORS) is dropped and --validate warns
@@ -372,6 +372,12 @@ def _alert_hook(e, i, hooks, err, warn):
         if not e.get('nao_acordar'): warn.append(f'{at}: "nao_acordar_junto" sem "nao_acordar" nao faz nada')
 
 
+def _teams_source(e, i, err):
+    """teams source (PLN0959): chats_ignorar is a list of chat ids or topic pieces; an empty one would match every topic."""
+    if e.get('chats_ignorar') is not None and not _strs(e['chats_ignorar']):
+        err.append(f'"sources"[{i}] (teams): "chats_ignorar" precisa ser uma lista de ids de chat ou trechos do topico')
+
+
 def _agenda_hook(e, i, hooks, err, warn):
     """agenda (PLN0439): a reminder at a fixed time; the name is the state key, so it must be set and unique."""
     at = f'"hooks"[{i}] (agenda)'
@@ -500,6 +506,7 @@ def validate(c, behavior_file=None, adapter_exists=None):
             if adapter_exists and not adapter_exists(t): err.append(f'"{k}"[{i}]: tipo "{t}" nao existe (nem no plugin nem em adapters/ da instancia)')
             if k == 'hooks' and t == 'alertas_azure': _alert_hook(e, i, v, err, warn)
             if k == 'hooks' and t == 'agenda': _agenda_hook(e, i, v, err, warn)
+            if k == 'sources' and t == 'teams': _teams_source(e, i, err)
     b = c.get('behaviors')
     if not isinstance(b, list): err.append('"behaviors" precisa ser uma lista de nomes')
     else:
