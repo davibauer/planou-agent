@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.117.1 (2026-11-24)
+- O pacote público do agent volta a ser publicado: os ids do WhatsApp (`...@g.us`, `...@s.whatsapp.net`) da documentação não são mais lidos como e-mail de pessoa pela checagem da publicação, e os números de exemplo do WhatsApp ficaram obviamente fictícios.
+
+## 0.117.0 (2026-11-24)
+- Comportamento novo `construction-advisor`, assistente de obra para uma instância dedicada a uma obra: analisa orçamento (preço contra o histórico pago, os orçamentos anteriores e o SINAPI e o CUB da região, com o veredito e a conta; quantidade contra o modelo; padrão da marca; garantia do fabricante sempre com fonte e data da consulta), escreve o parecer e o rascunho de resposta, que nunca envia, separa o que é da obra no e-mail e na conversa e faz o resumo do dia. O que é de uma obra só fica na instância, pelas opções em `behavior_config.construction-advisor` e pelos adapters dela.
+- Guarda de SQL só leitura (`scripts/sql_guard.py`) para os adapters de instância que consultam um banco: uma instrução só, `SELECT` ou `WITH`, sem `INTO`, `SET` nem `FOR UPDATE` e sem função com efeito fora da leitura ou que roda consulta passada como texto (`set_config`, `dblink`, `pg_terminate_backend`, `pg_read_file`, trava advisory, `pg_stat_reset`, `crosstab`, `query_to_xml`, `heap_force_kill`...), também com o nome entre aspas duplas; comentários e strings lidos numa passada só (uma aspa num comentário não esconde uma segunda instrução; `--` termina em `\n` ou `\r`, como no PostgreSQL), `$` fora de string só como parâmetro (`$1`), barra invertida fora de string recusada (meta-comando do `psql`), sessão `default_transaction_read_only` com `standard_conforming_strings` e `rollback` sempre; `run()` liga `standard_conforming_strings` na transação e recusa a sessão em que ele não fica ligado, para o banco ler a barra invertida numa string como a guarda lê. A sessão de superusuário é recusada: a instância usa um usuário do banco só leitura, com `GRANT SELECT` só nas tabelas necessárias (`allow_superuser=True` libera com aviso, para banco de teste). `sql_guard.py check "<SQL>"` confere uma consulta. Com parâmetros, `run()` confere o texto já preenchido (`cur.mogrify` do psycopg2) e roda exatamente esse texto, então um `%s` dentro de string, identificador entre aspas ou comentário não vira código; sem `mogrify`, esse marcador é recusado.
+
+## 0.116.2 (2026-11-24)
+- Fonte whatsapp: a mensagem de um grupo que não veio na lista de grupos da conta, enquanto um nome da lista ainda não achou o seu grupo, é decidida no mesmo tick por uma consulta só dos dados desse grupo (nada chega a outra pessoa), em vez de ficar sem decisão até se perder em 14 dias. O grupo achado pelo nome entra em `grupos-permitidos.json`; se a consulta falhar, a mensagem volta no próximo tick, com aviso.
+- Fonte whatsapp: um erro interno da ponte ao tratar uma mensagem não a confirma mais ao servidor (antes ela se perdia); ela volta no próximo tick, com aviso.
+- Fonte whatsapp: o fim do tick não deixa mais uma mensagem começar a ser tratada no instante em que a ponte decide sair.
+- Documentação: o contato que esconde o número aparece só como `...@lid` e é descartado; para ler essa conversa, ponha o id `...@lid` em `contatos`.
+
+## 0.116.1 (2026-11-24)
+- O sync com o Planou não acompanha mais o tempo concluído informado (`completed_h`), que o Planou deixou de gravar: uma mudança só nesse campo não mexe mais no estado do agente.
+
+## 0.116.0 (2026-11-24)
+- Fonte `whatsapp`, somente leitura: a instância entra na conta como aparelho conectado (QR escaneado no celular uma vez, `agent.py <instância> --whatsapp-pair`, com o QR no terminal e em PNG no cache) e cada tick conecta, recebe o que chegou desde a última vez, grava e desconecta, sem daemon nem serviço. Lê só os grupos (`chats`) e contatos (`contatos`) listados no config da instância, por id, nome exato (o contato, como salvo na agenda) ou número; o resto é descartado antes de gravar e lista vazia não lê nada. Bloco `== WHATSAPP` com quem, chat, hora e texto, cursor por chat e anexos dos chats permitidos guardados no cache até `max_anexo_mb`. Falha vira `FONTE QUEBRADA (whatsapp)` sem derrubar as outras fontes. Não existe caminho de envio (mensagem, reação, status, digitando), nem confirmação de leitura, e a presença fica sempre indisponível. É um cliente não oficial (whatsmeow, fixada por commit): o WhatsApp pode bloquear a conta, e por isso a fonte só lê e a conexão é curta. Detalhes em `docs/whatsapp.md`.
+
 ## 0.115.0 (2026-11-24)
 - Fonte teams: opção `chats_ignorar` tira o chat inteiro da saída, sem bloco, sem pendência e sem acordar a sessão, menções incluídas. Cada item é o id do chat (exato) ou um trecho do tópico de um chat com nome (sem diferença de maiúsculas); grupo sem nome só pelo id. Pendência aberta de um chat ignorado é resolvida como "chat ignorado", e o `--validate` recusa uma `chats_ignorar` que não seja uma lista de textos.
 

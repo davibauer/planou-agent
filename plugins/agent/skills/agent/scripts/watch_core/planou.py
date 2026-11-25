@@ -1592,7 +1592,7 @@ TASK_EVENTS = ('task_completed', 'task_reopened', 'task_changed', 'task_deleted'
 # the task fields a `changed` may carry ({field: {from, to}}, same format as the payload); the rest of the payload is the
 # whole task as Planou has it
 CHANGED_FIELDS = ('state', 'project_state', 'resolution', 'title', 'priority', 'due', 'deadline', 'estimate_h',
-                  'remaining_h', 'completed_h', 'assignee')
+                  'remaining_h', 'assignee')
 SEEN_DAYS = 7
 MESSAGE_PREFIX = '-- MENSAGEM do usuario pelo Planou'
 QUEUE_PREFIX = '-- FILA'
@@ -2207,7 +2207,7 @@ def _norm(field, v):
     if field == 'project_state': return state_key(v.get('name') if isinstance(v, dict) else v) or None
     if field == 'assignee':
         return (v.get('kind'), v.get('id')) if isinstance(v, dict) else (v or None)
-    if field in ('priority', 'estimate_h', 'remaining_h', 'completed_h') and v is not None:
+    if field in ('priority', 'estimate_h', 'remaining_h') and v is not None:
         try: return float(v)
         except (TypeError, ValueError): return v
     return v
