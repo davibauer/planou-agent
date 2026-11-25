@@ -24,6 +24,16 @@ type Options struct {
 	Media         bool     `json:"media"`
 	MaxMediaBytes int64    `json:"max_media_bytes"`
 	HistoryDays   int      `json:"history_days"`
+
+	// mode "all" (todos.go): every chat may be read, the local filter decides what is written
+	Mode     string   `json:"mode"`     // "" = only the allowlist (the default), "all" = all contacts
+	Ignore   []string `json:"ignore"`   // never read, same forms as chats/contatos (ids, numbers, names, subjects)
+	Judged   []string `json:"judged"`   // chat ids with an "irrelevant" verdict: no longer candidates for being new
+	Muted    []string `json:"muted"`    // chat ids muted by verdicts: never read
+	Known    []string `json:"known"`    // keyed hashes of the chats known when the mode started
+	Salt     string   `json:"salt"`     // the key of those hashes (per instance)
+	Baseline bool     `json:"baseline"` // first run of the mode: nothing is new, every chat seen goes to the known set
+	Signals  Signals  `json:"signals"`
 }
 
 // matcher answers "may this chat be read?". chats: group (or any chat) JIDs, or exact group subjects. contatos: 1:1

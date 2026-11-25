@@ -1,0 +1,2 @@
+# local build output of go build (the source builds its own copy into cache/)
+/whatsapp-bridge

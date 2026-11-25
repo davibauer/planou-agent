@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,6 +40,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -54,6 +56,7 @@ type record struct {
 	ID       string `json:"id"`
 	Chat     string `json:"chat"`
 	ChatPN   string `json:"chat_pn,omitempty"`
+	ChatLID  string `json:"chat_lid,omitempty"` // a 1:1 chat addressed by its number: its @lid, when known (same person)
 	ChatNome string `json:"chat_nome"`
 	Grupo    bool   `json:"grupo"`
 	De       string `json:"de"`
@@ -64,6 +67,9 @@ type record struct {
 	Anexo    *anexo `json:"anexo,omitempty"`
 	Origem   string `json:"origem"`
 	Recebido string `json:"recebido"` // when this bridge wrote it: the source's per-chat cursor
+	// mode "all": why a chat outside the list was written ("novo" or "sinal") and which signals it carried
+	Candidata string   `json:"candidata,omitempty"`
+	Sinais    []string `json:"sinais,omitempty"`
 }
 
 type anexo struct {
@@ -83,6 +89,12 @@ type summary struct {
 	Anexos      int      `json:"anexos"`
 	Historico   int      `json:"historico"`
 	Indecididas int      `json:"indecididas"`
+	Ignoradas   int      `json:"ignoradas,omitempty"`              // mode "all": dropped by the ignore list
+	Candidatas  int      `json:"candidatas,omitempty"`             // mode "all": written as candidates
+	Conhecidos  []string `json:"conhecidos,omitempty"`             // mode "all", first run: keyed hashes of the chats known now
+	BaseOK      bool     `json:"linha_de_base_completa,omitempty"` // mode "all", first run: groups and address book both complete
+	SemNumero   int      `json:"sem_numero,omitempty"`             // mode "all": 1:1 @lid chats with no known number, dropped
+	SemLID      int      `json:"sem_lid,omitempty"`                // mode "all": 1:1 chats by number with no known @lid, dropped
 	SemPar      []string `json:"sem_par"`
 	Grupos      []string `json:"grupos,omitempty"`
 	Avisos      []string `json:"avisos"`
@@ -207,13 +219,18 @@ type reader struct {
 	offline     chan struct{}
 	offlineOnce sync.Once
 	history     time.Time
+	all         *allMode        // mode "all" (todos.go); nil = only the allowlist
+	seen        map[string]bool // mode "all", first run: keyed hashes of the chats seen in this run
+	noNumberIDs map[string]bool // mode "all": the @lid ids of the 1:1 chats dropped for having no known number
+	contactsOK  bool            // the address book (app state critical_unblock_low) finished a full sync in this run
 }
 
 func newReader(cli *whatsmeow.Client, o Options, sessionDir, spool, media string, readyWait time.Duration) *reader {
 	r := &reader{cli: cli, opts: o, match: newMatcher(o), spool: spool, media: media, groups: map[string]string{},
 		cache: filepath.Join(sessionDir, "grupos-permitidos.json"), known: map[string]string{}, readyWait: readyWait,
 		ready: make(chan struct{}), fatal: make(chan string, 4), offline: make(chan struct{}), last: time.Now(),
-		warned: map[string]bool{}, gone: map[string]bool{}, lookupFail: map[string]bool{}}
+		warned: map[string]bool{}, gone: map[string]bool{}, lookupFail: map[string]bool{},
+		all: newAllMode(o), seen: map[string]bool{}, noNumberIDs: map[string]bool{}}
 	r.groupInfo = cli.GetGroupInfo
 	if b, err := os.ReadFile(r.cache); err == nil {
 		_ = json.Unmarshal(b, &r.known)
@@ -339,6 +356,13 @@ func (r *reader) lookupGroup(chat types.JID) groupDecision {
 	cache := r.known
 	r.mu.Unlock()
 	return r.match.decideGroup(jid, subject, true, cache)
+}
+
+// groupsKnownNow: the joined groups were listed in this run.
+func (r *reader) groupsKnownNow() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.groupsKnown
 }
 
 // warn adds a warning to the summary once (a homonym group would otherwise repeat it for every message).
@@ -478,6 +502,12 @@ func (r *reader) handle(evt any) (ok bool) {
 			return r.historyNotification(n)
 		}
 		return r.message(v, "tick")
+	case *events.AppStateSyncComplete:
+		if v.Name == appstate.WAPatchCriticalUnblockLow { // the address book: the known set of mode "all" needs it whole
+			r.mu.Lock()
+			r.contactsOK = true
+			r.mu.Unlock()
+		}
 	case *events.OfflineSyncCompleted:
 		r.touch()
 		r.offlineOnce.Do(func() { close(r.offline) })
@@ -566,6 +596,9 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 	chat := info.Chat.ToNonAD()
 	rec := record{ID: info.ID, Chat: chat.String(), Eu: info.IsFromMe, Quando: info.Timestamp.UTC().Format(time.RFC3339), Origem: origin}
 	allowed := false
+	var ids, users, names []string // mode "all": every address of the chat, its phone numbers, address book names
+	noNumber := false              // a 1:1 chat known only by its @lid: no phone number to check the ignore list with
+	noLID := false                 // a 1:1 chat by number whose @lid is not known: no @lid to check the ignore list with
 	switch chat.Server {
 	case types.GroupServer:
 		r.mu.Lock()
@@ -589,9 +622,48 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 			return false
 		}
 		allowed = d.Allowed
+		r.mu.Lock()
+		subject, listed = r.groups[chat.String()] // a group info query above may have found it
+		r.mu.Unlock()
 		rec.Grupo, rec.ChatNome = true, first(d.Name, subject, chat.User) // the listed name, so the source's check agrees
+		ids = []string{chat.String()}
+		if r.all != nil {
+			ignored, decided := r.all.ignoredGroup(chat.String(), subject, listed)
+			if !decided && !listed && r.groupsKnownNow() {
+				r.lookupGroup(chat) // a query, like the allowlist's: the ignore list names groups by subject
+				r.mu.Lock()
+				subject, listed = r.groups[chat.String()]
+				gone := r.gone[chat.String()]
+				r.mu.Unlock()
+				ignored, decided = r.all.ignoredGroup(chat.String(), subject, listed)
+				if !decided && gone { // the server gives no subject: fail closed, never read
+					ignored, decided = true, true
+				}
+			}
+			if !decided {
+				r.mu.Lock()
+				r.sum.Indecididas++
+				r.mu.Unlock()
+				return false
+			}
+			if ignored {
+				r.mu.Lock()
+				r.sum.Ignoradas++
+				r.mu.Unlock()
+				return true
+			}
+		}
 	case types.DefaultUserServer, types.HiddenUserServer:
-		pn := chat
+		pn, lid := chat, types.JID{}
+		if chat.Server == types.DefaultUserServer { // the same person's @lid, so an @lid in the lists also covers this chat
+			if alt := info.SenderAlt; !info.IsFromMe && alt.Server == types.HiddenUserServer {
+				lid = alt.ToNonAD()
+			} else if alt := info.RecipientAlt; info.IsFromMe && alt.Server == types.HiddenUserServer {
+				lid = alt.ToNonAD()
+			} else if l, err := r.cli.Store.LIDs.GetLIDForPN(ctx, chat); err == nil && l.Server == types.HiddenUserServer {
+				lid = l.ToNonAD()
+			}
+		}
 		if chat.Server == types.HiddenUserServer {
 			if alt := info.SenderAlt; !info.IsFromMe && alt.Server == types.DefaultUserServer {
 				pn = alt.ToNonAD()
@@ -601,14 +673,77 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 				pn = p.ToNonAD()
 			}
 		}
-		users := []string{}
+		users = []string{}
 		if pn.Server == types.DefaultUserServer {
 			users = append(users, pn.User)
 			rec.ChatPN = pn.String()
+		} else {
+			noNumber = true
 		}
-		allowed, rec.ChatNome = r.match.directChat([]string{chat.String(), pn.String()}, users, r.contact(ctx, pn), pn.User)
+		ids = []string{chat.String(), pn.String()}
+		if !lid.IsEmpty() {
+			ids = append(ids, lid.String())
+			rec.ChatLID = lid.String()
+		} else if chat.Server == types.DefaultUserServer {
+			noLID = true
+		}
+		c := r.contact(ctx, pn)
+		names = agendaNames(c)
+		allowed, rec.ChatNome = r.match.directChat(ids, users, c, pn.User)
+		if r.all != nil && r.all.ignoredDirect(ids, users, names) {
+			r.mu.Lock()
+			r.sum.Ignoradas++
+			r.mu.Unlock()
+			return true
+		}
+	default: // status, channel, broadcast: never read, in any mode
+		ids = nil
 	}
-	if !allowed { // not in the allowlist (or a status, channel, broadcast): dropped before anything is written
+	if r.all != nil && ids != nil {
+		if r.all.baseline {
+			r.mu.Lock()
+			for _, id := range ids {
+				if id != "" {
+					r.seen[hashID(r.all.salt, id)] = true
+				}
+			}
+			r.mu.Unlock()
+		}
+		old := origin == "historico" && r.opts.HistoryDays > 0 &&
+			time.Since(info.Timestamp) > time.Duration(r.opts.HistoryDays)*24*time.Hour
+		if old || (!allowed && anyIn(r.all.muted, ids)) { // history past the limit, or a muted chat: never written
+			r.mu.Lock()
+			r.sum.Descartadas++
+			r.mu.Unlock()
+			return true
+		}
+	}
+	// mode "all": a 1:1 chat with no phone number (an @lid without SenderAlt/RecipientAlt or a stored mapping) cannot be
+	// checked against the numbers and address book names of the ignore list (its ids were checked above), so with such
+	// entries it is never a candidate: dropped and acked, nothing written, nothing kept in the session for later. Leaving
+	// it undecided would keep it decrypted in session.db for good (and hold a whole history block). The tick lists the
+	// dropped @lid ids (only the ids), so one can be put in contatos (read) or in ignorar (silenced).
+	if r.all != nil && noNumber && !allowed && r.all.ignoreNeedsNumber() {
+		r.mu.Lock()
+		r.sum.Descartadas++
+		r.sum.SemNumero++
+		r.noNumberIDs[chat.String()] = true
+		r.mu.Unlock()
+		return true
+	}
+	// mode "all", the mirror case: a 1:1 chat by number whose @lid is not known (no SenderAlt/RecipientAlt, no stored
+	// mapping) cannot be checked against the @lid ids of the ignore list, which are the ids the candidates block and the
+	// warning show, so one is put there without knowing the number. With such entries it is never a candidate: dropped
+	// and acked, nothing written. The tick says only how many (never the numbers).
+	if r.all != nil && noLID && !allowed && r.all.ignoreHasLID() {
+		r.mu.Lock()
+		r.sum.Descartadas++
+		r.sum.SemLID++
+		r.mu.Unlock()
+		return true
+	}
+	candidate := r.all != nil && ids != nil && !allowed
+	if !allowed && !candidate { // not in the allowlist (or a status, channel, broadcast): dropped before anything is written
 		r.mu.Lock()
 		r.sum.Descartadas++
 		r.mu.Unlock()
@@ -625,8 +760,42 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 		rec.DeNome = "eu"
 	} else { // a label only: the address book name first, then the name the sender chose
 		alt := info.SenderAlt.ToNonAD()
-		names := append(agendaNames(r.contact(ctx, sender)), agendaNames(r.contact(ctx, alt))...)
-		rec.DeNome = first(append(names, info.PushName, alt.User, sender.User)...)
+		senderNames := append(agendaNames(r.contact(ctx, sender)), agendaNames(r.contact(ctx, alt))...)
+		rec.DeNome = first(append(senderNames, info.PushName, alt.User, sender.User)...)
+	}
+	if candidate { // mode "all", a chat outside the list: written only with a signal of the objective or when new
+		file := ""
+		if att != nil {
+			file = att.Name
+		}
+		phones := append([]string{}, users...)
+		if s := info.Sender.ToNonAD(); s.Server == types.DefaultUserServer {
+			phones = append(phones, s.User)
+		}
+		if a := info.SenderAlt.ToNonAD(); a.Server == types.DefaultUserServer {
+			phones = append(phones, a.User)
+		}
+		subject := ""
+		if rec.Grupo {
+			subject = rec.ChatNome
+		}
+		hits := r.all.signals.hits(text, subject, []string{rec.DeNome, info.PushName}, file, phones)
+		switch {
+		case len(hits) > 0:
+			rec.Candidata, rec.Sinais = "sinal", hits
+		case r.all.isNew(ids):
+			rec.Candidata = "novo"
+		default: // no signal, not new: nothing is written, not even the attachment
+			r.mu.Lock()
+			r.sum.Descartadas++
+			r.mu.Unlock()
+			return true
+		}
+		if att != nil { // a candidate's attachment is listed, never downloaded: only a relevant chat's are
+			rec.Anexo = &anexo{Tipo: att.Kind, Nome: att.Name, Mime: att.Mime, Bytes: att.Size,
+				Erro: "candidata: anexo so e baixado de chat julgado relevante"}
+			att = nil
+		}
 	}
 	if att != nil {
 		a, retry := r.download(rec, att, info.Timestamp, origin)
@@ -643,12 +812,18 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 	}
 	r.mu.Lock()
 	r.sum.Gravadas++
+	if rec.Candidata != "" {
+		r.sum.Candidatas++
+	}
 	if origin == "historico" {
 		r.sum.Historico++
 	}
 	r.mu.Unlock()
 	return true
 }
+
+// maxNoNumberIDs caps the @lid ids listed in the warning about 1:1 chats with no known number.
+const maxNoNumberIDs = 10
 
 // recebidoLayout is fixed width (nanoseconds always present), so the per-chat cursors also sort as text.
 const recebidoLayout = "2006-01-02T15:04:05.000000000Z07:00"
@@ -770,6 +945,69 @@ func (r *reader) finish(includeGroups bool) summary {
 		s.Avisos = append(s.Avisos, fmt.Sprintf("%d msgs de grupos ficaram sem decisao (nomes dos grupos indisponiveis); "+
 			"guardadas na sessao sem confirmacao ao servidor, voltam na proxima conexao", s.Indecididas))
 	}
+	if r.all != nil && s.SemNumero > 0 {
+		lids := make([]string, 0, len(r.noNumberIDs))
+		for id := range r.noNumberIDs {
+			lids = append(lids, id)
+		}
+		sort.Strings(lids)
+		more := ""
+		if len(lids) > maxNoNumberIDs {
+			more = fmt.Sprintf(" e mais %d", len(lids)-maxNoNumberIDs)
+			lids = lids[:maxNoNumberIDs]
+		}
+		s.Avisos = append(s.Avisos, fmt.Sprintf("%d msgs de chat 1:1 sem numero conhecido (so o id @lid) descartadas sem "+
+			"gravar: com numeros ou nomes em `ignorar` nao da para conferir se sao de alguem ignorado; para acompanhar um "+
+			"desses chats, ponha o id em contatos (ou em ignorar, para calar o aviso): %s%s", s.SemNumero,
+			strings.Join(lids, ", "), more))
+	}
+	if r.all != nil && s.SemLID > 0 {
+		s.Avisos = append(s.Avisos, fmt.Sprintf("%d msgs de chat 1:1 pelo numero sem o id @lid conhecido descartadas sem "+
+			"gravar: com ids @lid em `ignorar` nao da para conferir se sao de alguem ignorado; para acompanhar um desses "+
+			"chats, ponha o numero em contatos (ou em ignorar, para calar o aviso)", s.SemLID))
+	}
+	if r.all != nil && r.all.baseline { // the chats known now: the address book, the joined groups, the chats seen
+		seen := map[string]bool{}
+		for h := range r.seen {
+			seen[h] = true
+		}
+		ctx := context.Background()
+		all, err := r.cli.Store.Contacts.GetAllContacts(ctx)
+		if err == nil {
+			for jid := range all {
+				seen[hashID(r.all.salt, jid.String())] = true
+			}
+		}
+		// complete only with the joined groups listed and the address book synced whole; otherwise the source keeps the
+		// hashes as partial and the next run is a baseline again (nothing is new until then). The pairing needs the full
+		// sync event of this run; a pull finds the synced version in the store.
+		synced := r.contactsOK
+		if !includeGroups {
+			if v, _, verr := r.cli.Store.AppState.GetAppStateVersion(ctx, string(appstate.WAPatchCriticalUnblockLow)); verr == nil && v > 0 {
+				synced = true
+			}
+		}
+		missing := []string{}
+		if !r.groupsKnown {
+			missing = append(missing, "grupos da conta nao listados")
+		}
+		if err != nil || !synced {
+			missing = append(missing, "agenda ainda nao sincronizada")
+		}
+		s.BaseOK = len(missing) == 0
+		if !s.BaseOK {
+			s.Avisos = append(s.Avisos, "linha de base do modo todos incompleta ("+strings.Join(missing, "; ")+"): o proximo "+
+				"tick continua como linha de base e, ate completar, nenhum chat vira contato novo (so os sinais contam)")
+		}
+		for jid := range r.groups {
+			seen[hashID(r.all.salt, jid)] = true
+		}
+		s.Conhecidos = make([]string, 0, len(seen))
+		for h := range seen {
+			s.Conhecidos = append(s.Conhecidos, h)
+		}
+		sort.Strings(s.Conhecidos)
+	}
 	s.SemPar = r.match.unmatched(r.groups, contacts, r.groupsKnown)
 	if includeGroups && (len(s.SemPar) > 0 || r.homonyms) { // pairing only: to the terminal to fix the list, never to disk
 		for jid, name := range r.groups {
@@ -826,6 +1064,12 @@ func pull(o Options, sessionDir, spool, mediaDir string, timeout time.Duration) 
 	if msg, bad := r.drain(deadline, r.cutoff, 3*time.Second); bad {
 		abort(msg)
 	}
+	if r.all != nil && r.all.baseline { // the known set needs the group listing: wait for it, within the run's limit
+		select {
+		case <-r.ready:
+		case <-time.After(time.Until(r.cutoff)):
+		}
+	}
 	cli.Disconnect()
 	emit(r.finish(false))
 }
@@ -847,6 +1091,9 @@ func pair(o Options, sessionDir, spool, mediaDir, qrPNG string, timeout, history
 		days = 30
 	}
 	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(uint32(days))
+	if o.Mode == "all" { // every chat's history would come: ask the phone for the short window only (and the handler cuts too)
+		store.DeviceProps.HistorySyncConfig.RecentSyncDaysLimit = proto.Uint32(uint32(days))
+	}
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 	cli := newClient(dev, true)                                      // the server restarts the stream right after pairing; reconnect only during pairing
 	r := newReader(cli, o, sessionDir, spool, mediaDir, historyWait) // pairing: the one-time history waits for the names
@@ -946,7 +1193,10 @@ func main() {
 	if *spool == "" {
 		fail(2, "-spool faltando")
 	}
-	if newMatcher(o).empty() {
+	if o.Mode != "" && o.Mode != "all" {
+		fail(2, "modo desconhecido: "+short(o.Mode))
+	}
+	if o.Mode != "all" && newMatcher(o).empty() {
 		fail(2, "lista de permissao vazia (chats e contatos): nada a ler")
 	}
 	if cmd == "pair" {

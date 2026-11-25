@@ -442,7 +442,9 @@ plugin work-watch, que guardava cópias idênticas deles, saiu na E6.
 
 WhatsApp: a fonte `whatsapp` lê só os grupos e contatos listados no config, como aparelho conectado e somente leitura
 (sem envio, sem confirmação de leitura, sem presença), com uma conexão curta por tick; pareamento com
-`agent.py <instância> --whatsapp-pair`. É cliente não oficial (a conta pode ser bloqueada pelo WhatsApp): desenho,
+`agent.py <instância> --whatsapp-pair`. O modo todos (`"modo": "todos"`, desligado por padrão) lê qualquer chat e
+grava só o que um filtro local acha ligado ao objetivo da instância (sinais ou contato novo), para a sessão julgar e
+registrar o veredito por chat. É cliente não oficial (a conta pode ser bloqueada pelo WhatsApp): desenho,
 riscos e opções em [docs/whatsapp.md](docs/whatsapp.md).
 
 Saída do Notion: o gancho `notion_compare` (desligado por padrão) compara uma vez por dia útil a página do dia com o

@@ -25,9 +25,10 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
   sources, hooks   [{type, ...options}]: adapters. Checked here: the alertas_azure hook's nao_acordar and
                    nao_acordar_junto (lists of names; a name in nao_acordar_junto that no hook has is a warning), ambiente
                    and fonte_clusters (text); the teams source's chats_ignorar (a list of chat ids or topic pieces);
-                   the whatsapp source's chats and contatos (lists of names or ids; both empty is a warning: it reads
-                   nothing), anexos (bool) and its numbers (max_anexo_mb, timeout_s, historico_dias, guardar_dias,
-                   max_por_chat)
+                   the whatsapp source's chats and contatos (lists of names or ids; both empty is a warning in mode
+                   lista: it reads nothing), modo ("lista" or "todos"), ignorar (list of names or ids), sinais (a
+                   path), anexos (bool) and its numbers (max_anexo_mb, timeout_s, historico_dias, guardar_dias,
+                   max_por_chat, mudo_apos, guardar_candidatas_dias)
   behaviors        [str]: behaviors loaded by the session, in this order (behaviors/<name>/BEHAVIOR.md). An old name
                    in BEHAVIOR_ALIASES is read as the new one (deduplicated, first position kept) and --validate warns;
                    one that left the plugin (REMOVED_BEHAVIORS) is dropped and --validate warns
@@ -389,17 +390,33 @@ def _teams_source(e, i, err):
 
 def _whatsapp_source(e, i, err, warn):
     """whatsapp source (PLN0964): the allowlist is chats + contatos, lists of exact names or ids; an empty one reads
-    nothing (a warning, so the instance can carry the source before the person fills it in)."""
+    nothing (a warning, so the instance can carry the source before the person fills it in). Mode todos (PLN0972):
+    every chat, filtered by ignorar, the verdicts and the signals file (sinais)."""
     at = f'"sources"[{i}] (whatsapp)'
+    modo = e.get('modo')
+    if modo is not None and modo not in ('lista', 'todos'):
+        err.append(f'{at}: "modo" precisa ser "lista" (padrao) ou "todos"')
+    todos = modo == 'todos'
+    v = e.get('ignorar')
+    if v is not None and v != [] and (not _strs(v) or not all(x.strip() for x in v)):
+        err.append(f'{at}: "ignorar" precisa ser uma lista de nomes exatos ou ids, sem item vazio')
+    v = e.get('sinais')
+    if v is not None and (not isinstance(v, str) or not v.strip()):
+        err.append(f'{at}: "sinais" precisa ser o caminho do arquivo de sinais (ex.: data/sinais-objetivo.json)')
+    if todos and not e.get('sinais'):
+        warn.append(f'{at}: modo todos sem "sinais": so contatos novos viram candidatos')
+    if not todos and any(e.get(k) is not None for k in ('ignorar', 'sinais', 'mudo_apos', 'guardar_candidatas_dias')):
+        warn.append(f'{at}: "ignorar", "sinais", "mudo_apos" e "guardar_candidatas_dias" so valem com "modo": "todos"')
     vazias = 0
     for k in ('chats', 'contatos'):
         v = e.get(k)
         if v is None or v == []: vazias += 1; continue
         if not _strs(v) or not all(x.strip() for x in v):
             err.append(f'{at}: "{k}" precisa ser uma lista de nomes exatos ou ids, sem item vazio')
-    if vazias == 2:
+    if vazias == 2 and not todos:
         warn.append(f'{at}: "chats" e "contatos" vazios: a fonte nao le nada ate a lista ser preenchida')
-    for k in ('max_anexo_mb', 'timeout_s', 'historico_dias', 'guardar_dias', 'max_por_chat'):
+    for k in ('max_anexo_mb', 'timeout_s', 'historico_dias', 'guardar_dias', 'max_por_chat', 'mudo_apos',
+              'guardar_candidatas_dias'):
         v = e.get(k)
         if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0):
             err.append(f'{at}: "{k}" precisa ser um numero maior que zero')
