@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.123.2 (2026-11-25)
+- WhatsApp: `NaN` ou `Infinity` numa opção de número que não passou pelo `--validate` (`max_anexo_mb`, `historico_dias`, `timeout_s`, `guardar_dias`, `guardar_candidatas_dias`, `mudo_apos`, `max_por_chat`) não derruba mais o tick nem o veredito: a opção volta ao padrão.
+- WhatsApp: quando a mesma pessoa tem dois vereditos (um pelo número e outro pelo id novo do WhatsApp, dados antes de os dois serem ligados), o histórico sob demanda que o celular manda vai para o veredito que fez o pedido, e o outro não recebe mais o aviso falso de 24 h sem resposta.
+
 ## 0.123.1 (2026-11-25)
 - WhatsApp no modo todos: `NaN` ou `Infinity` numa opção de número da fonte (`sob_demanda_dias`, `sob_demanda_msgs` e as outras) passava no `--validate` e quebrava o tick. Agora o `--validate` recusa com "precisa ser um numero maior que zero", e o tick usa o padrão de `sob_demanda_msgs` e `sob_demanda_dias` se o valor chegar sem validar.
 - Histórico sob demanda: quando o celular responde pelo `@lid` um chat julgado relevante pelo número (ou o contrário), o pedido passa a contar como respondido, e não sai mais o aviso de 24 h sem resposta. A resposta que chega pelos dois ids no mesmo tick aparece uma vez, com as mensagens das duas contadas.

@@ -112,9 +112,10 @@ Vale para qualquer instância e qualquer objetivo (uma obra, outra obra, um proj
 | `sob_demanda_msgs` | quantas mensagens anteriores o veredito `relevante` pede ao próprio celular (padrão 50, até 200) |
 | `sob_demanda_dias` | mensagem do histórico sob demanda mais velha que isso não é gravada (padrão 30) |
 
-As opções de número (estas e `max_anexo_mb`, `timeout_s`, `guardar_dias`, `max_por_chat`) precisam ser números finitos
-maiores que zero: `NaN` e `Infinity`, que o JSON aceita, são recusados pelo `--validate`. Se chegarem ao tick sem passar
-pela validação, `sob_demanda_msgs` e `sob_demanda_dias` voltam ao padrão.
+As opções de número (`max_anexo_mb`, `timeout_s`, `historico_dias`, `guardar_dias`, `max_por_chat`, `mudo_apos`,
+`guardar_candidatas_dias`, `sob_demanda_msgs` e `sob_demanda_dias`) precisam ser números finitos maiores que zero: `NaN`
+e `Infinity`, que o JSON aceita, são recusados pelo `--validate`. Se chegarem ao tick sem passar pela validação, cada
+uma volta ao seu padrão.
 
 `chats` e `contatos` continuam valendo: no modo todos, o que está neles é acompanhado sempre, como antes. As outras
 opções (`anexos`, `max_anexo_mb`, `timeout_s`, `guardar_dias`, `max_por_chat`) também.

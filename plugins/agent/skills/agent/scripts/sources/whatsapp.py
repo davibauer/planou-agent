@@ -115,8 +115,8 @@ def opcoes(cfg, avisos=None):
     verdicts (relevant chats join `chats`), the known set and the signals."""
     op = {'chats': lista(cfg.get('chats')), 'contatos': lista(cfg.get('contatos')),
           'media': bool(cfg.get('anexos', True)),
-          'max_media_bytes': int(float(cfg.get('max_anexo_mb', 16)) * 1024 * 1024),
-          'history_days': int(cfg.get('historico_dias', 3 if todos(cfg) else 30))}
+          'max_media_bytes': int(_numero(cfg, 'max_anexo_mb', 16) * 1024 * 1024),
+          'history_days': int(_numero(cfg, 'historico_dias', 3 if todos(cfg) else 30))}
     if not todos(cfg): return op
     loc = locais()
     vs = vereditos(loc)
@@ -198,6 +198,20 @@ def pedidos_historico(loc, vs, cfg):
     return out
 
 
+def _prioridade_resposta(chat, k, v, e, agora):
+    """Which verdict an on-demand answer by `chat` belongs to (max wins, the first on a tie): the exact one (chat among
+    its ids) with its request out and not answered, then any one with its request out and not answered, then the exact
+    one answered less than SEM_RESPOSTA_H ago (a late block of that answer), then the exact one. An open request comes
+    before a live answer: crediting the open request wrongly at most drops one warning (the history came anyway), while
+    crediting the answered verdict wrongly leaves a false warning that asks for the history again."""
+    e = e or {}
+    pedido, respondido = core.dt(e.get('pedido_em')), core.dt(e.get('respondido_em'))
+    aberto = bool(pedido) and (not respondido or respondido < pedido)
+    vivo = aberto or bool(pedido and respondido and agora - respondido < timedelta(hours=SEM_RESPOSTA_H))
+    exato = chat in _ids_veredito(k, v)
+    return (exato and aberto, aberto, exato and vivo, exato)
+
+
 def anota_pedidos(loc, devidos, resumo, agora, antes=frozenset()):
     """After a pull: of the requests due before it (`devidos`, from pedidos_historico), the ones the bridge got out (pedidos_historico) and the answers that came (sob_demanda, chat ->
     messages written) go to historico-pedidos.json. Returns (answers [(name, id, new messages)], warnings): a request the
@@ -218,11 +232,16 @@ def anota_pedidos(loc, devidos, resumo, agora, antes=frozenset()):
     novas = [r for r in regs if r.get('origem') == 'sob_demanda' and (r.get('chat'), r.get('id')) not in antes]
     # the phone may answer by the other id of a 1:1 chat (@lid for a verdict given by the number, or the other way) and
     # the verdict may not know it: the spool lines of the answered chat carry both (chat_pn, chat_lid)
+    # the same person may have two verdicts (one by the number, one by the @lid, given before the pair was known): the
+    # answer goes to a verdict whose request is out (the exact one first), so no open request is warned about after an
+    # answer that came by the other id; only then to a verdict answered lately (a late block) or the exact one
     ks = []
     for chat in respondidos:
         ids = {chat}.union(*(_ids(r) for r in regs if chat in _ids(r)))
-        k = next((k for k, v in vs.items() if _ids_veredito(k, v) & ids), None)
-        if k is not None and k not in ks: ks.append(k)
+        cands = [k for k, v in vs.items() if _ids_veredito(k, v) & ids]
+        if not cands: continue
+        k = max(cands, key=lambda k: _prioridade_resposta(chat, k, vs[k], feitos.get(k), agora))
+        if k not in ks: ks.append(k)
     for k in ks:                                     # one answer per verdict, even when it came by both ids
         ids = _ids_veredito(k, vs[k])
         n = sum(1 for r in novas if _ids(r) & ids)
@@ -601,7 +620,7 @@ def tick_whatsapp(s, desde, dry):
         op['history_requests'] = [q for _, _, q in devidos]                # the same list anota_pedidos checks against
         op['awaiting_history'] = aguardando_historico(loc, vereditos(loc), devidos, datetime.now(timezone.utc))
     antes = {(r.get('chat'), r.get('id')) for r in le_spool(loc['spool'])} if modo_todos else set()
-    resumo = puxa(op, loc, float(CFG.get('timeout_s', 60)))
+    resumo = puxa(op, loc, _numero(CFG, 'timeout_s', 60))
     agora = datetime.now(timezone.utc)
     st = s.setdefault('whatsapp', {})
     regs = [r for r in unicos(le_spool(loc['spool'])) if permitido(r, op)]
@@ -634,10 +653,10 @@ def tick_whatsapp(s, desde, dry):
         for c in out + cand: cur[c['id']] = c['cursor']
         for r in regs:                                   # chats with only my messages: move on too
             if _hora(r.get('recebido')) > _hora(cur.get(r['chat'], inicio(r))): cur[r['chat']] = r['recebido']
-        podadas = poda(loc, op, agora, float(CFG.get('guardar_dias', 90)), float(CFG.get('guardar_candidatas_dias', 7)))
+        podadas = poda(loc, op, agora, _numero(CFG, 'guardar_dias', 90), _numero(CFG, 'guardar_candidatas_dias', 7))
         if podadas: st['podadas'] = st.get('podadas', 0) + podadas
     return {'baseline': False, 'chats': out, 'candidatas': cand, 'avisos': avisos, 'resolvidas': [],
-            'descartadas': int(resumo.get('descartadas') or 0), 'mudo_apos': int(CFG.get('mudo_apos', 3)),
+            'descartadas': int(resumo.get('descartadas') or 0), 'mudo_apos': int(_numero(CFG, 'mudo_apos', 3)),
             'sob_demanda': sob_demanda, 'pedidos': len(resumo.get('pedidos_historico') or [])}
 
 
@@ -771,7 +790,7 @@ def registra_veredito(chat, veredito, cfg=None):
     e = vs.get(chave, {})
     nome = next((r.get('chat_nome') for r in reversed(regs) if r.get('chat_nome')), e.get('nome') or chat)
     agora = datetime.now(timezone.utc).isoformat()
-    mudo_apos = int(cfg.get('mudo_apos', 3))
+    mudo_apos = int(_numero(cfg, 'mudo_apos', 3))
     if veredito == 'limpar':
         vs.pop(chave, None)
         msg = 'veredito limpo: volta a ser julgado do zero (contato novo, se nao era conhecido quando o modo comecou)'
@@ -800,8 +819,8 @@ def registra_veredito(chat, veredito, cfg=None):
                f'irrelevante {n}/{mudo_apos}: sai dos contatos novos; volta so se casar com os sinais do objetivo')
     _grava_json(loc['vereditos'], {'chats': vs})
     if todos(cfg):
-        try: poda(loc, opcoes(cfg), datetime.now(timezone.utc), float(cfg.get('guardar_dias', 90)),
-                  float(cfg.get('guardar_candidatas_dias', 7)))
+        try: poda(loc, opcoes(cfg), datetime.now(timezone.utc), _numero(cfg, 'guardar_dias', 90),
+                  _numero(cfg, 'guardar_candidatas_dias', 7))
         except OSError: pass                             # no session folder yet: the next live tick prunes
     na = na_lista({'chat': chat, 'chat_pn': next((i for i in ids if i.endswith('@s.whatsapp.net')), ''),
                    'chat_lid': next((i for i in ids if i.endswith('@lid') and i != chat), ''), 'chat_nome': nome,
@@ -823,7 +842,7 @@ def lista_vereditos(cfg=None):
         print('whatsapp: nenhum veredito registrado'); return
     feitos = _le_json(loc['pedidos'], {})
     feitos = feitos if isinstance(feitos, dict) else {}
-    mudo_apos = int(cfg.get('mudo_apos', 3))
+    mudo_apos = int(_numero(cfg, 'mudo_apos', 3))
     for k, v in sorted(vs.items(), key=lambda kv: (kv[1].get('veredito') or '', kv[1].get('nome') or kv[0])):
         estado = v.get('veredito') or '?'
         if estado == 'irrelevante': estado += f' {v.get("irrelevantes", 0)}/{mudo_apos}' + (' (mudo)' if v.get('mudo') else '')
@@ -842,7 +861,7 @@ class Fonte(Base):
     def configura(self):
         global CFG, MAX_POR_CHAT
         CFG = dict(self.cfg)
-        MAX_POR_CHAT = int(self.cfg.get('max_por_chat', 20))
+        MAX_POR_CHAT = int(_numero(self.cfg, 'max_por_chat', 20))
 
     def tick(self, s, desde, dry): return tick_whatsapp(s, desde, dry)
     def imprime(self, r): return imprime_whatsapp(r)
