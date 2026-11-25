@@ -234,6 +234,23 @@ PL() { fg_wait env PYTHONPATH="$S" timeout 25 python3 -m watch_core.planou --age
 PLW() { PYTHONPATH="$S" timeout --foreground $(( $1 + 20 )) python3 -m watch_core.planou --agent "$INST" --root "$ROOT" poll --wait "$1" \
   --next-heavy "$prox" --poll-s "$POLL"; }
 PT() { fg_wait env PYTHONPATH="$S" timeout 25 python3 -m watch_core.transcript --agent "$INST" --root "$ROOT" pump 2>> "$D/planou.err"; }
+# PLN0989: the light loop saw a change of the interval made in Planou (`poll` prints TICK_CHANGED first): agent.py
+# --apply-tick applies it now (validated, written to config.json, answered to Planou) and says the interval in force;
+# the next heavy tick comes within it (never later than before). No wake: the session has nothing to reread. TEMPO, the
+# tick's ceiling, stays the one of this runner's start until the next relaunch (at most one cycle).
+TICK_CHANGED='== INTERVALO DAS FONTES MUDOU'
+novo_intervalo() {
+  local n agora_i
+  fg_wait env PYTHONPATH="$S" timeout 90 python3 "$V" "$INST" --apply-tick > "$D/intervalo.tmp" 2>> "$D/planou.err"
+  grep -v -e '^INTERVAL=' -e '^[[:space:]]*$' "$D/intervalo.tmp" | sed "s/^/$(date +%FT%T)\tintervalo das fontes: /" >> "$D/avisos.log"
+  n=$(sed -n 's/^INTERVAL=\([0-9][0-9]*\)$/\1/p' "$D/intervalo.tmp" | tail -n 1); rm -f "$D/intervalo.tmp"
+  case "$n" in ''|*[!0-9]*) return;; esac
+  [ "$n" -lt 60 ] && return
+  [ "$n" = "$INTERVALO" ] && return
+  printf '%s\t%s\n' "$(date +%FT%T)" "intervalo das fontes: ${INTERVALO}s -> ${n}s (Planou), em vigor neste runner" >> "$D/avisos.log"
+  INTERVALO=$n; agora_i=$(date +%s)
+  if [ $(( prox - agora_i )) -gt "$INTERVALO" ]; then prox=$(( agora_i + INTERVALO )); echo "$prox" > "$D/next_heavy"; fi
+}
 TPATH=$ROOT/cache/planou/transcript.path   # written by the pump: the session transcript
 tsig() { stat -c '%i %s %Y' "$(cat "$TPATH" 2>/dev/null)" 2>/dev/null; }
 # One runner per instance (PLN0082): the check "runner.pid names a live runner" alone had a race (two launches in a row
@@ -383,7 +400,10 @@ agora=$(date +%s)
 WAKE_FIRST=   # PLN0247: the first heavy tick of a session (not of a cycle or a relaunch) never keeps blocks waiting
 FIRST_DUE=    # a heavy tick due at the launch stays due when the wall clock steps back (cycle_due), until it has run
 if [ "${FIRST_NOW:-${PRIMEIRO_IMEDIATO:-1}}" = 1 ]; then prox=$agora; WAKE_FIRST=--first; FIRST_DUE=1
-else prox=$(cat "$D/next_heavy" 2>/dev/null); case "$prox" in ''|*[!0-9]*) prox=$(( agora + INTERVALO ));; esac; fi
+else prox=$(cat "$D/next_heavy" 2>/dev/null); case "$prox" in ''|*[!0-9]*) prox=$(( agora + INTERVALO ));; esac
+  # PLN0989: the interval may have shrunk (changed from Planou, applied by the last heavy tick, which saved next_heavy
+  # with the old one): a next heavy tick further away than one interval is never right
+  [ $(( prox - agora )) -gt "$INTERVALO" ] && prox=$(( agora + INTERVALO )); fi
 
 # PLN0155 (d-145: 117 wakes in 24 h that only read and relaunched): lines that ask nothing of the session never wake it
 # alone; they wait in $D/adiado and go at the end of the next tick.out that wakes, under `== SEM ACAO`, indented (no line
@@ -588,6 +608,10 @@ while true; do
       wait "$POLL_PID" 2>/dev/null; POLL_PID=; POLL_DONE=0
       rc=$(cat "$D/planou.rc" 2>/dev/null); rc=${rc:-4}
       date +%FT%T > "$D/ultimo_poll"
+      if grep -qxF "$TICK_CHANGED" "$D/planou.tmp"; then   # PLN0989: never a wake, applied here
+        grep -vxF "$TICK_CHANGED" "$D/planou.tmp" > "$D/planou.tmp2"; mv "$D/planou.tmp2" "$D/planou.tmp"
+        novo_intervalo
+      fi
       if grep -q '^== PLANOU (' "$D/planou.tmp" && ! grep -v -e '^== PLANOU ([0-9]*)$' -e '^-- ALERTA VISTO ' -e '^[[:space:]]*$' "$D/planou.tmp" | grep -q .; then
         # only lines that wait (PLN0155): printed for good (never again in a poll), kept for the next wake, no wake now
         PL cursor-commit >/dev/null 2>&1

@@ -700,6 +700,30 @@
                       }
                     },
                     "nullable": true
+                  },
+                  "tick_interval": {
+                    "required": [
+                      "interval_s"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "interval_s": {
+                        "type": "integer",
+                        "description": "The interval in force, in seconds (already raised to min_s)."
+                      },
+                      "min_s": {
+                        "type": "integer",
+                        "description": "The floor of this employee (e.g. 1800): Planou offers nothing below it.",
+                        "nullable": true
+                      },
+                      "editable": {
+                        "type": "boolean",
+                        "description": "true when this runner applies a change of kind tick; absent or false = shown read only.",
+                        "nullable": true
+                      }
+                    },
+                    "description": "The heavy tick: how often the runner looks at its sources. The employee's settings show it in words (Confere as fontes a cada 5 min) and, with editable true, let the person change it: the change comes back as agent_docs_changed with kind tick, name interval_s and content the new interval in seconds as decimal text (e.g. 600), answered with POST /agent/docs/ack like any other edit. An invalid object is dropped, never a refusal.",
+                    "nullable": true
                   }
                 }
               }
@@ -6412,6 +6436,30 @@
                 }
               }
             },
+            "nullable": true
+          },
+          "tick_interval": {
+            "required": [
+              "interval_s"
+            ],
+            "type": "object",
+            "properties": {
+              "interval_s": {
+                "type": "integer",
+                "description": "The interval in force, in seconds (already raised to min_s)."
+              },
+              "min_s": {
+                "type": "integer",
+                "description": "The floor of this employee (e.g. 1800): Planou offers nothing below it.",
+                "nullable": true
+              },
+              "editable": {
+                "type": "boolean",
+                "description": "true when this runner applies a change of kind tick; absent or false = shown read only.",
+                "nullable": true
+              }
+            },
+            "description": "The heavy tick: how often the runner looks at its sources. The employee's settings show it in words (Confere as fontes a cada 5 min) and, with editable true, let the person change it: the change comes back as agent_docs_changed with kind tick, name interval_s and content the new interval in seconds as decimal text (e.g. 600), answered with POST /agent/docs/ack like any other edit. An invalid object is dropped, never a refusal.",
             "nullable": true
           }
         }

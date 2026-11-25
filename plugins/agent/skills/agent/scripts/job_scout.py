@@ -65,7 +65,8 @@ def env():
 
 def read_only(manifest):
     """The Papel tab's manifest with nothing editable: no file content, no catalog of behaviors to turn on. scout.py
-    has no handler for agent_docs_changed, so Planou must not offer an edit this instance would leave unapplied."""
+    has no handler for agent_docs_changed, so Planou must not offer an edit this instance would leave unapplied (the
+    interval is the exception: apply_ticks, before scout.py, PLN0989)."""
     files = []
     for f in (manifest or {}).get('files') or []:
         f = {k: v for k, v in f.items() if k != 'content'}
@@ -80,7 +81,10 @@ def save_docs(cfg, manifest):
         from watch_core import planou
         if not isinstance(cfg.get('planou'), dict): return
         planou.configure_agent(paths.NAME, paths.ROOT)
-        if planou.active(): planou.set_docs(read_only(manifest()))
+        if planou.active():
+            planou.set_docs(read_only(manifest()))
+            import role_edit                       # the interval (PLN0989)
+            role_edit.report_tick(cfg)
     except Exception as e:
         try:
             d = os.path.join(paths.CACHE_DIR, 'planou'); os.makedirs(d, exist_ok=True)
@@ -90,11 +94,33 @@ def save_docs(cfg, manifest):
             pass
 
 
+def apply_ticks(cfg):
+    """PLN0989: a change of the interval the light loop did not apply yet (this heavy tick fetched it first) is applied
+    before scout.py's own Planou tick, which acknowledges the event unread. Prints `== PAPEL MUDOU` / `== PAPEL
+    RECUSADO` (the wake brings the relaunch that takes the new interval). Never fails the tick."""
+    try:
+        from watch_core import planou
+        if not isinstance(cfg.get('planou'), dict): return
+        planou.configure_agent(paths.NAME, paths.ROOT)
+        if not planou.active(): return
+        import role_edit
+        lines, _ = role_edit.apply_ticks(cfg, fetch=True)
+        if lines: print(lines + '\n')
+    except Exception as e:
+        try:
+            d = os.path.join(paths.CACHE_DIR, 'planou'); os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, 'avisos.log'), 'a', encoding='utf-8') as fh:
+                fh.write(f'AVISO (planou): intervalo das fontes: {type(e).__name__}: {str(e)[:120]}\n')
+        except OSError:
+            pass
+
+
 def run(cfg, args, manifest=None):
     """Runs scout.py with `args` for this instance; returns its exit code (2 = FONTE QUEBRADA, as the runner reads it)."""
     args = list(args)
     if is_tick(args):
         if cfg.get('live') is not True and not _dry(args): args.append('--dry')      # test mode: always dry
+        if not _dry(args): apply_ticks(cfg)
         if not _dry(args) and manifest: save_docs(cfg, manifest)
     sys.stdout.flush()
     return subprocess.run([sys.executable, SCOUT] + args, env=env()).returncode

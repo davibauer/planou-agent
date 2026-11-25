@@ -7,7 +7,11 @@ text, options_text()). Planou never writes on the machine: the edit is a pending
 `agent_docs_changed` event. The heavy tick hands the event here (watch_core.planou set_docs_handler, called from apply_events before the cursor is acknowledged) and, per event:
 
   1. picks the target by `kind` only: instructions -> instructions.md, context -> CONTEXT.md, behaviors -> "behaviors"
-     of config.json, behavior_config -> "behavior_config" of config.json (PLN0222). Anything else (a BEHAVIOR.md, the
+     of config.json, behavior_config -> "behavior_config" of config.json (PLN0222), tick -> "interval_s" of config.json
+     (PLN0989: how often the runner looks at its sources; the content is the seconds as decimal text, at least 60 and
+     the floor of job-scout or travel-agent, at most a day; not content, so also under confidentiality "minimum"; the
+     runner applies it as soon as its light loop sees the event, apply_ticks through agent.py --apply-tick, and takes
+     the new interval for its next heavy tick). Anything else (a BEHAVIOR.md, the
      core SKILL.md) is refused: a path never comes from the event, so the plugin's BEHAVIOR.md is never edited this way
      (it changes by PR, for every agent);
   2. checks the content against the event's sha256, the size (200 KB) and, for the list, the catalog; the options must
@@ -37,7 +41,8 @@ from watch_core import behavior_names                          # noqa: E402
 MAX_BYTES = 200_000                     # Planou's limit for a content
 CATALOG_MAX = 50
 KINDS = {'instructions': 'instructions.md', 'context': 'CONTEXT.md', 'behaviors': 'comportamentos ligados',
-         'behavior_config': 'opcoes dos comportamentos'}
+         'behavior_config': 'opcoes dos comportamentos', 'tick': 'intervalo das fontes'}
+TICK_DEFAULT, TICK_MIN, TICK_MAX = 300, 60, 86400   # schema.py's default and minimum; the longest Planou offers
 READ_ONLY = {'behavior': 'o BEHAVIOR.md de um comportamento muda por PR no plugin, para todos os agentes que o usam',
              'core': 'o SKILL.md do plugin muda por PR no plugin'}
 COMMAND_REFUSED = 'opção de comando: edite no computador'
@@ -204,6 +209,67 @@ def minimum(cfg):
     from watch_core import planou
     default = 'minimum' if work_watch(cfg) else 'title'
     return planou.in_effect(paths.ROOT, (cfg.get('planou') or {}).get('confidentiality') or default) == 'minimum'
+
+
+# ---------------------------------------------------------------- the tick interval (PLN0989)
+
+def tick_interval(cfg):
+    """(interval in force, floor or None): "interval_s" of the config (default 300), raised to the floor of job-scout
+    (1800) or travel-agent (10800), the same the runner uses (agent.py runner_env)."""
+    import job_scout, travel_agent
+    iv = cfg.get('interval_s')
+    iv = iv if isinstance(iv, int) and not isinstance(iv, bool) else TICK_DEFAULT
+    floor = None
+    if job_scout.on(cfg): floor = job_scout.MIN_INTERVAL_S
+    if travel_agent.on(cfg): floor = max(floor or 0, travel_agent.MIN_INTERVAL_S)
+    return max(iv, floor or 0), floor
+
+
+def report_tick(cfg, root=None):
+    """Saves the interval for the heartbeats (watch_core.planou.set_tick_interval). Never fails."""
+    try:
+        from watch_core import planou
+        iv, floor = tick_interval(cfg)
+        return planou.set_tick_interval(iv, floor, True, root=root)   # every instance applies it (never under the floor)
+    except Exception:
+        return None
+
+
+def tick_content(seconds):
+    """The interval as Planou versions it: the seconds as decimal text ("600")."""
+    return str(int(seconds))
+
+
+def words(seconds):
+    """Seconds in words: "5 min", "1 h", "1 h 30 min"."""
+    h, m, s = seconds // 3600, seconds % 3600 // 60, seconds % 60
+    out = ([f'{h} h'] if h else []) + ([f'{m} min'] if m else []) + ([f'{s} s'] if s or not (h or m) else [])
+    return ' '.join(out)
+
+
+def _tick_target(content):
+    """(config.json path, current bytes, new bytes, sha of the interval in force, the interval before, the new one) for
+    a change of the interval. The key is the one the file has ("intervalo_s", the old name, stays when it is there)."""
+    if not content.isdigit() or not content.isascii() or len(content) > 6 or content != str(int(content)):
+        raise Refused('o intervalo precisa ser um numero inteiro de segundos')
+    n = int(content)
+    old = _read(paths.CONFIG)
+    if old is None: raise Refused('config.json nao encontrado')
+    try: raw = json.loads(old)
+    except ValueError: raise Refused('config.json ilegivel')
+    if not isinstance(raw, dict): raise Refused('config.json ilegivel')
+    key = 'intervalo_s' if 'intervalo_s' in raw and 'interval_s' not in raw else 'interval_s'
+    now, floor = tick_interval({'interval_s': raw.get(key), 'behaviors': raw.get('behaviors')})
+    if n < TICK_MIN or n > TICK_MAX: raise Refused(f'intervalo fora de {words(TICK_MIN)} a {words(TICK_MAX)}')
+    if floor and n < floor: raise Refused(f'abaixo do minimo deste funcionario ({words(floor)})')
+    raw[key] = n
+    return paths.CONFIG, old, _dump_config(old, raw), sha256(tick_content(now).encode()), now, n, key
+
+
+def _tick_on_disk(key):
+    try: raw = json.loads(_read(paths.CONFIG) or b'{}')
+    except ValueError: return None
+    return raw.get(key) if isinstance(raw, dict) else None
 
 
 # ---------------------------------------------------------------- files
@@ -432,6 +498,10 @@ def apply(cfg, p):
             path, old, new, current, change, written, want, spellings = _behaviors_target(cfg, content)
             reread = lambda: _behaviors_sha_on_disk() == written
             bases |= spellings
+        elif kind == 'tick':                # not content: also under confidentiality "minimum"
+            path, old, new, current, before, n, key = _tick_target(content)
+            change = f'{words(before)} -> {words(n)}'
+            reread = lambda: _tick_on_disk(key) == n
         elif kind == 'behavior_config':
             if minimum(cfg): raise Refused('confidencialidade minima: as opcoes nao se editam pelo Planou')
             path, old, new, current, bc, shown_before = _options_target(content)
@@ -446,6 +516,9 @@ def apply(cfg, p):
         reread_hint = (f'agent.py {paths.NAME} --load (e o BEHAVIOR.md de cada comportamento ligado)' if kind == 'behaviors'
                        else f'"behavior_config" em {_label(path)}' if kind == 'behavior_config' else _label(path))
         applied_line = (f'-- {what}: aplicada' + (f' ({change})' if change else '') + f' -> reler {reread_hint}')
+        if kind == 'tick':
+            applied_line = (f'-- {what}: aplicada' + (f' ({change})' if change else '') +
+                            ' -> nada a reler: o runner ja confere as fontes no intervalo novo')
         if current == want:
             return 'applied', None, applied_line + ' (ja estava assim)'
         if base and base != current and base not in bases:
@@ -549,8 +622,47 @@ def handle(cfg, ev, now=None):
     return done
 
 
-def handler(cfg):
-    return lambda ev: handle(cfg, ev)
+def handler(cfg, kinds=None):
+    """apply_events' docs handler; `kinds` limits it (job-scout and travel-agent: only "tick", the rest is refused as
+    before: their manifest goes read only)."""
+    def one(ev):
+        if kinds is not None and (ev.get('payload') or {}).get('kind') not in kinds:
+            return _refuse_kind(ev)
+        return handle(cfg, ev)
+    return one
+
+
+def _refuse_kind(ev):
+    """Answers `refused` for an edit this instance does not take from Planou (its file is read only here)."""
+    from watch_core import planou
+    p = ev.get('payload') or {}
+    vid = str(p.get('version_id') or '')
+    if not vid: return True
+    return planou.docs_ack(vid, 'refused', None, f'{p.get("kind")}: nao se edita pelo Planou neste funcionario')[0]
+
+
+def _interval_on_disk():
+    """(interval in force, floor) from the config.json on disk, as the runner reads it at its start."""
+    try: raw = json.loads(_read(paths.CONFIG) or b'{}')
+    except ValueError: raw = {}
+    raw = raw if isinstance(raw, dict) else {}
+    key = 'intervalo_s' if 'intervalo_s' in raw and 'interval_s' not in raw else 'interval_s'
+    return tick_interval({'interval_s': raw.get(key), 'behaviors': raw.get('behaviors')})
+
+
+def apply_ticks(cfg, fetch=False):
+    """PLN0989: the changes of the interval waiting in the inbox (kind "tick" only; any other edit waits for the heavy
+    tick), applied now and answered like any edit, once each (role_edits.json). `fetch` brings the events first (a
+    heavy tick of job-scout, before its own Planou tick). Returns (lines, interval in force after it): the lines are
+    `== PAPEL MUDOU` / `== PAPEL RECUSADO`, None when nothing happened."""
+    from watch_core import planou
+    if fetch: planou.poll()
+    for ev in planou.docs_events(planou.TICK_KIND):
+        handle(cfg, ev)
+    iv, floor = _interval_on_disk()
+    try: planou.set_tick_interval(iv, floor, True)
+    except Exception: pass
+    return block(), iv
 
 
 def config_changed():

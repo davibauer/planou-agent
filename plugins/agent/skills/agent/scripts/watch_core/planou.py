@@ -1514,6 +1514,8 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     if links: body['links'] = links[1]        # absent = the server keeps the rules
     docs = _docs_due(now)
     if docs: body['docs'] = docs[1]           # absent = the server keeps the manifest
+    tick = tick_interval()
+    if tick: body['tick_interval'] = tick     # absent = the server keeps it; an older Planou ignores it (PLN0989)
     try:
         try:
             _, res = _call('POST', '/agent/heartbeat', body)
@@ -1580,6 +1582,7 @@ EVENTS = {
     # an edit of the Papel tab (instructions, context, the behaviors on): not a wake type, the light loop never prints it
     # unapplied; the heavy tick hands it to the handler of set_docs_handler() (docs_ack answers Planou), which prints
     # `== PAPEL MUDOU` for the session. Without a handler (a plugin whose manifest is read only) it is acknowledged unread
+    # (a change of the interval, kind "tick", is applied by the runner right after the light loop sees it: TICK_CHANGED)
     'agent_docs_changed': {},
     'task_completed': {}, 'task_reopened': {}, 'task_changed': {}, 'task_deleted': {}, 'task_restored': {},
 }
@@ -4512,6 +4515,75 @@ def _docs_refused(e, sig, now):
     return [line]
 
 
+# ---------------------------------------------------------------- tick interval (PLN0989)
+
+# How often the runner looks at its sources (the heavy tick), for the Computador section of the employee's settings:
+# the interval in force, the floor and whether this runner applies a change from Planou (the agent plugin's role_edit,
+# kind "tick" of agent_docs_changed). Saved in cache/planou/tick_interval.json by the runner's start (agent.py
+# --runner-env) and by each heavy tick, and sent with every heartbeat; an older Planou ignores the field.
+TICK_FILE = 'tick_interval.json'
+TICK_MIN, TICK_MAX = 60, 604800
+
+
+def _tick_seconds(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and TICK_MIN <= v <= TICK_MAX else None
+
+
+def set_tick_interval(interval_s, min_s=None, editable=False, root=None):
+    """Saves the interval for the next heartbeats (`root`: an instance's folder, when the module is not configured).
+    An interval out of 60..604800 saves nothing."""
+    interval_s, min_s = _tick_seconds(interval_s), _tick_seconds(min_s)
+    base = os.path.join(os.path.expanduser(root), 'cache', 'planou') if root else (_cache_dir() if _S['root'] else None)
+    if not interval_s or not base: return None
+    value = {'interval_s': interval_s, 'min_s': min_s, 'editable': editable is True}
+    try:
+        if _load_at(base, TICK_FILE) != value: fileio.write_json(os.path.join(base, TICK_FILE), value, indent=1)
+    except OSError:
+        return None
+    return value
+
+
+def _load_at(base, name):
+    try:
+        with open(os.path.join(base, name)) as f: return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def tick_interval():
+    """What the heartbeat sends as "tick_interval", or None (never saved, or unreadable)."""
+    if not _S['root']: return None
+    v = _load(TICK_FILE, None)
+    if not isinstance(v, dict) or not _tick_seconds(v.get('interval_s')): return None
+    return {'interval_s': v['interval_s'], 'min_s': _tick_seconds(v.get('min_s')), 'editable': v.get('editable') is True}
+
+
+# A change of the interval takes effect right away: the light loop sees the event (kind "tick"), the `poll` command
+# prints TICK_CHANGED first, and the runner applies it there (agent.py --apply-tick: role_edit, the same checks and the
+# same answer as any edit of the Papel tab) and takes the new interval for its next heavy tick, without waking the
+# session. The heavy tick still hands the event to the docs handler, which answers it only once (role_edits.json).
+TICK_CHANGED = '== INTERVALO DAS FONTES MUDOU'
+TICK_KIND = 'tick'
+
+
+def docs_events(kind=None):
+    """The agent_docs_changed events waiting in the inbox (of `kind`, when given), oldest first."""
+    ib = _inbox()
+    return [ib['events'][k] for k in sorted(ib['events'], key=int) if ib['events'][k].get('type') == DOCS_EVENT
+            and (kind is None or (ib['events'][k].get('payload') or {}).get('kind') == kind)]
+
+
+def tick_change_waiting():
+    """True once for each new change of the interval in the inbox (its seq is kept in "tick_seen")."""
+    ib = _inbox()
+    seen = [str(x) for x in ib.get('tick_seen') or []]
+    new = [str(e.get('seq')) for e in docs_events(TICK_KIND) if str(e.get('seq')) not in seen]
+    if not new: return False
+    ib['tick_seen'] = (seen + new)[-50:]
+    _save('inbox.json', ib)
+    return True
+
+
 # ---------------------------------------------------------------- attachments ("Anexos da tarefa", Planou 0.15)
 
 ATTACHMENT_TYPES = {'.md': 'text/markdown', '.markdown': 'text/markdown', '.txt': 'text/plain', '.pdf': 'application/pdf',
@@ -6149,6 +6221,7 @@ def main(argv=None):
         return 0
     if a.cmd == 'poll':
         block, how = poll_wait(a.next_heavy, a.poll_s, a.wait)
+        if how != POLL_FAILED and active() and tick_change_waiting(): print(TICK_CHANGED)   # PLN0989: the runner applies it now
         if block: print(block)
         return how if a.wait else 0          # without --wait, as before: always 0 (runners up to 0.26 read the block only)
     if a.cmd == 'cursor-commit':

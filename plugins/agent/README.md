@@ -434,6 +434,20 @@ daqui ainda é a versão de onde a edição partiu (`base_sha256`), roda o `conf
 novo (`cache/planou/role_edits.json`). Precisa do Planou 0.49 ou mais novo (um Planou mais velho recusa o campo
 `evals` com 422 e o runner anota em `cache/planou/docs.log`, sem repetir o mesmo manifesto).
 
+**Intervalo das fontes.** Todo heartbeat leva `tick_interval` (`interval_s` em vigor, já elevado ao piso; `min_s`, o
+piso do job-scout, 30 min, ou do travel-agent, 3 h; `editable`, sempre verdadeiro), guardado em
+`cache/planou/tick_interval.json` pelo início do runner e por cada tick pesado. A ficha do Planou mostra "Confere as
+fontes a cada 5 min" em Configurações > Computador e a dona troca o valor ali, nunca abaixo do piso. A troca chega como
+`agent_docs_changed` com `kind` `tick` e o conteúdo em segundos (`"600"`) e vale na hora: o loop leve vê o evento, o
+`poll` imprime `== INTERVALO DAS FONTES MUDOU` e o runner roda `agent.py <instância> --apply-tick`, que confere
+(inteiro, de 60 a 86400, não abaixo do piso, `base_sha256`), grava `interval_s` no config.json (ou `intervalo_s`, se é
+a chave que ele usa) com o mesmo `config-snapshot`, `--validate` e volta do anterior, e responde como as outras
+edições. O runner passa a usar o intervalo novo ali mesmo (o próximo tick pesado nunca fica a mais de um intervalo),
+anota no `avisos.log` e não acorda a sessão. Se o tick pesado pegar o evento antes, ele aplica do mesmo jeito (no
+job-scout e no travel-agent só o `kind` `tick`; o resto continua recusado) e o `== PAPEL MUDOU` traz o relançamento.
+Cada versão é aplicada e respondida uma vez só (`role_edits.json`). Vale também na confidencialidade mínima (o
+intervalo não é conteúdo). Um Planou mais velho ignora o campo.
+
 ## Fontes e ganchos do work-watch
 
 Os adapters do work-watch moram em `scripts/sources/` (GitHub, GitLab, Azure DevOps, Jira, Slack, Teams, Google Chat,

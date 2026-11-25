@@ -89,7 +89,8 @@ def broken(out):
 
 class Planou:
     """The thin Planou tick around travel-agent's tick (it never talked to Planou): what agent.py does for an instance
-    without sources, with the Papel manifest read only (no agent_docs_changed handler for this instance yet)."""
+    without sources, with the Papel manifest read only; of the edits from Planou only the interval applies (PLN0989,
+    never under the floor), the rest is refused."""
 
     def __init__(self, cfg, manifest=None, tools=None):
         self.cfg, self.manifest, self.tools = cfg, manifest, tools
@@ -102,6 +103,8 @@ class Planou:
 
     def before(self):
         from watch_core import planou
+        import role_edit
+        planou.set_docs_handler(role_edit.handler(self.cfg, kinds=('tick',)))
         return planou.apply_events(planou.poll(), lambda code, label: False)
 
     def after(self, broken_sources):
@@ -114,6 +117,8 @@ class Planou:
         if self.manifest:
             try: planou.set_docs(job_scout.read_only(self.manifest()))
             except Exception as e: lines.append(f'AVISO (planou): arquivos do papel: {type(e).__name__}: {str(e)[:120]}')
+        import role_edit                           # the interval (PLN0989)
+        role_edit.report_tick(self.cfg)
         return lines + planou.heartbeat('tick', broken_sources=broken_sources)
 
 
@@ -253,5 +258,9 @@ def run(cfg, args, manifest=None, tools=None, output=None):
             if out.strip(): print()
             print(block)
         for l in loose: print(l)
+    if pl:
+        import role_edit
+        b = role_edit.block()                     # == PAPEL MUDOU / RECUSADO: a change of the interval (PLN0989)
+        if b: print('\n' + b)
     sys.stdout.flush()
     return r.returncode

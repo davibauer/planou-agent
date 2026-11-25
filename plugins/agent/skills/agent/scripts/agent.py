@@ -442,7 +442,10 @@ def send_docs(cfg, now):
     from the config on disk when an edit of this tick rewrote it. Returns the AVISO line when it could not be built."""
     from watch_core import planou
     import role_edit
-    try: planou.set_docs(docs_manifest(load_config()[0] if role_edit.config_changed() else cfg, now), now)
+    try:
+        cfg = load_config()[0] if role_edit.config_changed() else cfg
+        role_edit.report_tick(cfg)             # how often it looks at its sources (PLN0989), with the tick's heartbeat
+        planou.set_docs(docs_manifest(cfg, now), now)
     except Exception as e: return [f'AVISO (planou): arquivos do papel: {type(e).__name__}: {str(e)[:120]}']
     return []
 
@@ -472,11 +475,9 @@ def runner_env(name):
     try:
         cfg, err, _ = load_config()
         out['LIVE'] = '1' if cfg.get('live') is True else '0'
-        if isinstance(cfg.get('interval_s'), int): out['INTERVAL'] = str(cfg['interval_s'])
-        import job_scout
-        if job_scout.on(cfg): out['INTERVAL'] = str(max(int(out['INTERVAL']), job_scout.MIN_INTERVAL_S))
-        import travel_agent
-        if travel_agent.on(cfg): out['INTERVAL'] = str(max(int(out['INTERVAL']), travel_agent.MIN_INTERVAL_S))
+        import role_edit                           # the floor of job-scout and travel-agent (PLN0989: one place)
+        out['INTERVAL'] = str(role_edit.tick_interval(cfg)[0])
+        if not err and isinstance(cfg.get('planou'), dict): role_edit.report_tick(cfg, paths.ROOT)   # for the heartbeats
         import wake                                # PLN0247: blocks that wait for the next wake (runner.sh, wake.py)
         rl = wake.rules(cfg, paths.ROOT)
         out['WAKE'] = '1' if rl.get('hold') or rl.get('latest') else '0'
@@ -485,6 +486,24 @@ def runner_env(name):
     except SystemExit as e:
         out['ERR'] = str(e.code)
     print('\n'.join(f'{k}={shlex.quote(v)}' for k, v in out.items()))
+
+
+def apply_tick():
+    """runner.sh's light loop saw a change of the interval (watch_core.planou TICK_CHANGED, PLN0989): applies it now
+    (role_edit.apply_ticks: validated, written, answered) and prints the lines for avisos.log and `INTERVAL=<s>`, the
+    interval in force after it, which the runner takes for its next heavy tick. Never wakes anyone; exit 0."""
+    try:
+        cfg, err, _ = load_config()
+        if err or not isinstance(cfg.get('planou'), dict) or cfg.get('live') is not True: return
+        from watch_core import planou
+        planou.configure_agent(paths.NAME, paths.ROOT)
+        if not planou.active(): return
+        import role_edit
+        lines, iv = role_edit.apply_ticks(cfg)
+        if lines: print(lines)
+        print(f'INTERVAL={iv}')
+    except (Exception, SystemExit) as e:
+        print(f'AVISO (planou): intervalo das fontes: {type(e).__name__}: {str(e)[:160]}')
 
 
 def load_list(cfg):
@@ -611,6 +630,7 @@ def main(argv=None):
     paths.instance(argv[0])
     rest = argv[1:]
     if rest == ['--runner-env']: return runner_env(argv[0])
+    if rest == ['--apply-tick']: return apply_tick()
     if rest[:1] in (['--migrate'], ['--undo']):
         import migrate
         return migrate.cli(paths.NAME, rest)

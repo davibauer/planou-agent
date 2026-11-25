@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.124.0 (2026-11-25)
+- O runner informa ao Planou de quanto em quanto tempo confere as fontes, e a troca feita na ficha do funcionário (Configurações > Computador) vale na hora: o loop leve vê a mudança, grava o `interval_s` no config.json, valida, responde aplicada ou recusada com o motivo e já confere as fontes no intervalo novo, sem acordar a sessão. Vale para todos os agentes, inclusive job-scout e travel-agent, nunca abaixo do piso deles (30 min e 3 h).
+
 ## 0.123.2 (2026-11-25)
 - WhatsApp: `NaN` ou `Infinity` numa opção de número que não passou pelo `--validate` (`max_anexo_mb`, `historico_dias`, `timeout_s`, `guardar_dias`, `guardar_candidatas_dias`, `mudo_apos`, `max_por_chat`) não derruba mais o tick nem o veredito: a opção volta ao padrão.
 - WhatsApp: quando a mesma pessoa tem dois vereditos (um pelo número e outro pelo id novo do WhatsApp, dados antes de os dois serem ligados), o histórico sob demanda que o celular manda vai para o veredito que fez o pedido, e o outro não recebe mais o aviso falso de 24 h sem resposta.
