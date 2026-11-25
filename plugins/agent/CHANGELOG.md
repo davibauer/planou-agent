@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.123.0 (2026-11-25)
+- WhatsApp no modo todos: marcar um chat como `relevante` agora traz também a conversa de antes do veredito, sem parear de novo. O próximo tick pede ao próprio celular da conta (nunca ao contato) as mensagens anteriores à mais recente que a instância tem daquele chat (o que se perdeu fica entre as candidatas e antes delas), e a resposta passa pelo mesmo filtro e é gravada com origem `sob_demanda`. Opções novas `sob_demanda_msgs` (padrão 50, até 200) e `sob_demanda_dias` (padrão 30). Um pedido por veredito; marcar `relevante` de novo pede a página anterior. Detalhes em `docs/whatsapp.md`, seção Histórico sob demanda.
+
 ## 0.122.0 (2026-11-25)
 - Toda instância ganha pasta de trabalho por padrão, não só as `work-watch-<x>`: sem a chave `"workspace"` no config, vale `~/WorkWatch/{instance}` (nome inteiro da instância; nas `work-watch-<x>` continua o nome curto `<x>`). `"workspace": null` ou `""` desliga (sem pasta e sem `CONTEXT.md`). O primeiro `--load` e o tick ligado criam a pasta e o `CONTEXT.md` que faltam, sem sobrescrever nada, e o `CONTEXT.md` entra na camada de Instruções. Pasta que não dá para criar (drive fora) só gera aviso e nunca para o `--load`, o `--validate` nem o tick, e a pasta padrão só é sondada pelas fontes que gravam nela (drive travado não quebra as outras fontes). Com o drive sem resposta, o `CONTEXT.md` fica de fora do `--load` e do tick, com aviso, sem travar. O provisionador usa a mesma regra: funcionário novo sem a chave no modelo nasce com `config/`, `handoff.md` e memória na pasta de trabalho.
 

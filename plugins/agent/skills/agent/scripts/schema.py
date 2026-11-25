@@ -29,7 +29,7 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
                    the whatsapp source's chats and contatos (lists of names or ids; both empty is a warning in mode
                    lista: it reads nothing), modo ("lista" or "todos"), ignorar (list of names or ids), sinais (a
                    path), anexos (bool) and its numbers (max_anexo_mb, timeout_s, historico_dias, guardar_dias,
-                   max_por_chat, mudo_apos, guardar_candidatas_dias)
+                   max_por_chat, mudo_apos, guardar_candidatas_dias, sob_demanda_msgs up to 200, sob_demanda_dias)
   behaviors        [str]: behaviors loaded by the session, in this order (behaviors/<name>/BEHAVIOR.md). An old name
                    in BEHAVIOR_ALIASES is read as the new one (deduplicated, first position kept) and --validate warns;
                    one that left the plugin (REMOVED_BEHAVIORS) is dropped and --validate warns
@@ -417,8 +417,10 @@ def _whatsapp_source(e, i, err, warn):
         err.append(f'{at}: "sinais" precisa ser o caminho do arquivo de sinais (ex.: data/sinais-objetivo.json)')
     if todos and not e.get('sinais'):
         warn.append(f'{at}: modo todos sem "sinais": so contatos novos viram candidatos')
-    if not todos and any(e.get(k) is not None for k in ('ignorar', 'sinais', 'mudo_apos', 'guardar_candidatas_dias')):
-        warn.append(f'{at}: "ignorar", "sinais", "mudo_apos" e "guardar_candidatas_dias" so valem com "modo": "todos"')
+    so_todos = ('ignorar', 'sinais', 'mudo_apos', 'guardar_candidatas_dias', 'sob_demanda_msgs', 'sob_demanda_dias')
+    if not todos and any(e.get(k) is not None for k in so_todos):
+        warn.append(f'{at}: "ignorar", "sinais", "mudo_apos", "guardar_candidatas_dias", "sob_demanda_msgs" e '
+                    f'"sob_demanda_dias" so valem com "modo": "todos"')
     vazias = 0
     for k in ('chats', 'contatos'):
         v = e.get(k)
@@ -428,10 +430,17 @@ def _whatsapp_source(e, i, err, warn):
     if vazias == 2 and not todos:
         warn.append(f'{at}: "chats" e "contatos" vazios: a fonte nao le nada ate a lista ser preenchida')
     for k in ('max_anexo_mb', 'timeout_s', 'historico_dias', 'guardar_dias', 'max_por_chat', 'mudo_apos',
-              'guardar_candidatas_dias'):
+              'guardar_candidatas_dias', 'sob_demanda_msgs', 'sob_demanda_dias'):
         v = e.get(k)
         if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0):
             err.append(f'{at}: "{k}" precisa ser um numero maior que zero')
+    for k in ('sob_demanda_msgs', 'sob_demanda_dias'):
+        v = e.get(k)
+        if isinstance(v, float) and v > 0 and not v.is_integer():
+            err.append(f'{at}: "{k}" precisa ser um numero inteiro (ex.: 30)')
+    v = e.get('sob_demanda_msgs')
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 200:
+        err.append(f'{at}: "sob_demanda_msgs" vai ate 200 por pedido (padrao 50); para mais, marque o chat relevante de novo')
     if e.get('anexos') is not None and not isinstance(e['anexos'], bool):
         err.append(f'{at}: "anexos" precisa ser true ou false')
 

@@ -12,9 +12,11 @@ WhatsApp Web): a pessoa escaneia um QR no celular uma vez e, daí em diante, cad
 protocolo do WhatsApp Web sem ser do WhatsApp. O WhatsApp pode bloquear (por um tempo ou de vez) uma conta que usa
 cliente não oficial. Por isso o desenho é o mais discreto possível, e mesmo assim o risco não é zero:
 
-- **somente leitura**: não existe caminho de envio no código. Nada de mensagem, reação, edição, status, "digitando",
-  confirmação de leitura ou presença. O teste `tests/test_whatsapp_source.py` procura chamadas de envio na ponte e falha
-  se aparecer alguma;
+- **somente leitura**: não existe caminho de envio para pessoa nenhuma. Nada de mensagem, reação, edição, status,
+  "digitando", confirmação de leitura ou presença. O único envio do código vai para o **próprio celular da conta**,
+  nunca para um contato: no modo todos, o pedido do histórico de um chat julgado relevante
+  ([Histórico sob demanda](#histórico-sob-demanda-chat-julgado-relevante)). O teste `tests/test_whatsapp_source.py`
+  procura chamadas de envio na ponte e falha se aparecer qualquer outra (ou essa fora do lugar, ou mais de uma vez);
 - **presença sempre indisponível**: a ponte nunca chama `SendPresence`, então o aparelho nunca aparece online e as
   confirmações de entrega que o protocolo exige saem como "inativas". Este aparelho não acrescenta tique nenhum e o
   azul nunca sai daqui (os dois tiques cinza o remetente já vê de qualquer forma, porque o celular da conta confirma a
@@ -107,6 +109,8 @@ Vale para qualquer instância e qualquer objetivo (uma obra, outra obra, um proj
 | `mudo_apos` | quantos vereditos `irrelevante` deixam o chat mudo (padrão 3) |
 | `guardar_candidatas_dias` | candidata de chat ainda sem veredito sai do spool depois disso (padrão 7) |
 | `historico_dias` | no modo todos o padrão é 3: o pareamento pede ao celular só esses dias, e a ponte corta o que vier mais velho |
+| `sob_demanda_msgs` | quantas mensagens anteriores o veredito `relevante` pede ao próprio celular (padrão 50, até 200) |
+| `sob_demanda_dias` | mensagem do histórico sob demanda mais velha que isso não é gravada (padrão 30) |
 
 `chats` e `contatos` continuam valendo: no modo todos, o que está neles é acompanhado sempre, como antes. As outras
 opções (`anexos`, `max_anexo_mb`, `timeout_s`, `guardar_dias`, `max_por_chat`) também.
@@ -195,7 +199,8 @@ anexo sai numa linha só: nada que alguém escreva começa uma linha como um cab
   interessante, urgente ou de outro assunto da pessoa: se não é do objetivo, é `irrelevante`.
 - Registra o veredito de todo chat candidato no mesmo tick:
   `agent.py <instância> --whatsapp-veredito <id> relevante` (passa a ser acompanhado sempre, com os anexos, a partir do
-  próximo tick) ou `irrelevante` (sai dos contatos novos; volta só se casar com os sinais). Com `mudo_apos` vereditos
+  próximo tick, que também pede ao próprio celular a conversa de antes do veredito: veja
+  [Histórico sob demanda](#histórico-sob-demanda-chat-julgado-relevante)) ou `irrelevante` (sai dos contatos novos; volta só se casar com os sinais). Com `mudo_apos` vereditos
   `irrelevante` o chat fica mudo: nada dele é lido. `limpar` desfaz o veredito (e tira o mudo); `--whatsapp-vereditos`
   lista o que está registrado. Na dúvida, não registre e espere a próxima mensagem do chat.
 - **Nunca responde** nem fala com o contato (a fonte nem tem como enviar). Rascunho de resposta, quando o papel da
@@ -204,6 +209,45 @@ anexo sai numa linha só: nada que alguém escreva começa uma linha como um cab
   irrelevante não se repete, não se resume e não entra em nota, tarefa, lição nem diário.
 - Um chat relevante vira um chat acompanhado como os da lista; para que ele fique de vez no config, a pessoa pode pôr
   o id em `chats`/`contatos`.
+
+### Histórico sob demanda (chat julgado relevante)
+
+No modo todos, a mensagem sem sinal de um chat fora da lista é descartada sem gravar. Quando o chat é julgado relevante
+depois (o fornecedor respondeu sem nenhuma palavra do assunto, por exemplo), a conversa de antes do veredito já não
+está no spool. Em vez de parear de novo, a ponte pede essa conversa ao **próprio celular da conta**:
+
+1. `--whatsapp-veredito <id> relevante` guarda no veredito a âncora: a mensagem **mais recente** daquele chat que
+   está no spool (id, hora e se foi sua). O celular só manda o que veio **antes** da âncora, e o que se perdeu fica
+   entre as candidatas e antes delas (a resposta sem palavra do assunto vem depois da mensagem que tinha a palavra):
+   ancorar na mais recente traz as duas coisas. Sem mensagem do chat no spool não há âncora: o comando avisa e a
+   conversa anterior só volta com um pareamento novo;
+2. o próximo tick conecta como sempre e, depois de receber a fila, pede ao celular as `sob_demanda_msgs` mensagens
+   (padrão 50) anteriores à âncora. É o histórico sob demanda da whatsmeow: uma mensagem de protocolo (categoria
+   "peer") para o próprio aparelho principal da conta, o mesmo canal pelo qual o celular manda o histórico do
+   pareamento. Não vai para o contato, não aparece na tela de ninguém e não acrescenta tique nenhum;
+3. o celular responde com um bloco de histórico do tipo ON_DEMAND, que passa pelo mesmo filtro do modo todos
+   (`ignorar` continua valendo acima de tudo) e é gravado com `origem: "sob_demanda"`, com os anexos, como os do chat
+   acompanhado. Vale o corte de `sob_demanda_dias` (padrão 30, em dias inteiros), nunca o de `historico_dias` do
+   pareamento. Só é gravado o chat cuja resposta a fonte espera (pedido agora, ou pedido antes e ainda sem resposta):
+   mensagem de outro chat que viesse no bloco, mesmo de um chat da lista, é descartada sem gravar;
+4. a resposta chega no mesmo tick quando o celular está com rede e responde dentro de `timeout_s`; senão o servidor
+   guarda o bloco e ele chega num tick seguinte. O tick mostra
+   `== WHATSAPP historico sob demanda: <chat> (<id>): N msgs novas da conversa de antes do veredito`, e as mensagens
+   aparecem no bloco do chat (as `max_por_chat` mais recentes; todas ficam no spool). Mensagem que a instância já
+   tinha e que veio de novo na resposta não conta nem aparece duas vezes.
+
+Um pedido por veredito, nunca repetido sozinho: se a ponte não conseguiu enviar (sem conexão), o tick seguinte tenta
+de novo; se o celular não respondeu em 24 h, o tick avisa uma vez e para. Marcar `relevante` outra vez um chat que já
+é relevante pede a página anterior: a âncora passa a ser a mensagem **mais antiga** guardada do chat.
+O que não dá para buscar assim: mensagem descartada que veio **depois** da última guardada do chat e antes do veredito
+(o pedido só volta no tempo a partir da âncora). Na prática ela é rara, porque o chat entra no bloco de candidatas a
+cada mensagem com sinal e o veredito sai no mesmo tick. A ponte só pede o
+histórico de chat acompanhado (da lista ou julgado relevante) e fora de `ignorar`, e nunca no pareamento.
+`--whatsapp-vereditos` mostra, para cada chat relevante, se o histórico está a pedir, pedido ou recebido. O controle
+fica em `data/whatsapp/historico-pedidos.json` (0600, gravado só pelo tick).
+
+A alternativa de guardar cifradas, por alguns dias, as mensagens dos chats que tiveram candidata não foi feita: o
+pedido sob demanda guarda menos dado (nada de chat que não foi julgado relevante).
 
 ### Riscos e privacidade do modo todos
 
@@ -225,7 +269,11 @@ anexo sai numa linha só: nada que alguém escreva começa uma linha como um cab
 - Mensagem sem decisão (grupo de `ignorar` pelo nome num tick sem os nomes, e as outras da seção No tick) fica decifrada
   em `secrets/whatsapp/session.db` até um tick decidir, como no modo lista; no modo todos isso vale para mensagem de
   qualquer chat, não só dos da lista.
-- O risco de conta do cliente não oficial é o mesmo da lista: o modo todos não envia nada e a conexão é igual.
+- O risco de conta do cliente não oficial é o mesmo da lista: o modo todos não envia nada a pessoa nenhuma e a conexão
+  é igual. O único envio é o pedido de histórico ao próprio celular, um por veredito `relevante`: na whatsmeow, um pedido
+  de histórico adicional ao aparelho principal da própria conta.
+- O histórico sob demanda traz para o spool (e para o modelo) só a conversa do chat julgado relevante, nunca a de outro
+  chat; o que for mais velho que `sob_demanda_dias` não é gravado.
 - Desligar: tire `"modo": "todos"` (volta a valer só a lista). Para apagar o rastro, apague
   `data/whatsapp/vereditos.json`, `data/whatsapp/conhecidos.json` e `secrets/whatsapp/conhecidos.sal`.
 
@@ -285,6 +333,7 @@ bloco é para o agente ler e avisar.
 | `data/whatsapp/vereditos.json` | modo todos: os vereditos por chat (id, nome, `relevante`/`irrelevante`, quantos, mudo), 0600 |
 | `data/whatsapp/conhecidos.json` | modo todos: os chats conhecidos quando o modo começou, só como hash com chave (`parcial` enquanto a linha de base não fechou), 0600 |
 | `secrets/whatsapp/conhecidos.sal` | modo todos: a chave desses hashes, longe deles, 0600; um pareamento novo (pasta da sessão vazia) começa outra |
+| `data/whatsapp/historico-pedidos.json` | modo todos: para cada chat relevante, o veredito cujo histórico já foi pedido ao próprio celular, quando, e quantas mensagens a resposta gravou, 0600 |
 
 Em modo teste (`live` falso) o cursor não anda: cada tick mostra de novo o que chegou desde o pareamento (até
 `max_por_chat` por chat). A conexão e o spool funcionam igual, porque a fila do servidor esvazia quando a ponte confirma.
@@ -292,8 +341,10 @@ Em modo teste (`live` falso) o cursor não anda: cada tick mostra de novo o que 
 ## A ponte
 
 `scripts/sources/whatsapp_bridge/` (Go): `main.go` (os dois comandos, `pair` e `pull`), `allow.go` (a lista de permissão
-e o texto de cada mensagem), `todos.go` (o filtro do modo todos: ignorar, mudos, sinais, conhecidos), `allow_test.go`,
-`reader_test.go` e `todos_test.go` (o tratamento das mensagens sobre uma sessão de teste, sem conectar). A whatsmeow está fixada por commit no `go.mod` e no `go.sum`, e a ponte
+e o texto de cada mensagem), `todos.go` (o filtro do modo todos: ignorar, mudos, sinais, conhecidos), `ondemand.go` (o
+pedido do histórico sob demanda ao próprio celular, o único envio da ponte), `allow_test.go`, `reader_test.go`,
+`todos_test.go` e `ondemand_test.go` (o tratamento das mensagens sobre uma sessão de teste, sem conectar; o do pedido
+confere que o destino é sempre o próprio JID da conta). A whatsmeow está fixada por commit no `go.mod` e no `go.sum`, e a ponte
 compila com `-mod=readonly` (só as versões do `go.sum`). Atualizar a whatsmeow: na pasta da ponte,
 `go get go.mau.fi/whatsmeow@<commit> && go mod tidy`, `go vet ./... && go test ./...`, e a PR com o `go.mod` e o `go.sum`.
 A lista e os limites vão pela entrada padrão em JSON, nunca na linha de comando; a saída é um JSON na saída padrão e o log

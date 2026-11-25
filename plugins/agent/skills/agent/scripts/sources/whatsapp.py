@@ -2,11 +2,12 @@
 """Source whatsapp: messages of the allowed WhatsApp groups and contacts, READ ONLY, through a linked device.
 
 The instance joins the person's account as a linked device (like WhatsApp Web, QR scanned on the phone) with a small
-Go bridge on whatsmeow (whatsapp_bridge/, pinned by commit in its go.mod/go.sum). There is no send path at all: no
+Go bridge on whatsmeow (whatsapp_bridge/, pinned by commit in its go.mod/go.sum). No send path reaches a person: no
 message, reaction, status, typing state, read receipt or presence; the device never shows as online. The bridge
 connects once per tick, receives what the server queued since the last connection, writes the allowed messages and
 leaves: no daemon, no service, no resident process. It is an unofficial client and WhatsApp may block an account that
-uses one; read only and short connections keep that risk low, never at zero.
+uses one; read only and short connections keep that risk low, never at zero. The one send the bridge has goes to the
+account's OWN phone, never to a contact: in mode todos, the request for the earlier history of a chat judged relevant.
 
 Allowlist: only the chats listed in the instance config are read; everything else is dropped by the bridge before it
 writes anything (and checked again here). An empty list reads nothing and says what is missing. The real names live
@@ -54,6 +55,20 @@ verdicts the chat is muted (never read) until `limpar` or `relevante`. `chats`/`
   guardar_candidatas_dias  candidate lines of a chat without a verdict leave the spool after this (default 7); those of a
                  chat judged irrelevant leave on the next live tick
   historico_dias in this mode the default is 3, asked at pairing and also cut by the bridge
+  sob_demanda_msgs  messages asked of the own phone when a chat is judged relevant (default 50, at most 200)
+  sob_demanda_dias  an answered message older than this is not written (default 30)
+On-demand history (PLN0985): the messages of a chat from before its relevante verdict were dropped as non-candidates.
+The verdict records an anchor and the next tick has the bridge ask the account's OWN phone (a peer protocol message to
+the own JID, never to the contact) for the `sob_demanda_msgs` messages before it. The phone only pages backward from the
+anchor, so the first relevante anchors at the NEWEST spool line of the chat (what was dropped sits between and before
+the candidates: a reply with no keyword comes after the message that had one); marking an already relevant chat
+relevante again anchors at the OLDEST line, for the page before it. A message after the newest stored line and before
+the verdict cannot be reached this way (it was dropped, and paging only goes back).
+The phone's answer is a history block of type ON_DEMAND that goes through the same filter, written with origem
+"sob_demanda", in that tick or a later one, and only for the chats whose answer is awaited (awaiting_history: the
+requests due and those out without an answer); any other chat in the block, even one of the list, is dropped. One request per verdict, never retried in a loop (a failed send is tried
+on the next tick).
+data/whatsapp/historico-pedidos.json (0600, written only by the tick) says which verdict was asked and answered.
 State of the mode: data/whatsapp/vereditos.json (verdicts) and data/whatsapp/conhecidos.json (the chats known when the
 mode started, as keyed hashes, never the ids), both 0600; the key of those hashes lives apart, in
 secrets/whatsapp/conhecidos.sal (0600: a phone number is easy to enumerate, so the key never sits next to the hashes).
@@ -72,12 +87,14 @@ import core, paths
 from adapters import Fonte as Base
 
 PONTE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'whatsapp_bridge')
-PONTE_ARQS = ('main.go', 'allow.go', 'todos.go', 'go.mod', 'go.sum')
+PONTE_ARQS = ('main.go', 'allow.go', 'todos.go', 'ondemand.go', 'go.mod', 'go.sum')
 BUILD_TIMEOUT = 600
 CFG = {}
 MAX_POR_CHAT = 20
 MODOS = ('lista', 'todos')
 VEREDITOS = ('relevante', 'irrelevante', 'limpar')
+SOB_DEMANDA_MSGS, SOB_DEMANDA_MAX, SOB_DEMANDA_DIAS = 50, 200, 30
+SEM_RESPOSTA_H = 24          # a request the phone has not answered in this long is warned about once
 SINAIS_CHAVES = {'names': 'names', 'keywords_anywhere': 'words', 'subject_words': 'words', 'acronyms': 'acronyms',
                  'domains': 'domains', 'attachment_words': 'attachment_words', 'phones': 'phones'}
 
@@ -111,8 +128,106 @@ def opcoes(cfg, avisos=None):
                'judged': ids(lambda v: v.get('veredito') == 'irrelevante'),
                'muted': ids(lambda v: v.get('veredito') == 'irrelevante' and v.get('mudo')),
                'known': conhecidos, 'salt': sal, 'baseline': base,
-               'signals': sinais(cfg, avisos if avisos is not None else [])})
+               'signals': sinais(cfg, avisos if avisos is not None else []),
+               'history_requests': [q for _, _, q in pedidos_historico(loc, vs, cfg)],
+               'on_demand_days': dias_sob_demanda(cfg)})
     return op
+
+
+def dias_sob_demanda(cfg):
+    """sob_demanda_dias as whole days, never below 1 (0 would be "no limit" in the bridge); the schema wants an integer."""
+    try: v = float(cfg.get('sob_demanda_dias', SOB_DEMANDA_DIAS))
+    except (TypeError, ValueError): v = SOB_DEMANDA_DIAS
+    return max(1, int(-(-v // 1)))
+
+
+def aguardando_historico(loc, vs, devidos, agora):
+    """Every id of the chats whose on-demand history the bridge may write (awaiting_history): the requests due now and
+    those already out and not answered (or answered less than SEM_RESPOSTA_H ago: an answer may come in more than one
+    block), while the verdict is still relevante. Anything else in an ON_DEMAND block is dropped by the bridge."""
+    feitos = _le_json(loc['pedidos'], {})
+    feitos = feitos if isinstance(feitos, dict) else {}
+    chaves = {k for k, _, _ in devidos}
+    for k, e in feitos.items():
+        if not isinstance(e, dict): continue
+        pedido, respondido = core.dt(e.get('pedido_em')), core.dt(e.get('respondido_em'))
+        if pedido and (not respondido or respondido < pedido or agora - respondido < timedelta(hours=SEM_RESPOSTA_H)):
+            chaves.add(k)
+    return sorted({i for k in chaves if (vs.get(k) or {}).get('veredito') == 'relevante' for i in _ids_veredito(k, vs[k])})
+
+
+def _ancora(regs, mais_antiga=False):
+    """The anchor of an on-demand history request (the phone sends the messages before it): the newest spool line of
+    the chat (first relevante: fills the gaps between the candidates and what came before them) or the oldest one
+    (mais_antiga, a chat already relevant: the page before). None when no line of the chat has an id and a time."""
+    ok = [r for r in regs if r.get('id') and r.get('chat') and core.dt(r.get('quando'))]
+    if not ok: return None
+    r = (min if mais_antiga else max)(ok, key=lambda r: core.dt(r['quando']))
+    return {'chat': r['chat'], 'id': r['id'], 'eu': bool(r.get('eu')), 'quando': r['quando']}
+
+
+def pedidos_historico(loc, vs, cfg):
+    """The on-demand history requests still due: one per relevante verdict that has an anchor and was not asked yet
+    (historico-pedidos.json keeps the time of the verdict each request answered to).
+    [(verdict key, time of the verdict, request)]."""
+    feitos = _le_json(loc['pedidos'], {})
+    feitos = feitos if isinstance(feitos, dict) else {}
+    n = max(1, min(int(cfg.get('sob_demanda_msgs', SOB_DEMANDA_MSGS)), SOB_DEMANDA_MAX))
+    ignorar = set(lista(cfg.get('ignorar')))
+    out = []
+    for k, v in sorted(vs.items()):
+        a = v.get('historico')
+        if v.get('veredito') != 'relevante' or not isinstance(a, dict) or not a.get('chat') or not a.get('id'): continue
+        if (feitos.get(k) or {}).get('veredito') == v.get('quando'): continue
+        if _ids_veredito(k, v) & ignorar: continue
+        quando = core.dt(a.get('quando'))
+        if not quando: continue
+        out.append((k, v.get('quando'), {'chat': a['chat'], 'id': a['id'], 'from_me': bool(a.get('eu')), 'ts': int(quando.timestamp()),
+                        'count': n}))
+    return out
+
+
+def anota_pedidos(loc, devidos, resumo, agora, antes=frozenset()):
+    """After a pull: of the requests due before it (`devidos`, from pedidos_historico), the ones the bridge got out (pedidos_historico) and the answers that came (sob_demanda, chat ->
+    messages written) go to historico-pedidos.json. Returns (answers [(name, id, new messages)], warnings): a request the
+    phone has not answered in SEM_RESPOSTA_H is warned about once. `antes`: the (chat, id) already in the spool before
+    the pull, so a message the answer repeats is not counted as new."""
+    vs = vereditos(loc)
+    feitos = _le_json(loc['pedidos'], {})
+    feitos = {k: e for k, e in (feitos if isinstance(feitos, dict) else {}).items() if isinstance(e, dict)}
+    mudou, respostas, avisos = False, [], []
+    pedidos = {q['chat']: (k, quando) for k, quando, q in devidos}
+    for chat in resumo.get('pedidos_historico') or []:
+        if chat not in pedidos: continue
+        k, quando = pedidos[chat]
+        feitos[k] = {'veredito': quando, 'pedido_em': agora.isoformat(), 'chat': chat}
+        mudou = True
+    respondidos = resumo.get('sob_demanda') or {}
+    novas = {}
+    if respondidos:
+        for r in unicos(le_spool(loc['spool'])):
+            if r.get('origem') == 'sob_demanda' and (r.get('chat'), r.get('id')) not in antes:
+                novas[r.get('chat')] = novas.get(r.get('chat'), 0) + 1
+    for chat in respondidos:
+        k = next((k for k, v in vs.items() if chat in _ids_veredito(k, v)), None)
+        if k is None: continue
+        n = sum(c for ch, c in novas.items() if ch in _ids_veredito(k, vs[k]) and ch == chat)
+        e = feitos.setdefault(k, {})
+        e.update({'respondido_em': agora.isoformat(), 'gravadas': int(e.get('gravadas') or 0) + n})
+        respostas.append((vs[k].get('nome') or k, k, n))
+        mudou = True
+    for k, e in feitos.items():
+        pedido = core.dt(e.get('pedido_em'))
+        respondido = core.dt(e.get('respondido_em'))
+        if not pedido or (respondido and respondido >= pedido) or e.get('avisado'): continue
+        if agora - pedido >= timedelta(hours=SEM_RESPOSTA_H):
+            nome = (vs.get(k) or {}).get('nome') or k
+            avisos.append(f'o celular nao mandou em {SEM_RESPOSTA_H} h o historico pedido de {_linha(nome)} (celular sem '
+                          f'rede ou sem as mensagens); para pedir de novo: agent.py {paths.NAME} --whatsapp-veredito {k} relevante')
+            e['avisado'] = True
+            mudou = True
+    if mudou: _grava_json(loc['pedidos'], feitos)
+    return respostas, avisos
 
 
 def sinais(cfg, avisos):
@@ -219,6 +334,7 @@ def locais():
             'spool': os.path.join(paths.DATA_DIR, 'whatsapp', 'spool.jsonl'),
             'vereditos': os.path.join(paths.DATA_DIR, 'whatsapp', 'vereditos.json'),
             'conhecidos': os.path.join(paths.DATA_DIR, 'whatsapp', 'conhecidos.json'),
+            'pedidos': os.path.join(paths.DATA_DIR, 'whatsapp', 'historico-pedidos.json'),
             'sal': os.path.join(paths.SECRETS_DIR, 'whatsapp', 'conhecidos.sal'),
             'anexos': os.path.join(paths.CACHE_DIR, 'whatsapp', 'anexos'),
             'qr': os.path.join(paths.CACHE_DIR, 'whatsapp', 'qr.png'),
@@ -466,6 +582,11 @@ def tick_whatsapp(s, desde, dry):
     loc = locais()
     if not os.path.isfile(os.path.join(loc['sessao'], 'session.db')):
         raise SystemExit(f'nao pareado: rode agent.py {paths.NAME} --whatsapp-pair')
+    devidos = pedidos_historico(loc, vereditos(loc), CFG) if modo_todos else []
+    if modo_todos:
+        op['history_requests'] = [q for _, _, q in devidos]                # the same list anota_pedidos checks against
+        op['awaiting_history'] = aguardando_historico(loc, vereditos(loc), devidos, datetime.now(timezone.utc))
+    antes = {(r.get('chat'), r.get('id')) for r in le_spool(loc['spool'])} if modo_todos else set()
     resumo = puxa(op, loc, float(CFG.get('timeout_s', 60)))
     agora = datetime.now(timezone.utc)
     st = s.setdefault('whatsapp', {})
@@ -476,9 +597,14 @@ def tick_whatsapp(s, desde, dry):
             avisos.append('linha de base do modo todos incompleta: o proximo tick continua como linha de base')
     if resumo.get('sem_par'):
         avisos.append('na lista mas nao achados na conta (confira o nome exato): ' + ', '.join(resumo['sem_par']))
+    sob_demanda = []
+    if modo_todos:                                       # on-demand history: what went out and what came back
+        sob_demanda, av = anota_pedidos(loc, devidos, resumo, agora, antes)
+        avisos += av
     if desde is None and not st.get('plantado'):        # no pairing mark in the state: plant the cursor now
         if not dry: st['plantado'] = agora.isoformat()
-        return {'baseline': True, 'guardadas': len(regs), 'spool': loc['spool'], 'chats': [], 'avisos': avisos}
+        return {'baseline': True, 'guardadas': len(regs), 'spool': loc['spool'], 'chats': [], 'avisos': avisos,
+                'sob_demanda': sob_demanda}
     cur = st.get('cursores', {}) if dry else st.setdefault('cursores', {})
     candidata = lambda r: modo_todos and not na_lista(r, op)
     # a candidate of the pairing's history (mode todos) is shown once on the first tick
@@ -497,7 +623,8 @@ def tick_whatsapp(s, desde, dry):
         podadas = poda(loc, op, agora, float(CFG.get('guardar_dias', 90)), float(CFG.get('guardar_candidatas_dias', 7)))
         if podadas: st['podadas'] = st.get('podadas', 0) + podadas
     return {'baseline': False, 'chats': out, 'candidatas': cand, 'avisos': avisos, 'resolvidas': [],
-            'descartadas': int(resumo.get('descartadas') or 0), 'mudo_apos': int(CFG.get('mudo_apos', 3))}
+            'descartadas': int(resumo.get('descartadas') or 0), 'mudo_apos': int(CFG.get('mudo_apos', 3)),
+            'sob_demanda': sob_demanda, 'pedidos': len(resumo.get('pedidos_historico') or [])}
 
 
 def _linha(s):
@@ -544,6 +671,9 @@ def imprime_whatsapp(r):
             estado = 'ultima msg e sua' if c['respondido'] else 'SEM RESPOSTA SUA'
             print(f'-- {_linha(c["chat"])} ({"grupo" if c["grupo"] else "1:1"}) · {estado}')
             _msgs(c)
+    for nome, chat, n in r.get('sob_demanda') or []:
+        print(f'== WHATSAPP historico sob demanda: {_linha(nome)} ({_linha(chat)}): {n} msgs novas da conversa de antes '
+              f'do veredito (pedido ao proprio celular; as mais recentes aparecem no bloco do chat, todas no spool)')
     cand = r.get('candidatas') or []
     if cand:
         print(f'== WHATSAPP CANDIDATAS ({sum(len(c["msgs"]) for c in cand)} msgs em {len(cand)} chats fora da lista; '
@@ -561,7 +691,7 @@ def imprime_whatsapp(r):
         print(f'   veredito por chat: agent.py {paths.NAME} --whatsapp-veredito <id> relevante|irrelevante '
               f'(relevante = acompanhado sempre, com anexos; irrelevante = sai dos contatos novos; '
               f'{r.get("mudo_apos", 3)} irrelevantes = mudo)')
-    return bool(r['chats'] or cand or r.get('avisos'))
+    return bool(r['chats'] or cand or r.get('avisos') or r.get('sob_demanda'))
 
 
 def pareia(s):
@@ -633,7 +763,20 @@ def registra_veredito(chat, veredito, cfg=None):
         msg = 'veredito limpo: volta a ser julgado do zero (contato novo, se nao era conhecido quando o modo comecou)'
     elif veredito == 'relevante':
         vs[chave] = {**e, 'veredito': 'relevante', 'irrelevantes': 0, 'mudo': False, 'ids': ids, 'nome': nome, 'quando': agora}
+        vs[chave].pop('historico', None)
         msg = 'relevante: acompanhado sempre a partir do proximo tick, com os anexos'
+        pagina = e.get('veredito') == 'relevante'        # already relevant: the page before the oldest message known
+        ancora = _ancora(regs, mais_antiga=pagina) if todos(cfg) else None
+        n = max(1, min(int(cfg.get('sob_demanda_msgs', SOB_DEMANDA_MSGS)), SOB_DEMANDA_MAX))
+        if ancora:
+            vs[chave]['historico'] = ancora
+            msg += (f'; o proximo tick pede ao proprio celular (nunca ao contato) as {n} msgs anteriores a '
+                    f'{core.hora(ancora["quando"])}, ' +
+                    ('a mais antiga guardada (pagina anterior)' if pagina else
+                     'a mais recente guardada: a conversa de antes do veredito'))
+        elif todos(cfg):
+            msg += ('; sem mensagem guardada deste chat para ancorar o pedido de historico: a conversa de antes do '
+                    'veredito nao vem (so com um pareamento novo)')
     else:
         n = (int(e.get('irrelevantes') or 0) if e.get('veredito') == 'irrelevante' else 0) + 1
         vs[chave] = {**e, 'veredito': 'irrelevante', 'irrelevantes': n, 'mudo': n >= mudo_apos, 'ids': ids, 'nome': nome,
@@ -660,13 +803,20 @@ def registra_veredito(chat, veredito, cfg=None):
 def lista_vereditos(cfg=None):
     """--whatsapp-vereditos: the verdicts recorded so far (local file of the instance)."""
     cfg = CFG if cfg is None else cfg
-    vs = vereditos(locais())
+    loc = locais()
+    vs = vereditos(loc)
     if not vs:
         print('whatsapp: nenhum veredito registrado'); return
+    feitos = _le_json(loc['pedidos'], {})
+    feitos = feitos if isinstance(feitos, dict) else {}
     mudo_apos = int(cfg.get('mudo_apos', 3))
     for k, v in sorted(vs.items(), key=lambda kv: (kv[1].get('veredito') or '', kv[1].get('nome') or kv[0])):
         estado = v.get('veredito') or '?'
         if estado == 'irrelevante': estado += f' {v.get("irrelevantes", 0)}/{mudo_apos}' + (' (mudo)' if v.get('mudo') else '')
+        h = feitos.get(k) if v.get('veredito') == 'relevante' else None
+        if h and h.get('respondido_em'): estado += f' · historico sob demanda: {h.get("gravadas", 0)} msgs'
+        elif h and h.get('pedido_em'): estado += f' · historico pedido em {core.hora(h["pedido_em"])}, sem resposta ainda'
+        elif v.get('veredito') == 'relevante' and v.get('historico'): estado += ' · historico a pedir no proximo tick'
         print(f'{v.get("nome") or k} ({k}): {estado} desde {core.hora(v.get("quando"))}')
 
 

@@ -1,10 +1,12 @@
 // Command whatsapp-bridge is the READ-ONLY WhatsApp bridge of the agent plugin's whatsapp source (sources/whatsapp.py).
 //
 // It joins the account as a linked device (like WhatsApp Web) and only ever receives. There is no code path that sends
-// anything a person sees: no message, reaction, edit, status, read receipt, typing state or presence. It never calls
+// anything a person sees: no message, reaction, edit, status, read receipt, typing state or presence. The one send it
+// has goes to the account's OWN phone, never to a contact: in mode "all", the request for the earlier history of a chat
+// judged relevant (ondemand.go, a peer protocol message to the own JID). It never calls
 // SendPresence, so the account is never shown online through this device and the delivery receipts whatsmeow has to
 // send stay of type "inactive" (the protocol acks the server needs, not rendered as read in the apps). Read receipts
-// (MarkRead) are never sent. tests/test_whatsapp_source.py scans this folder and fails if any send call shows up.
+// (MarkRead) are never sent. tests/test_whatsapp_source.py scans this folder and fails if any other send call shows up.
 //
 // Two commands, each one connection that ends:
 //
@@ -82,22 +84,24 @@ type anexo struct {
 }
 
 type summary struct {
-	OK          bool     `json:"ok"`
-	Erro        string   `json:"erro,omitempty"`
-	Gravadas    int      `json:"gravadas"`
-	Descartadas int      `json:"descartadas"`
-	Anexos      int      `json:"anexos"`
-	Historico   int      `json:"historico"`
-	Indecididas int      `json:"indecididas"`
-	Ignoradas   int      `json:"ignoradas,omitempty"`              // mode "all": dropped by the ignore list
-	Candidatas  int      `json:"candidatas,omitempty"`             // mode "all": written as candidates
-	Conhecidos  []string `json:"conhecidos,omitempty"`             // mode "all", first run: keyed hashes of the chats known now
-	BaseOK      bool     `json:"linha_de_base_completa,omitempty"` // mode "all", first run: groups and address book both complete
-	SemNumero   int      `json:"sem_numero,omitempty"`             // mode "all": 1:1 @lid chats with no known number, dropped
-	SemLID      int      `json:"sem_lid,omitempty"`                // mode "all": 1:1 chats by number with no known @lid, dropped
-	SemPar      []string `json:"sem_par"`
-	Grupos      []string `json:"grupos,omitempty"`
-	Avisos      []string `json:"avisos"`
+	OK          bool           `json:"ok"`
+	Erro        string         `json:"erro,omitempty"`
+	Gravadas    int            `json:"gravadas"`
+	Descartadas int            `json:"descartadas"`
+	Anexos      int            `json:"anexos"`
+	Historico   int            `json:"historico"`
+	Indecididas int            `json:"indecididas"`
+	Ignoradas   int            `json:"ignoradas,omitempty"`              // mode "all": dropped by the ignore list
+	Candidatas  int            `json:"candidatas,omitempty"`             // mode "all": written as candidates
+	Conhecidos  []string       `json:"conhecidos,omitempty"`             // mode "all", first run: keyed hashes of the chats known now
+	BaseOK      bool           `json:"linha_de_base_completa,omitempty"` // mode "all", first run: groups and address book both complete
+	SemNumero   int            `json:"sem_numero,omitempty"`             // mode "all": 1:1 @lid chats with no known number, dropped
+	SemLID      int            `json:"sem_lid,omitempty"`                // mode "all": 1:1 chats by number with no known @lid, dropped
+	Pedidos     []string       `json:"pedidos_historico,omitempty"`      // mode "all": chats whose history was asked of the own phone
+	SobDemanda  map[string]int `json:"sob_demanda,omitempty"`            // chats answered by an on-demand block -> messages written
+	SemPar      []string       `json:"sem_par"`
+	Grupos      []string       `json:"grupos,omitempty"`
+	Avisos      []string       `json:"avisos"`
 }
 
 func emit(s summary) {
@@ -223,6 +227,10 @@ type reader struct {
 	seen        map[string]bool // mode "all", first run: keyed hashes of the chats seen in this run
 	noNumberIDs map[string]bool // mode "all": the @lid ids of the 1:1 chats dropped for having no known number
 	contactsOK  bool            // the address book (app state critical_unblock_low) finished a full sync in this run
+
+	peerSend       func(context.Context, types.JID, *waE2E.Message) error // sendToOwnPhone (ondemand.go); tests swap it
+	onDemandBlocks int                                                    // ON_DEMAND history blocks received in this run
+	awaiting       map[string]bool                                        // chat ids whose on-demand history is awaited
 }
 
 func newReader(cli *whatsmeow.Client, o Options, sessionDir, spool, media string, readyWait time.Duration) *reader {
@@ -232,6 +240,8 @@ func newReader(cli *whatsmeow.Client, o Options, sessionDir, spool, media string
 		warned: map[string]bool{}, gone: map[string]bool{}, lookupFail: map[string]bool{},
 		all: newAllMode(o), seen: map[string]bool{}, noNumberIDs: map[string]bool{}}
 	r.groupInfo = cli.GetGroupInfo
+	r.peerSend = r.sendToOwnPhone
+	r.awaiting = set(o.AwaitingHistory)
 	if b, err := os.ReadFile(r.cache); err == nil {
 		_ = json.Unmarshal(b, &r.known)
 	}
@@ -528,9 +538,17 @@ func (r *reader) handle(evt any) (ok bool) {
 // historyNotification downloads one history block sent by the phone and writes its allowed messages. Only after all of
 // them are written is the block deleted from the media server, as whatsmeow does by default (the phone uploaded it
 // for this device only).
+//
+// An ON_DEMAND block is the phone's answer to a request of requestHistory (ondemand.go): same filter, its own origin,
+// and none of the pairing's short cut (historico_dias), only the on-demand one (on_demand_days).
 func (r *reader) historyNotification(n *waE2E.HistorySyncNotification) bool {
+	origin := "historico"
 	r.mu.Lock()
 	r.history = time.Now()
+	if n.GetSyncType() == waE2E.HistorySyncType_ON_DEMAND {
+		origin = originOnDemand
+		r.onDemandBlocks++
+	}
 	r.mu.Unlock()
 	ctx, cancel, _ := r.opCtx(2 * time.Minute)
 	defer cancel()
@@ -539,23 +557,7 @@ func (r *reader) historyNotification(n *waE2E.HistorySyncNotification) bool {
 		r.warn("um bloco do historico nao baixou (" + short(err.Error()) + "); sem confirmacao, volta na proxima conexao")
 		return false
 	}
-	failed := false
-	for _, conv := range blob.GetConversations() {
-		chat, err := types.ParseJID(conv.GetID())
-		if err != nil {
-			continue
-		}
-		for _, hm := range conv.GetMessages() {
-			m, err := r.cli.ParseWebMessage(chat, hm.GetMessage())
-			if err != nil {
-				continue
-			}
-			if !r.message(m, "historico") {
-				failed = true
-			}
-		}
-	}
-	if failed {
+	if !r.historyBlock(blob, origin) {
 		return false
 	}
 	_ = r.cli.DeleteMedia(ctx, whatsmeow.MediaHistory, n.GetDirectPath(), n.GetFileEncSHA256(), n.GetEncHandle())
@@ -711,6 +713,9 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 		}
 		old := origin == "historico" && r.opts.HistoryDays > 0 &&
 			time.Since(info.Timestamp) > time.Duration(r.opts.HistoryDays)*24*time.Hour
+		if origin == originOnDemand { // the answer to a request: its own limit, never the pairing's short window
+			old = r.opts.OnDemandDays > 0 && time.Since(info.Timestamp) > time.Duration(r.opts.OnDemandDays)*24*time.Hour
+		}
 		if old || (!allowed && anyIn(r.all.muted, ids)) { // history past the limit, or a muted chat: never written
 			r.mu.Lock()
 			r.sum.Descartadas++
@@ -742,7 +747,15 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 		r.mu.Unlock()
 		return true
 	}
-	candidate := r.all != nil && ids != nil && !allowed
+	// an on-demand block answers a request for one followed chat: a message of a chat whose history is not awaited (not
+	// asked, or another chat that came along, even one of the list) is dropped, never written nor a candidate
+	if origin == originOnDemand && !r.isAwaited(ids) {
+		r.mu.Lock()
+		r.sum.Descartadas++
+		r.mu.Unlock()
+		return true
+	}
+	candidate := r.all != nil && ids != nil && !allowed && origin != originOnDemand
 	if !allowed && !candidate { // not in the allowlist (or a status, channel, broadcast): dropped before anything is written
 		r.mu.Lock()
 		r.sum.Descartadas++
@@ -817,6 +830,12 @@ func (r *reader) message(evt *events.Message, origin string) bool {
 	}
 	if origin == "historico" {
 		r.sum.Historico++
+	}
+	if origin == originOnDemand {
+		if r.sum.SobDemanda == nil {
+			r.sum.SobDemanda = map[string]int{}
+		}
+		r.sum.SobDemanda[rec.Chat]++
 	}
 	r.mu.Unlock()
 	return true
@@ -1053,12 +1072,22 @@ func pull(o Options, sessionDir, spool, mediaDir string, timeout time.Duration) 
 		fail(1, "conexao: "+short(err.Error()))
 	}
 	go r.loadGroups(ctx)
+	online := false
 	select {
 	case msg := <-r.fatal:
 		abort(msg)
 	case <-r.offline: // the server finished sending what was queued
+		online = true
 	case <-time.After(time.Until(deadline)):
 		r.warn("tempo esgotado antes do fim da fila; o que nao recebeu confirmacao volta no proximo tick")
+	}
+	// mode "all": the history of the chats judged relevant, asked of the own phone (ondemand.go); the answer is a history
+	// block handled like the others, in this run when the phone is quick, otherwise queued for the next one
+	if online && len(o.HistoryRequests) > 0 {
+		r.requestHistory(o.HistoryRequests)
+		if msg, bad := r.awaitOnDemand(deadline); bad {
+			abort(msg)
+		}
 	}
 	// the last messages of the queue and the handlers still running (a download, a history block) finish before leaving
 	if msg, bad := r.drain(deadline, r.cutoff, 3*time.Second); bad {

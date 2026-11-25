@@ -34,6 +34,12 @@ type Options struct {
 	Salt     string   `json:"salt"`     // the key of those hashes (per instance)
 	Baseline bool     `json:"baseline"` // first run of the mode: nothing is new, every chat seen goes to the known set
 	Signals  Signals  `json:"signals"`
+
+	// mode "all", on-demand history (ondemand.go): the chats judged relevant whose earlier messages are asked of the
+	// account's own phone, and how old an answered message may be (days; 0 = no limit)
+	HistoryRequests []HistoryRequest `json:"history_requests"`
+	OnDemandDays    int              `json:"on_demand_days"`
+	AwaitingHistory []string         `json:"awaiting_history"` // every id of the chats whose answer is awaited (now or from an earlier request)
 }
 
 // matcher answers "may this chat be read?". chats: group (or any chat) JIDs, or exact group subjects. contatos: 1:1
