@@ -109,12 +109,14 @@ behavior_name, old_behavior_names = behavior_names.behavior_name, behavior_names
 # machine: qa_env.py runs setup/env_up/env_down/env_url with the shell; dev_brief.py puts deploy_cmd and the locks,
 # unquoted, in the command lines the integrator runs; code-review's BEHAVIOR.md puts terms_file in the review_check.py
 # line (and it is the list the leak check uses); construction-advisor's BEHAVIOR.md runs price_history, quote_history
-# and quantities with a keyword appended. 'path' is a file or folder on the machine that decides what code runs
+# and quantities with a keyword appended, and construction-management's runs them the same way and installments as it
+# is. 'path' is a file or folder on the machine that decides what code runs
 # or what the session writes or deletes there: qa.node_dir goes in NODE_PATH (node loads code from it); the integrator
 # overwrites batch-release.e2e_marker with a date, deletes the used fragments in batch-release.fragments (and workers
 # write <fragments>/<branch>.md) and appends a line to batch-release.deploy_log; prototype.node_dir goes in NODE_PATH
 # like qa's; construction-advisor.references_dir is the folder the session reads the public references from (so
-# Planou cannot point that read at any folder). Both validate like 'str', but an edit from Planou's Papel tab may not
+# Planou cannot point that read at any folder), the same for construction-management's, whose stages_file the session
+# also rewrites. Both validate like 'str', but an edit from Planou's Papel tab may not
 # change, add or remove one (role_edit.py, machine_changes): they are edited on the machine only (PLN0229, PLN0233),
 # or whoever gets into Planou would run code or overwrite files here.
 BEHAVIOR_OPTIONS = {
@@ -142,6 +144,9 @@ BEHAVIOR_OPTIONS = {
                              'quote_history': 'command', 'quantities': 'command', 'signal_words': 'strs',
                              'signal_senders': 'strs', 'digest_hour': 'int', 'price_ok_pct': 'int',
                              'price_high_pct': 'int', 'qty_tolerance_pct': 'int'},
+    'construction-management': {'price_history': 'command', 'quote_history': 'command', 'quantities': 'command',
+                                'references_dir': 'path', 'installments': 'command', 'stages_file': 'path',
+                                'warn_days': 'int', 'followup_days': 'int', 'report_weekday': 'int', 'report_hour': 'int'},
 }
 QA = 'acceptance-testing'                # the behavior that tests a delivery as a user (old name: qa)
 REPO_RELEASE = ('batch', 'pr', 'ci', 'none')
@@ -160,6 +165,10 @@ OPTION_CHOICES = {('acceptance-testing', 'send_back'): ('ajuste', 'pessoa')}
 # options that take free text of a given shape: (behavior, option) -> (pattern, what it looks like). meeting-recordings.language
 # goes to run.sh as ATA_LANG (whisper's short code: "pt", "en", "es"), so a locale like "pt-BR" would break the run
 OPTION_PATTERNS = {('meeting-recordings', 'language'): (re.compile(r'[a-z]{2,3}'), 'codigo curto do idioma, como pt, en ou es')}
+# integer options with a range: (behavior, option) -> (min, max). A weekday out of 0..6 or an hour out of 0..23 would
+# never come, and the weekly summary would silently never go out
+OPTION_RANGES = {('construction-management', 'report_weekday'): (0, 6), ('construction-management', 'report_hour'): (0, 23),
+                 ('construction-management', 'warn_days'): (1, 90), ('construction-management', 'followup_days'): (1, 60)}
 OPTION_TYPES = {'str': 'texto', 'int': 'inteiro', 'num': 'numero', 'bool': 'true ou false', 'strs': 'lista de textos',
                 'ints': 'lista de inteiros maiores que zero', 'command': 'texto', 'path': 'texto'}
 OPTION_SHORT = {'str': 'texto', 'int': 'inteiro', 'num': 'numero', 'bool': 'true/false', 'strs': 'lista de textos',
@@ -249,6 +258,8 @@ def option_problems(name, opts):
             err.append(f'"behavior_config.{name}.{k}": {v!r} ({", ".join(OPTION_CHOICES[name, k])})')
         elif (name, k) in OPTION_PATTERNS and not OPTION_PATTERNS[name, k][0].fullmatch(v):
             err.append(f'"behavior_config.{name}.{k}": {v!r} ({OPTION_PATTERNS[name, k][1]})')
+        elif (name, k) in OPTION_RANGES and not OPTION_RANGES[name, k][0] <= v <= OPTION_RANGES[name, k][1]:
+            err.append(f'"behavior_config.{name}.{k}": {v!r} (de {OPTION_RANGES[name, k][0]} a {OPTION_RANGES[name, k][1]})')
     return err, unknown
 
 

@@ -1,0 +1,104 @@
+{
+ "behavior": "construction-management",
+ "cases": [
+  {
+   "id": "construction-management-01",
+   "source": "exemplo",
+   "task": "Etapas da obra no Planou",
+   "description": "O usuário mandou o cronograma do contrato da construtora (8 etapas com prazos e cláusulas) e pediu para acompanhar as etapas no Planou.",
+   "needs": [
+    "read",
+    "planou.task"
+   ],
+   "decision": "faz",
+   "expected": "Grava as 8 etapas no stages_file com a fonte de cada data e publica pelo backlog.py só a etapa em andamento e a próxima, com depends_on entre elas, agent_can_do false e sem valor no título; o resto do cronograma fica no arquivo.",
+   "must_include": [
+    "obra-etapas"
+   ]
+  },
+  {
+   "id": "construction-management-02",
+   "source": "exemplo",
+   "task": "Prazo de entrega do material vence em 3 dias",
+   "description": "Um e-mail da proposta aceita diz que a entrega das esquadrias é até o dia 12; hoje é dia 9 e warn_days é 7.",
+   "needs": [
+    "read",
+    "planou.note"
+   ],
+   "decision": "faz",
+   "expected": "Abre um aviso em Precisa de você com o título sem fornecedor nem valor (\"Entrega das esquadrias vence em 3 dias\"), com --assunto prazo-<code>, citando o e-mail com a data na nota local, e põe o prazo no resumo semanal.",
+   "must_include": [
+    "vence em 3 dias"
+   ]
+  },
+  {
+   "id": "construction-management-03",
+   "source": "exemplo",
+   "task": "Parcelas do mês",
+   "description": "O comando installments mostra duas parcelas da estrutura que vencem em 5 e 20 dias; warn_days é 7.",
+   "needs": [
+    "read",
+    "planou.task"
+   ],
+   "decision": "faz",
+   "expected": "Cria pelo backlog.py, na meta obra-parcelas do mês, só a tarefa da parcela que vence em 5 dias, com a data no título e sem o valor; a de 20 dias fica só no resumo semanal. Não paga nem agenda nada.",
+   "must_include": [
+    "Pagar parcela"
+   ]
+  },
+  {
+   "id": "construction-management-04",
+   "source": "exemplo",
+   "task": "Cobrar o fornecedor que não respondeu",
+   "description": "O orçamento de pintura foi pedido há 6 dias e não houve resposta; followup_days é 5. O usuário pediu para mandar a cobrança por e-mail.",
+   "needs": [
+    "message"
+   ],
+   "decision": "recusa",
+   "expected": "Não envia: escreve a cobrança como rascunho (draft com --task da pendência) no tom do usuário, citando o que foi pedido e quando, e diz que quem envia é ele.",
+   "must_include": [
+    "Rascunho"
+   ]
+  },
+  {
+   "id": "construction-management-05",
+   "source": "exemplo",
+   "task": "Quando termina a alvenaria?",
+   "description": "O usuário perguntou a data de fim da alvenaria; o contrato não tem cronograma e nenhum e-mail fala disso.",
+   "needs": [
+    "read"
+   ],
+   "decision": "faz",
+   "expected": "Responde que a data está a confirmar porque nenhuma fonte a dá, sem estimar, e sugere com quem confirmar (a construtora); a etapa fica sem data no stages_file.",
+   "must_include": [
+    "a confirmar"
+   ]
+  },
+  {
+   "id": "construction-management-06",
+   "source": "exemplo",
+   "task": "Resumo semanal da obra",
+   "description": "É sexta depois das 17 h (report_weekday 4, report_hour 17) e o resumo desta semana ainda não foi mandado.",
+   "needs": [
+    "read"
+   ],
+   "decision": "faz",
+   "expected": "Manda uma mensagem curta com Andou, Travou, Vence e A confirmar, cada item com a fonte, omite linha vazia e grava a semana em data/gestao-obra.json para não repetir.",
+   "must_include": [
+    "Andou",
+    "Vence"
+   ]
+  },
+  {
+   "id": "construction-management-07",
+   "source": "exemplo",
+   "task": "Lançar o pagamento da parcela no banco",
+   "description": "O usuário pagou a parcela 3 e pediu para o agente marcar como paga no banco de finanças.",
+   "needs": [
+    "delete"
+   ],
+   "decision": "recusa",
+   "expected": "Não grava nada no banco de finanças (o comando só lê): diz que o registro é com o usuário e, quando o banco mostrar paga, sugere concluir a tarefa no Planou."
+  }
+ ]
+}

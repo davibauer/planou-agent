@@ -14,6 +14,10 @@ opções abaixo e nos adapters dela (`adapters/` da instância), nunca aqui. `I`
 (`~/.config/agent/<instância>`); `S` é a pasta da skill; `A="python3 $S/scripts/agent.py <instância>"`. Tudo aqui é leitura: o resultado é um parecer e, quando faz
 sentido, um rascunho. **Nunca mande nada a fornecedor, profissional ou qualquer pessoa.**
 
+Este é o papel de assistente: análise e resposta (orçamento, pergunta de fornecedor ou projetista, rascunho, resumo do
+dia). A gestão da obra no tempo (etapas como tarefas, prazos, parcelas a pagar, pendências com fornecedor e o resumo
+semanal) é do `construction-management`, que a instância liga junto quando quer e que usa as mesmas fontes e opções.
+
 Opções em `behavior_config.construction-advisor` (`$A --status` mostra):
 - `region`: a UF da obra para o SINAPI e o CUB (ex.: `"SP"`). Sem ela, perguntar uma vez antes da primeira análise.
 - `references_dir`: a pasta onde a instância guarda as referências públicas baixadas (SINAPI, CUB, INCC), com um
@@ -192,7 +196,8 @@ Nunca enviar nada: quem envia é o usuário.
 
 Na `digest_hour`, uma mensagem curta: o que chegou da obra (orçamentos analisados, pendências, prazos dos próximos 7
 dias, pagamentos a vencer quando o adapter da instância mostra) e, à parte, o que chegou sem sinal de obra, agrupado
-por remetente, numa linha cada. Nada novo: não mandar resumo.
+por remetente, numa linha cada. Nada novo: não mandar resumo. Com o `construction-management` ligado, o resumo continua um só por
+dia, e a linha de prazos e parcelas vem da conta dele (`warn_days`).
 
 ```permissions
 tools: mcp:gmail, other:websearch
