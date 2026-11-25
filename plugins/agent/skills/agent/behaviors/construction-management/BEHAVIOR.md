@@ -21,14 +21,19 @@ aqui. `I` é a pasta da instância (`~/.config/agent/<instância>`); `S` é a pa
 
 - **Poucas tarefas e boas.** Uma tarefa por etapa ativa ou próxima, nunca o cronograma inteiro de uma vez. Aviso só
   informativo não vira tarefa: vai para o resumo.
-- **Título curto, nas palavras do agente.** Sem valor e sem nome de fornecedor: "Pagar parcela 3 de 10 da estrutura,
-  vence 12/12", não o valor nem a empresa.
+- **Título curto, nas palavras do agente.** Sem valor, sem nome de fornecedor e sem data: "Pagar parcela 3 de 10 da
+  estrutura", não o valor nem a empresa. A data vai no `due` da tarefa (abaixo).
 - **Nada de valor nem de fornecedor no plano.** O plano do `backlog.py` sobe título, descrição (`what`, `why`,
   `details`) e `done_when` ao Planou também em `confidentiality: title` (só o Mínimo recusa o plano). Neles a fonte vai
   genérica ("contrato da estrutura, cláusula 4", "e-mail de 01/12", "banco de finanças"); valor, conta, nome do
-  fornecedor e a fonte completa ficam nos arquivos JSON da instância e no resumo da sessão.
+  fornecedor e a fonte completa ficam nos arquivos JSON da instância, no computador.
 - **Data só de fonte.** Prazo e data vêm de contrato, e-mail, conversa ou banco, sempre com a origem (arquivo e
   cláusula, e-mail com a data, linha do banco). Sem fonte fica "a confirmar", nunca estimado.
+- **Data na tarefa pelo `due`.** A tarefa do plano leva a data com fonte em `"due": "AAAA-MM-DD"` e a origem em
+  `"due_source"` (a mesma fonte que esta gestão já exige citar), nunca no título nem na descrição (formato em
+  `docs/product.md` do plugin, "Data de vencimento (opcional)"). O `due` é sempre AAAA-MM-DD: a data que vem como
+  DD/MM/AAAA é convertida antes. O `due_source` fica só no computador e nunca sobe; a data sobe. Data sem fonte não vira
+  `due`: a tarefa sai sem data e a descrição diz "a confirmar".
 - **Nunca enviar.** Cobrança de fornecedor vira rascunho para o usuário aprovar e enviar.
 
 ## Opções
@@ -85,8 +90,9 @@ arquivo (com `started`/`finished` e a fonte) e publicar de novo.
 
 **Como publicar:** o plano do `backlog.py` (formato no topo de `$S/scripts/backlog.py`), com a meta `obra-etapas`,
 gravado em `$I/data/plano-etapas.json`:
-- uma tarefa por etapa do conjunto: `code` e `title` da etapa; `what` com o início e o fim e a fonte genérica de cada
-  data (ou "a confirmar"); `why` com o que ela libera (as etapas que dependem dela); `done_when` com o `done_when` da etapa ou
+- uma tarefa por etapa do conjunto: `code` e `title` da etapa; `due` com o `end` da etapa e `due_source` com o
+  `source` dela (sem `end` com fonte: sem `due`, e o `what` diz "fim a confirmar"); `what` com o que a etapa é, sem
+  data; `why` com o que ela libera (as etapas que dependem dela); `done_when` com o `done_when` da etapa ou
   "etapa concluída e conferida pelo usuário" (o plano recusa critério vazio); `depends_on` com o `code` das etapas do
   conjunto de que ela depende (dependência já `done` não entra);
 - `"agent_can_do": false` em todas: quem faz a etapa é a obra, não um agente; `"epic": false`;
@@ -94,12 +100,13 @@ gravado em `$I/data/plano-etapas.json`:
   fazer; o resto fica no Backlog até a pessoa mover.
 
 `$BL $I/data/plano-etapas.json --dry` confere; depois `$BL $I/data/plano-etapas.json`. Etapa que já tem tarefa sai
-`JA EXISTE`; mudou a data ou a dependência: `--update`. O plano manda o `blocked_by` (o Planou mostra que uma espera a
+`JA EXISTE` (a linha avisa quando a data mudou no plano); mudou a data ou a dependência: `--update`, que manda a data
+nova (tirar o `due` limpa a data no Planou; a data que a pessoa mudou à mão no Planou fica como ela deixou). O plano manda o `blocked_by` (o Planou mostra que uma espera a
 outra). Quem conclui a tarefa da etapa é o usuário: etapa `done` no arquivo com a tarefa ainda aberta vai para o
 resumo ("Estrutura terminou em 18/12 pela medição: concluir a tarefa?").
 
-**Data na tarefa:** o plano ainda não leva data de vencimento. A data com fonte vai no título quando é o que importa
-("Estrutura, prazo 20/12") e sempre na descrição, com a origem.
+**Data na tarefa:** o fim da etapa com fonte vai no `due` (com o `due_source`), nunca no título ("Estrutura", não
+"Estrutura, prazo 20/12") nem na descrição. Data sem fonte não vira `due`.
 
 ## Prazos
 
@@ -112,7 +119,8 @@ A cada tick com novidade e na manhã de cada dia (primeiro tick depois das 8 h):
   --assunto prazo-<code>` (passou: `--title "<o que venceu> venceu há <N> dias" --severity high`). O mesmo
   `--assunto` substitui o aviso aberto, sem acumular. Título sem valor nem fornecedor.
 - prazo que pede uma ação do usuário (assinar, escolher, pagar, liberar a frente): além do aviso, uma tarefa curta
-  pelo mesmo plano das parcelas (abaixo), meta `obra-prazos-<AAAA-MM>`.
+  pelo mesmo plano das parcelas (abaixo), meta `obra-prazos-<AAAA-MM>`, com `due` a data do prazo e `due_source` a
+  fonte dele (sem data com fonte: sem `due`, "a confirmar" no `what`).
 - o resto vai para o resumo semanal.
 
 `python3 $S/scripts/construction_dates.py --warn-days <warn_days> $I/data/prazos.json` faz a conta (seção
@@ -125,9 +133,9 @@ $S/scripts/construction_dates.py --warn-days <warn_days> -` diz quais vencem na 
 com `"paid": true` sai da conta). As que vencem em até `warn_days` dias, e as vencidas sem pagamento, viram tarefa:
 - plano do `backlog.py` com a meta `obra-parcelas-<AAAA-MM>` (o mês do vencimento) em `$I/data/plano-parcelas.json`;
   `code` `parcela-<AAAA-MM-DD>-<n>` (estável: rodar de novo não duplica); `title` "Pagar parcela <n> de <total> de
-  <o que é>, vence <DD/MM>", sem valor nem fornecedor; `what` "Parcela do banco de finanças com vencimento em
-  <DD/MM/AAAA>" (o valor e a conta ficam na saída do `installments` e no resumo da sessão, nunca no plano);
-  `done_when` "pagamento registrado no banco"; `"agent_can_do": false`; `"epic": false`;
+  <o que é>", sem valor, fornecedor nem data; `due` o `date` da parcela (AAAA-MM-DD) e `due_source` o `source` dela;
+  `what` "Parcela a pagar registrada no banco de finanças" (o valor e a conta ficam na saída do `installments`, no
+  computador, nunca no plano); `done_when` "pagamento registrado no banco"; `"agent_can_do": false`; `"epic": false`;
 - vencida sem pagamento: além da tarefa, `$PL alert --title "Parcela <n> de <o que é> venceu há <N> dias" --severity
   high --assunto parcela-<code>`;
 - o banco mostra paga e a tarefa está aberta: vai para o resumo ("parcela 3 da estrutura paga em 10/12: concluir a
@@ -139,7 +147,11 @@ Parcela que vence depois de `warn_days`: só no resumo semanal. Nunca pagar, age
 
 Quando o usuário (ou a obra) pediu algo a um fornecedor, projetista ou construtora e espera resposta (orçamento,
 medida, data de entrega, nota, revisão de projeto): guardar em `$I/data/pendencias.json`, `{"code", "title", "who",
-"since", "source", "pid"}`, com `since` o dia do pedido (o e-mail ou a mensagem). `who` fica só na máquina.
+"since", "source", "pid"}`, com `since` o dia do pedido (o e-mail ou a mensagem). O arquivo fica no computador, mas o
+destinatário do rascunho de cobrança (`--to`, abaixo) sobe ao Planou em `confidentiality: title` e `detail`. Para o
+nome ficar fora do Planou: `--to` com o papel ("fornecedor da esquadria"), nunca o nome da empresa ou da pessoa. Pôr a
+instância em `minimum` não serve: nele o plano do `backlog.py` é recusado e as tarefas de etapa, prazo e parcela não
+sobem.
 - A tarefa do assunto vai para a coluna de espera do projeto: `$PL tarefa estado <PID> "<coluna de espera>" [--until
   AAAA-MM-DD]`, com `--until` só quando a fonte dá a data (o fornecedor prometeu responder até sexta); sem data, sem
   `--until` (o Planou deixa 7 dias). Vale na tarefa que o agente criou fora das fontes (pelo plano ou por `tarefa
@@ -152,7 +164,7 @@ medida, data de entrega, nota, revisão de projeto): guardar em `$I/data/pendenc
   Uma cobrança por pendência por vez: com um rascunho aberto, não abrir outro; sem resposta de novo depois de
   `followup_days`, um rascunho novo substitui o anterior.
 - Chegou a resposta: tirar da lista, e o assunto segue no assistente (orçamento vai para a análise).
-- No resumo semanal: "Sem resposta há 6 dias: orçamento de esquadrias" (título sem o nome em `title`).
+- No resumo semanal: "Sem resposta há 6 dias: orçamento de esquadrias" (sem o nome do fornecedor).
 
 ## Resumo semanal
 
@@ -170,8 +182,10 @@ Vence: <prazos e parcelas dos próximos 14 dias, vencidos primeiro, com a data e
 A confirmar: <datas sem fonte que importam para a próxima etapa>
 ```
 
-Linha sem nada: omitir. Semana sem nada em nenhuma linha: não mandar. Valor e fornecedor podem ir no resumo (fica na
-sessão), nunca num título que sobe ao Planou com `confidentiality: title`.
+Linha sem nada: omitir. Semana sem nada em nenhuma linha: não mandar. O resumo é uma mensagem da conversa, e a
+conversa da sessão sobe ao Planou com `planou.conversation` ligada ou em `confidentiality: detail` (nunca em
+`minimum`): fornecedor pelo papel ("fornecedor da esquadria"), nunca pelo nome, e sem valor nem
+conta. O valor e o nome ficam nos arquivos da instância e na saída do `installments`, no computador.
 
 **Divisão com o resumo do dia:** com os dois comportamentos ligados, o resumo do dia continua sendo um só, do
 `construction-advisor`, e a linha de prazos e parcelas dele vem desta gestão (a mesma conta de `warn_days`). O resumo
@@ -181,11 +195,13 @@ semanal é à parte e não repete o do dia.
 
 `python3 $S/scripts/construction_dates.py [--today AAAA-MM-DD] [--warn-days N] [--followup-days N] <arquivo.json|->`
 lê uma lista JSON de `{"title", "date", "source"}` (prazos, parcelas), o `stages_file` inteiro (o `end` de cada etapa
-que não está `done`) ou as pendências (`since`, o dia do pedido). Imprime uma linha por item que pede atenção,
-vencidos primeiro:
-`VENCIDO <title>: venceu há N dias (fonte)`, `HOJE ...`, `VENCE <title>: em N dias (fonte)`, `PARADO <title>: sem
-resposta há N dias`, e `A CONFIRMAR <title>: sem data` ou `sem fonte` (data sem fonte nunca conta como data). Item
-fora da janela não aparece. Sai 0, e 2 com o motivo quando o arquivo está errado (data inválida, item sem título).
+que não está `done`) ou as pendências (`since`, o dia do pedido). A parcela com `"paid"` verdadeiro (`true`, `1`, ou o texto
+`"true"`, `"sim"` ou `"1"`) sai da conta. Imprime uma linha por item que pede atenção, nesta ordem:
+`VENCIDO <title>: venceu há N dias (fonte)` e `HOJE ...`, depois `PARADO <title>: sem resposta há N dias`, depois
+`VENCE <title>: em N dias (fonte)` e por fim `A CONFIRMAR <title>: sem data` ou `sem fonte` (data sem fonte nunca conta
+como data). No `stages_file`, o A CONFIRMAR sai só das etapas que viram tarefa (as ativas e as próximas), não do
+cronograma inteiro. Item fora da janela não aparece. `--warn-days` vai de 1 a 90, como a opção. Sai 0, e 2 com o
+motivo quando o arquivo ou a opção está errado (data inválida, item sem título, `--warn-days` fora da faixa).
 Para o resumo semanal, a mesma conta com `--warn-days 14`.
 
 ## O que a gestão não faz

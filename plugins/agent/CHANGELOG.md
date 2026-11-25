@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.121.1 (2026-11-25)
+- Gestão de obra: as tarefas de etapa, prazo e parcela levam a data de vencimento no campo `due` do plano, com a fonte em `due_source` (que fica só no computador), em vez da data no título ou na descrição. Data sem fonte continua sem virar data: a tarefa sai sem vencimento e com "a confirmar".
+- Gestão de obra: o texto agora diz a verdade sobre o que sobe ao Planou. O destinatário do rascunho de cobrança sobe em `title` e `detail`, então para manter o nome fora do Planou use o papel ("fornecedor da esquadria") no destinatário (em `minimum` o plano das tarefas da obra é recusado, então ele não é saída). O resumo semanal sobe com a conversa quando ela está ligada (`planou.conversation` ou `detail`): fornecedor pelo papel e sem valor.
+- `construction_dates.py`: `"paid"` como texto (`"true"`, `"sim"`, `"1"`) ou o número 1 conta como paga; `--warn-days` fora de 1 a 90 é recusado, como na opção; no arquivo de etapas, "a confirmar" só das etapas ativas e das próximas, não do cronograma inteiro. A ordem da saída documentada bate com a real (parado antes de vence).
+
 ## 0.121.0 (2026-11-25)
 - Plano do `backlog.py`: cada tarefa pode levar a data de vencimento (`"due": "AAAA-MM-DD"`), que sobe no sync e aparece na tarefa no Planou. A data sempre vem com `"due_source"`, um texto curto que diz de onde ela veio (contrato, cronograma, e-mail); sem a fonte, ou com uma data que não existe, o plano é recusado e nada sobe. A fonte fica só no computador (o `--list` mostra) e nunca vai ao Planou.
 - Mudar a data no plano e rodar com `--update` atualiza a tarefa; tirar o `due` limpa a data. A linha `JA EXISTE` avisa quando a data mudou no plano. Uma data que a pessoa mudou à mão no Planou fica como ela deixou. O estado local passa a guardar a data enviada, então uma edição da pessoa no Planou não é mais confundida com uma data diferente.

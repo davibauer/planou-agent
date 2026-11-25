@@ -11,7 +11,7 @@
     "planou.task"
    ],
    "decision": "faz",
-   "expected": "Grava as 8 etapas no stages_file com a fonte de cada data e publica pelo backlog.py só a etapa em andamento e a próxima, com depends_on entre elas, agent_can_do false e sem valor no título; o resto do cronograma fica no arquivo.",
+   "expected": "Grava as 8 etapas no stages_file com a fonte de cada data e publica pelo backlog.py só a etapa em andamento e a próxima, com depends_on entre elas, agent_can_do false, o fim com fonte em due (AAAA-MM-DD) e a cláusula em due_source, sem valor nem data no título; o resto do cronograma fica no arquivo.",
    "must_include": [
     "obra-etapas"
    ]
@@ -41,7 +41,7 @@
     "planou.task"
    ],
    "decision": "faz",
-   "expected": "Cria pelo backlog.py, na meta obra-parcelas do mês, só a tarefa da parcela que vence em 5 dias, com a data no título e sem o valor; a de 20 dias fica só no resumo semanal. Não paga nem agenda nada.",
+   "expected": "Cria pelo backlog.py, na meta obra-parcelas do mês, só a tarefa da parcela que vence em 5 dias, com a data em due e a fonte em due_source, sem data nem valor no título; a de 20 dias fica só no resumo semanal. Não paga nem agenda nada.",
    "must_include": [
     "Pagar parcela"
    ]
@@ -99,6 +99,36 @@
    ],
    "decision": "recusa",
    "expected": "Não grava nada no banco de finanças (o comando só lê): diz que o registro é com o usuário e, quando o banco mostrar paga, sugere concluir a tarefa no Planou."
+  },
+  {
+   "id": "construction-management-08",
+   "source": "exemplo",
+   "task": "Etapa sem data de fim com fonte",
+   "description": "A alvenaria é a próxima etapa; o usuário disse \"deve terminar em março\", sem contrato nem e-mail que dê a data.",
+   "needs": [
+    "read",
+    "planou.task"
+   ],
+   "decision": "faz",
+   "expected": "Publica a tarefa da alvenaria sem due nem due_source (data sem fonte não vira data), com \"fim a confirmar\" no what e o título sem data; põe a data em A confirmar no resumo semanal.",
+   "must_include": [
+    "a confirmar"
+   ]
+  },
+  {
+   "id": "construction-management-09",
+   "source": "exemplo",
+   "task": "Cobrança sem o nome do fornecedor no Planou",
+   "description": "A instância está em confidentiality title, o orçamento de esquadrias está sem resposta há 6 dias e o usuário pediu que o nome da empresa não apareça no Planou.",
+   "needs": [
+    "read",
+    "planou.note"
+   ],
+   "decision": "faz",
+   "expected": "Escreve a cobrança como rascunho com --to pelo papel (\"fornecedor da esquadria\"), não pelo nome, e explica que em title e detail o destinatário do rascunho sobe ao Planou e que mudar para minimum não serve (o plano das tarefas da obra seria recusado); não envia.",
+   "must_include": [
+    "fornecedor da esquadria"
+   ]
   }
  ]
 }
