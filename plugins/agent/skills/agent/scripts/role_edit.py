@@ -614,7 +614,9 @@ def handle(cfg, ev, now=None):
         recs[vid] = r
         _save(recs)
         _OUT[result].append(line)
-    if r.get('acked'): return True
+    if r.get('acked'):
+        planou.docs_mark_answered(vid)          # answered before docs_answered.json existed (PLN0993)
+        return True
     done, note = planou.docs_ack(vid, r['result'], r.get('sha256'), r.get('reason'))
     if done:
         r.update(acked=True, ack_note=note)
@@ -685,11 +687,12 @@ def config_now(cfg):
 
 def refuse_other_kinds():
     """job-scout (PLN0992): the edits in the inbox that are not the interval are answered `refused`, with the reason
-    the travel-agent gives (its manifest goes read only); scout.py would acknowledge them unread and leave Planou
-    waiting for an answer."""
+    the travel-agent gives (its manifest goes read only). scout.py acknowledges only the ones answered
+    (planou.docs_answered, PLN0993): one whose answer did not reach Planou stays in the inbox and is answered again on
+    the next tick, as travel-agent's apply_events does."""
     from watch_core import planou
     for ev in planou.docs_events():
-        if (ev.get('payload') or {}).get('kind') != planou.TICK_KIND: _refuse_kind(ev)
+        if (ev.get('payload') or {}).get('kind') != planou.TICK_KIND and not planou.docs_answered(ev): _refuse_kind(ev)
 
 
 def block():

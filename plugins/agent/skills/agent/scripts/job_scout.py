@@ -65,8 +65,9 @@ def env():
 
 def read_only(manifest):
     """The Papel tab's manifest with nothing editable: no file content, no catalog of behaviors to turn on. scout.py
-    has no handler for agent_docs_changed, so Planou must not offer an edit this instance would leave unapplied (the
-    interval is the exception: apply_ticks, before scout.py, PLN0989; any other edit is refused there, PLN0992)."""
+    applies no agent_docs_changed (it only waits until one is answered, PLN0993), so Planou must not offer an edit this
+    instance would leave unapplied (the interval is the exception: apply_ticks, before scout.py, PLN0989; any other edit
+    is refused there, PLN0992)."""
     files = []
     for f in (manifest or {}).get('files') or []:
         f = {k: v for k, v in f.items() if k != 'content'}
@@ -96,8 +97,8 @@ def save_docs(cfg, manifest):
 
 def apply_ticks(cfg):
     """PLN0989: a change of the interval the light loop did not apply yet (this heavy tick fetched it first) is applied
-    before scout.py's own Planou tick, which acknowledges the events unread; any other edit is refused here with the
-    travel-agent's reason (PLN0992). Prints `== PAPEL MUDOU` / `== PAPEL RECUSADO` (the wake brings the relaunch that
+    before scout.py's own Planou tick, which acknowledges only the edits answered (planou.docs_answered, PLN0993); any
+    other edit is refused here with the travel-agent's reason (PLN0992). Prints `== PAPEL MUDOU` / `== PAPEL RECUSADO` (the wake brings the relaunch that
     takes the new interval). Never fails the tick."""
     try:
         from watch_core import planou
@@ -106,8 +107,8 @@ def apply_ticks(cfg):
         if not planou.active(): return
         import role_edit
         lines, _ = role_edit.apply_ticks(cfg, fetch=True)
+        if lines: print(lines + '\n')          # before the refusals: a failure there never loses the block (PLN0993)
         role_edit.refuse_other_kinds()
-        if lines: print(lines + '\n')
     except Exception as e:
         try:
             d = os.path.join(paths.CACHE_DIR, 'planou'); os.makedirs(d, exist_ok=True)

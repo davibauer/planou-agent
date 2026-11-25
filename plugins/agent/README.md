@@ -446,7 +446,9 @@ edições. O runner passa a usar o intervalo novo ali mesmo (o próximo tick pes
 anota no `avisos.log` e não acorda a sessão. Se o tick pesado pegar o evento antes, ele aplica do mesmo jeito (no
 job-scout e no travel-agent só o `kind` `tick`; o resto é recusado com o motivo), o heartbeat desse tick já leva o
 intervalo novo e o `== PAPEL MUDOU` traz o relançamento.
-Cada versão é aplicada e respondida uma vez só (`role_edits.json`). Vale também na confidencialidade mínima (o
+Cada versão é aplicada e respondida uma vez só (`role_edits.json`); a resposta que não chegou ao Planou (rede, 5xx)
+fica no inbox e vai de novo no tick seguinte, e os eventos depois dela esperam com ela (no job-scout, o `scout.py` só
+confirma a edição já respondida, `cache/planou/docs_answered.json`). Vale também na confidencialidade mínima (o
 intervalo não é conteúdo). Um Planou mais velho ignora o campo.
 
 ## Fontes e ganchos do work-watch

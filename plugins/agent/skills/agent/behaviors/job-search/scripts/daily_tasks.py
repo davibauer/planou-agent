@@ -528,6 +528,7 @@ def planou_tick(s, shortlist_rank, now=None, plugin_version=None, logged_in=Fals
     planou.configure(paths.NAME, paths.ROOT, project=pc.get('project'), confidentiality=pc.get('confidentiality') or 'title',
                      publish=pc.get('publish', True), live=pc.get('live', True), plugin_version=plugin_version)
     if not planou.active(): return []
+    planou.set_docs_handler(planou.docs_answered)   # agent.py answered the Papel tab's edits; an unanswered one waits
     lines = planou.apply_events(planou.poll(), lambda c, st: apply_box(s, c, st, now), lambda ev: apply_answer(s, ev, now),
                                 on_state=lambda c, name, sent: apply_stage(s, c, name, pc.get('stage_map'), now))
     cfg = settings() or {'code': 'LKD'}

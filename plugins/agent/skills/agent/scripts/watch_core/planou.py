@@ -4390,6 +4390,28 @@ def set_docs_handler(fn):
     _docs_handler[0] = fn
 
 
+DOCS_ANSWERED = 'docs_answered.json'      # version_ids whose answer reached Planou (docs_ack done), newest last
+DOCS_ANSWERED_KEEP = 200
+
+
+def docs_mark_answered(version_id):
+    """Keeps `version_id` as answered (docs_answered.json, the last DOCS_ANSWERED_KEEP), for docs_answered()."""
+    vid = str(version_id or '')
+    if not vid or not _S['root']: return
+    with _locked(DOCS_ANSWERED):
+        seen = [str(v) for v in _load(DOCS_ANSWERED, []) or [] if str(v) != vid]
+        _save(DOCS_ANSWERED, (seen + [vid])[-DOCS_ANSWERED_KEEP:])
+
+
+def docs_answered(ev):
+    """A docs handler for a process that answers no edit itself (job-scout's scout.py, whose agent.py answered them all
+    just before it, PLN0993): True when the answer to this agent_docs_changed reached Planou, else False, and
+    apply_events stops right before it, as the travel-agent's handler does when docs_ack failed; the next tick answers
+    it again and only then it is acknowledged."""
+    vid = str((ev.get('payload') or {}).get('version_id') or '')
+    return not vid or vid in [str(v) for v in _load(DOCS_ANSWERED, []) or []]
+
+
 def docs_ack(version_id, result, sha256=None, reason=None):
     """POST /v1/agent/docs/ack: `applied` with the sha256 of the version, or `refused` with the reason (up to 300).
     Returns (done, note): done True when Planou took it (note None) or refused it for good (4xx: note is the error code,
@@ -4405,8 +4427,12 @@ def docs_ack(version_id, result, sha256=None, reason=None):
         if e.status and 400 <= e.status < 500 and e.status not in (401, 429):   # a 401 (key swapped): answer later
             _log('docs.log', f'AVISO (planou): resposta do papel {version_id} ({result}) recusada: {e.status} {e.code}',
                  datetime.now(timezone.utc))
+            try: docs_mark_answered(version_id)
+            except OSError: pass
             return True, e.code or str(e.status)
         return False, None
+    try: docs_mark_answered(version_id)
+    except OSError: pass                  # answered all the same; the next tick answers again (Planou takes it twice)
     return True, None
 
 
