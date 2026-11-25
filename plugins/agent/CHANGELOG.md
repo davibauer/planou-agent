@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.118.0 (2026-11-25)
+- Índice IFC para o assistente de obra: `scripts/ifc_index.py` lê os modelos IFC da obra (vários por instância, pela linha de comando) uma vez só e guarda um índice compacto em `data/ifc-index/<modelo>/`, refeito só quando o tamanho ou a data do `.ifc` mudam. Consultas curtas, em texto ou JSON: `summary`, `class`, `search`, `qty` (soma por quantidade, com a unidade, sem misturar metro com m2; número de propriedade própria sai com o nome inteiro e a unidade do modelo, nunca somado ao comprimento já convertido para metro), `materials`, `manufacturers` e `spaces`; `status` diz se o índice está em dia. O build roda com prioridade baixa e, sem o `ifcopenshell`, diz como instalar em vez de quebrar. Serve de comando para a opção `quantities`.
+
 ## 0.117.1 (2026-11-24)
 - O pacote público do agent volta a ser publicado: os ids do WhatsApp (`...@g.us`, `...@s.whatsapp.net`) da documentação não são mais lidos como e-mail de pessoa pela checagem da publicação, e os números de exemplo do WhatsApp ficaram obviamente fictícios.
 

@@ -546,6 +546,49 @@ a tag `work-watch--v0.43.24`; com ele saíram a cópia do `watch_core` e `shared
 deste plugin para todos os agents). Numa instalação por link, `~/.claude/skills/work-inbox` e
 `~/.claude/skills/meeting-minutes` passam a apontar para `plugins/agent/skills/<skill>`.
 
+## Índice IFC dos modelos da obra
+
+`scripts/ifc_index.py` lê os modelos IFC de uma obra (vários por instância) uma vez só e guarda um índice compacto em
+`<instância>/data/ifc-index/<modelo>/` (`meta.json`, `summary.json`, `elements.jsonl.gz`). O índice só é refeito
+quando o tamanho ou a data de modificação do `.ifc` mudam; as consultas leem o índice, nunca o `.ifc`, e nunca
+disparam o build. É o comando pensado para a opção `quantities` de um assistente de obra.
+
+```bash
+S=<pasta scripts do plugin>       # skills/agent/scripts da cópia em uso
+M="--instance obra --ifc casa=/caminho/absoluto/casa.ifc --ifc garagem=/caminho/absoluto/garagem.ifc"
+python3 $S/ifc_index.py $M build             # refaz só o modelo que mudou, com prioridade baixa (nice 19)
+python3 $S/ifc_index.py $M status            # em dia, desatualizado ou sem índice (saída 3 se algum não está em dia)
+python3 $S/ifc_index.py $M summary           # pavimentos e quantos elementos de cada classe
+python3 $S/ifc_index.py $M class IfcDoor     # os elementos da classe: nome, tipo, pavimento, ambiente, material
+python3 $S/ifc_index.py $M search porcelanato
+python3 $S/ifc_index.py $M qty IfcWall --storey Terreo   # soma por quantidade, cada uma com a sua unidade
+python3 $S/ifc_index.py $M materials         # e também manufacturers e spaces
+```
+
+- Os modelos vão na própria linha (`--ifc NOME=CAMINHO`, um por modelo; sem `NOME=` vale o nome do arquivo), então só
+  se mudam no computador. Para a opção `quantities`, a linha inteira termina em `qty --` (o `--` faz uma palavra que
+  comece com `-` valer como texto, não como opção), e a sessão acrescenta a classe ou a palavra-chave entre aspas
+  simples: `"quantities": "python3 <scripts>/ifc_index.py --instance obra --ifc casa=/caminho/casa.ifc qty --"`.
+- As quantidades dos conjuntos de quantidades (`Qto_`, `BaseQuantities` e os outros `IfcElementQuantity`) saem em
+  metro, m2 e m3, convertidas pelas unidades do projeto (guardadas no `meta.json`), e a soma traz a unidade. Número de
+  propriedade própria (ex.: `Comprimento` num pset da obra) fica como foi escrito no modelo: no `qty` ele aparece com o
+  nome inteiro (`Pset_Obra.Comprimento`), marcado "(unidade do modelo)" (no `--json`, `unit` nulo), e nunca se soma
+  ao `Length` do Qto de mesmo nome (num modelo em milímetro, 4 m de um e 4000 do outro dão dois totais separados).
+  Nunca se soma entre unidades diferentes. Os conjuntos do tipo entram junto com os da ocorrência (a ocorrência vale
+  sobre o tipo), porque largura, altura e quantidades costumam ficar só no tipo; propriedade do tipo que a ocorrência
+  troca aparece também como `type:`. A classe pega também a variante do IFC2X3 (`IfcWall` conta
+  `IfcWallStandardCase`), mas não outra classe que comece igual (`IfcStair` não pega `IfcStairFlight`). Portas de
+  conexão (`IfcDistributionPort`) são só contadas. A busca não diferencia acento nem maiúscula.
+- Opções: `--model` (só um modelo), `--storey`, `--limit` (padrão 30), `--json`, `--force` (refaz mesmo em dia) e
+  `--keep-prop` (mais um nome de propriedade a guardar no build, além das de marca, modelo, sistema, acabamento,
+  desempenho e ambiente). A lista do `--keep-prop` fica no `meta.json`: um build com outra lista (ou sem ela) refaz o
+  índice.
+- O build precisa do `ifcopenshell` (`pip install ifcopenshell`); sem ele, diz como instalar e sai com 4, sem
+  traceback. As consultas num índice já feito não precisam dele. Um modelo que falha (arquivo sumiu ou corrompido)
+  sai com 1 e não impede os outros; o índice anterior continua respondendo, marcado como desatualizado. Índice
+  ilegível numa consulta (ex.: `elements.jsonl.gz` cortado) dá uma linha curta de erro para aquele modelo, saída 1, e
+  os outros respondem; `build --force` refaz.
+
 ## Ganchos do plugin
 
 | Tipo | O que faz | Opções |
