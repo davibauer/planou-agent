@@ -16,7 +16,8 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
   interval_s       int >= 60, the heavy tick (default 300). 0 (no heavy tick) is refused for now: the heavy tick is where
                    Planou answers get acknowledged
   session          {cwd, aliases, rotate}: where the `team` launcher opens the session
-  workspace        str, the user's workspace ({instance} is replaced); CONTEXT.md there is read by the session
+  workspace        str, the user's workspace ({instance} is replaced); CONTEXT.md there is read by the session. Missing:
+                   ~/WorkWatch/{instance} for every instance; null or "" turns it off (paths.workspace_for, PLN0982)
   videos_dir, archive_dir  str, recordings folders of this instance (win over the shared watch-core config)
   code             str, the short code of the agent (Notion section, Planou project fallback)
   idioma_pagina    str, "pt" | "en": the labels of the tasks hook (hooks/tarefas.py, default "pt")

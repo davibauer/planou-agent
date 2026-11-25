@@ -21,7 +21,11 @@ SOURCE (Fonte) -- one block of the tick output
   caminhos()              paths the tick reads or writes; one on a Windows drive (/mnt/<letter>) is checked first, with
                           a deadline (drive_probe.py): a drive that does not answer gives "FONTE QUEBRADA (nome): drive
                           X sem resposta" and the tick is skipped instead of hanging (PLN0236). Default: every path in
-                          the source's config plus the instance workspace
+                          the source's config, plus the instance workspace when the source writes there (class
+                          attribute usa_workspace = True: teams, outlook_email, slack, google_chat, gravacoes) or the
+                          workspace is the instance's own choice (paths.WORKSPACE_CHOSEN: the config key, or a
+                          work-watch-<x>; PLN0982: the default every other instance gets is not probed for sources that
+                          never touch it, so a dead drive behind ~/WorkWatch does not break them)
   conserto                one line: how to fix it when broken (daily page and Planou; the config key "conserto" wins)
   vence(s)                optional: ISO expiry of the source's credential when the source knows it (e.g. the GitLab token
                           reads it from the API); None = unknown. Planou shows it on the Ferramentas tab
@@ -58,6 +62,7 @@ class Fonte:
     nome_padrao = None       # result key when the config does not give "nome" (default: tipo)
     lembrar = {}
     conserto = ''
+    usa_workspace = False    # True for a source that writes to the instance workspace (caminhos probes it)
 
     def __init__(self, cfg, ctx=None):
         self.cfg = cfg or {}
@@ -76,7 +81,8 @@ class Fonte:
     def tick(self, s, desde, dry): raise NotImplementedError
     def caminhos(self):
         import drive_probe
-        return drive_probe.paths_in(self.cfg) + ([paths.WORKSPACE] if paths.WORKSPACE else [])
+        ws = paths.WORKSPACE if paths.WORKSPACE and (self.usa_workspace or paths.WORKSPACE_CHOSEN) else None
+        return drive_probe.paths_in(self.cfg) + ([ws] if ws else [])
     def imprime(self, r): return False
     def resolvidas(self, r): return (r or {}).get('resolvidas', [])
     def linha_ref(self, p): return f'   ref: {p["ref"]}' + (f' · {p["link"]}' if p.get('link') else '')

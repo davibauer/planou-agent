@@ -232,7 +232,7 @@ pergunta oculto ou lê da entrada): grava a credencial (0600, sem mostrar) e o `
 | `language`, `tz_hours`, `business_hours` | idioma, fuso, horário comercial |
 | `interval_s` | tick pesado (60 ou mais) |
 | `session` | `cwd`, `aliases`, `rotate`: onde o launcher abre a sessão, quando a entrada da instância em `~/.config/team/agents.json` não diz (o arquivo vale primeiro; ver `scripts/team_agents.py`) |
-| `workspace` | pasta do usuário com o `CONTEXT.md` |
+| `workspace` | pasta de trabalho do usuário, com o `CONTEXT.md` (`{instance}` = o nome da instância, ou `<x>` em `work-watch-<x>`). Sem a chave, toda instância usa `~/WorkWatch/{instance}`; `null` ou `""` desliga (sem pasta e sem `CONTEXT.md`). O primeiro `--load` (e o tick ligado) cria a pasta e o `CONTEXT.md` que faltam, sem sobrescrever nada; pasta que não dá para criar (drive fora) só gera aviso, e o `CONTEXT.md` num drive que não responde fica de fora do `--load` e do tick, sem travar. O padrão só entra na sondagem de drive das fontes que gravam nela (teams, outlook_email, slack, google_chat, gravacoes); com a chave escrita ou numa `work-watch-<x>`, entra em todas, como antes |
 | `sources`, `hooks` | adapters, `{type, ...}` |
 | `behaviors`, `behavior_config` | comportamentos carregados, na ordem, e as opções de cada um |
 | `tools` | `{kind, name}`: subagent, cli, skill, mcp, other |

@@ -90,6 +90,7 @@ class _Outlook:
 
 
 class Fonte(Base):
+    usa_workspace = True     # writes to the instance workspace: its drive is probed before the tick (caminhos)
     tipo = 'gravacoes'
     lembrar = {'reuniao': 11.0}
     conserto = 'recordings — see the tick error'

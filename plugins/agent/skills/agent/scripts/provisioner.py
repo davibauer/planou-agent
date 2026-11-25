@@ -5,9 +5,10 @@ A user service (systemd, see ../provisioner/) that follows Planou through /v1/pr
 and, for each agent the person asked for:
 
   1. reports `creating`, makes ~/.config/agent/<name>/ from the template (config-example/dev: config.json and
-     instructions.md, with the roles as behaviors) and a marker data/provisioned.json with the agent id; with a
-     workspace (config "workspace", or ~/WorkWatch/<x> for work-watch-<x>), config/, memory/ and handoff.md are made
-     there with links at their places of origin (PLN0410, prepare_workspace and link_workspace);
+     instructions.md, with the roles as behaviors) and a marker data/provisioned.json with the agent id; in the
+     workspace (paths.workspace_for: config "workspace", else ~/WorkWatch/{instance} for every instance, PLN0982),
+     config/, memory/ and handoff.md are made with links at their places of origin (PLN0410, prepare_workspace and
+     link_workspace); CONTEXT.md comes with the first --load;
   2. runs `agent.py <name> --validate` (before the key leaves the vault, so a broken config never burns it);
   3. picks up the key once and writes it to secrets/planou.env (0600, folder 0700); reports `validated`;
   4. runs `config-snapshot` (when it exists; a failure does not stop the flow);
@@ -537,19 +538,13 @@ def key_file(name): return os.path.join(instance_root(name), 'secrets', 'planou.
 
 # ---------------------------------------------------------------- what the person edits lives in the workspace (PLN0410)
 
-WORK_WATCH_PREFIX = 'work-watch-'
-
-
 def workspace_of(cfg, name):
-    """The instance's workspace, by paths.use_workspace's rule (config "workspace", {instance} = the short name, ~
-    expanded; a work-watch-<x> without it: ~/WorkWatch/<x>) but without its exit. None without one, or when it is not
-    absolute (--validate says so)."""
-    p = cfg.get('workspace') if isinstance(cfg.get('workspace'), str) else ''
-    short = name[len(WORK_WATCH_PREFIX):] if name.startswith(WORK_WATCH_PREFIX) and len(name) > len(WORK_WATCH_PREFIX) else name
-    if not p.strip() and short != name: p = '~/WorkWatch/{instance}'
-    if not p.strip(): return None
-    p = os.path.expanduser(p.strip().replace('{instance}', short))
-    return os.path.normpath(p) if os.path.isabs(p) else None
+    """The instance's workspace by the one rule, paths.workspace_for (PLN0982: the key "workspace", else
+    ~/WorkWatch/{instance} for every instance; null or "" turns it off), but without its exit. None without one, or
+    when it is not absolute (--validate says so)."""
+    import paths
+    try: return paths.workspace_for(cfg, name)
+    except ValueError: return None
 
 
 def session_cwd(work_dir):

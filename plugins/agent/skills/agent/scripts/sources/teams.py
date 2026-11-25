@@ -292,6 +292,7 @@ def imprime_teams(r):
 
 class Fonte(Base):
     tipo = 'teams'
+    usa_workspace = True     # writes to the instance workspace: its drive is probed before the tick (caminhos)
     lembrar = {'teams': 4.0}
     conserto = 'Teams down — refresh the work-inbox session / connector'
 

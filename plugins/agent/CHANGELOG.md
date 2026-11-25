@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.122.0 (2026-11-25)
+- Toda instância ganha pasta de trabalho por padrão, não só as `work-watch-<x>`: sem a chave `"workspace"` no config, vale `~/WorkWatch/{instance}` (nome inteiro da instância; nas `work-watch-<x>` continua o nome curto `<x>`). `"workspace": null` ou `""` desliga (sem pasta e sem `CONTEXT.md`). O primeiro `--load` e o tick ligado criam a pasta e o `CONTEXT.md` que faltam, sem sobrescrever nada, e o `CONTEXT.md` entra na camada de Instruções. Pasta que não dá para criar (drive fora) só gera aviso e nunca para o `--load`, o `--validate` nem o tick, e a pasta padrão só é sondada pelas fontes que gravam nela (drive travado não quebra as outras fontes). Com o drive sem resposta, o `CONTEXT.md` fica de fora do `--load` e do tick, com aviso, sem travar. O provisionador usa a mesma regra: funcionário novo sem a chave no modelo nasce com `config/`, `handoff.md` e memória na pasta de trabalho.
+
 ## 0.121.1 (2026-11-25)
 - Gestão de obra: as tarefas de etapa, prazo e parcela levam a data de vencimento no campo `due` do plano, com a fonte em `due_source` (que fica só no computador), em vez da data no título ou na descrição. Data sem fonte continua sem virar data: a tarefa sai sem vencimento e com "a confirmar".
 - Gestão de obra: o texto agora diz a verdade sobre o que sobe ao Planou. O destinatário do rascunho de cobrança sobe em `title` e `detail`, então para manter o nome fora do Planou use o papel ("fornecedor da esquadria") no destinatário (em `minimum` o plano das tarefas da obra é recusado, então ele não é saída). O resumo semanal sobe com a conversa quando ela está ligada (`planou.conversation` ou `detail`): fornecedor pelo papel e sem valor.

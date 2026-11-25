@@ -116,6 +116,7 @@ def imprime_email(r):
 
 class Fonte(Base):
     tipo = 'outlook_email'
+    usa_workspace = True     # writes to the instance workspace: its drive is probed before the tick (caminhos)
     nome_padrao = 'email'
     lembrar = {'email': 11.0}
     conserto = 'Outlook down — Fix connection of the Office 365 connection in Power Automate'

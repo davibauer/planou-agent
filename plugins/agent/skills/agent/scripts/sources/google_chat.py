@@ -230,6 +230,7 @@ def imprime_chat(r):
 
 class Fonte(Base):
     tipo = 'google_chat'
+    usa_workspace = True     # writes to the instance workspace: its drive is probed before the tick (caminhos)
     nome_padrao = 'chat'
     lembrar = {'chat': 4.0}
     conserto = 'Google Chat down — Google OAuth token (adapters/google_auth.py)'

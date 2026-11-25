@@ -22,8 +22,9 @@ plugin (`POST /v1/provisioner/computer`), que a tela Time mostra ao lado do comp
      ambiente (`scripts/repo_discovery.py`, estado em `data/discovered.json`; [qa.md](qa.md) e o `delegate-to-worker`);
    - `config/instructions.md` com os marcadores trocados e uma seção com papéis, autonomia e projetos;
    - `data/provisioned.json`, a marca de que a pasta é dele (só remove pasta com essa marca).
-   - com pasta de trabalho (o `"workspace"` do config que sai do modelo, com `{instance}` trocado pelo nome curto; uma
-     instância `work-watch-<x>` sem ele usa `~/WorkWatch/<x>`), o que a pessoa edita nasce lá dentro, com link no lugar
+   - com pasta de trabalho (o `"workspace"` do config que sai do modelo, com `{instance}` trocado pelo nome curto; sem
+     ele, toda instância usa `~/WorkWatch/{instance}`, a mesma regra do `paths.workspace_for`; `null` ou `""` desliga),
+     o que a pessoa edita nasce lá dentro (o `CONTEXT.md` vem no primeiro `--load`), com link no lugar
      de origem (PLN0410): `config/` (link de pasta, para a escrita atômica da aba Papel, arquivo temporário e troca de
      nome dentro de `config/`, continuar funcionando), `handoff.md` (link em `data/handoff.md`) e `memory/` (link na
      pasta de memória do Claude Code da sessão, `~/.claude/projects/<pasta da sessão>/memory`). O estado
@@ -345,7 +346,8 @@ Comandos: `provisioner.py run` (o serviço), `once` (uma volta), `status`, `chec
   ligar (a seção "Criado pelo provisionador" do `instructions.md` lembra isso).
 - Só o primeiro projeto vai para `planou.project`; os outros ficam listados no `instructions.md`.
 - O pedido da tela Time não traz pasta de trabalho: ela vem do `"workspace"` do modelo (`template` no `config.json`
-  do provisionador) ou do padrão `~/WorkWatch/<x>` das instâncias `work-watch-<x>`. Instância que já existia não ganha
+  do provisionador) ou do padrão `~/WorkWatch/{instance}` de toda instância (PLN0982; antes só das `work-watch-<x>`).
+  Um modelo com `"workspace": null` mantém tudo na pasta da instância. Instância que já existia não ganha
   os links sozinha (mudar a pasta à mão, como antes); a memória fica presa à pasta da sessão: trocar o `cwd` depois
   deixa o link antigo para trás.
 - A autonomia do Planou (`autonomous`, `semi_autonomous`, `manual`) vira o bloco `autonomy` por um mapeamento fixo e

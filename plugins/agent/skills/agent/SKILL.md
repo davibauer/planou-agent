@@ -30,7 +30,7 @@ novo (`task-queue`, `acceptance-testing`, `work-triage`): o `--load` já mostra 
    cima):
    1. **Regras** (`== 1. REGRAS`): este SKILL.md (já lido) e a autonomia do config (`autonomia pode sozinho / pede OK
       antes / nunca`). Nada abaixo passa por cima delas.
-   2. **Instruções** (`== 2. INSTRUCOES`): o `instructions.md` e o `CONTEXT.md` (quando há workspace). Ler com Read.
+   2. **Instruções** (`== 2. INSTRUCOES`): o `instructions.md` e o `CONTEXT.md` do workspace (toda instância tem um, `~/WorkWatch/{instance}` sem a chave, menos com `"workspace": null`; o `--load` cria o que falta). Ler com Read.
    3. **Habilidades** (`== 3. HABILIDADES`): `comportamento <nome>: <arquivo>` é de sempre: ler agora, com Read, na
       ordem. `sob demanda <nome>: <arquivo>  (<título>; ler quando: ...)` é um procedimento: **não** ler agora; ler o
       arquivo inteiro quando a situação descrita acontecer, antes de agir. Só os ligados entram.

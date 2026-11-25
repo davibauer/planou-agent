@@ -4,7 +4,10 @@
 CLI (through watch.py):
   watch.py <instance> --workspace                       where it is and what is there
   watch.py <instance> --workspace init                  creates the folders, CONTEXT.md (template) and README.md; never
-                                                        overwrites what exists
+                                                        overwrites what exists. The first --load and the tick do the
+                                                        same by themselves while CONTEXT.md is missing (ensure,
+                                                        PLN0982: every instance has a workspace unless the config says
+                                                        "workspace": null)
   watch.py <instance> --workspace artifact FILE [SLUG] [--task CODE|PID]
                                                         copies FILE to artifacts/YYYY-MM-DD-<slug>.<ext> and prints the path
                                                         (what the watcher produces for the user goes there, not to a
@@ -53,7 +56,7 @@ Visão viva desta instância: o que a sessão lê ao abrir, antes do primeiro ti
 
 README = """# Espaço de trabalho — {nome}
 
-Contexto desta instância do work-watch, separado do estado da máquina (`~/.config/work-watch/{nome}/`).
+Contexto desta instância do agent, separado do estado da máquina (`~/.config/agent/<instância>/`).
 
 - `CONTEXT.md` — visão viva: projeto, pessoas, ambientes, decisões em aberto. Lido no início de cada sessão.
 - `messages/` — captura bruta, só acrescenta: `YYYY-MM/<fonte>-YYYY-MM-DD.jsonl`.
@@ -74,16 +77,55 @@ def slug(t):
     return t[:60] or 'artifact'
 
 
-def init():
+def _cria():
+    """Makes what is missing (the folder, WORKSPACE_DIRS, CONTEXT.md and README.md from the templates) and returns the
+    names made. Never overwrites: 'x' fails on a file that showed up meanwhile, and that one is left as it is."""
     novos = []
     os.makedirs(paths.WORKSPACE, exist_ok=True)
     for d in paths.WORKSPACE_DIRS:
         if not os.path.isdir(paths.area(d)): paths.area(d, criar=True); novos.append(d + '/')
     for nome, modelo in (('CONTEXT.md', CONTEXTO), ('README.md', README)):
         f = os.path.join(paths.WORKSPACE, nome)
-        if not os.path.exists(f):
-            open(f, 'w', encoding='utf-8').write(modelo.format(nome=paths.NOME)); novos.append(nome)
+        if os.path.lexists(f): continue
+        try:
+            with open(f, 'x', encoding='utf-8') as fh: fh.write(modelo.format(nome=paths.NOME))
+            novos.append(nome)
+        except FileExistsError:
+            pass
+    return novos
+
+
+def _sem_workspace():
+    sys.exit(f'{paths.NOME}: sem pasta de trabalho ("workspace" null ou vazio no config)')
+
+
+def init():
+    if not paths.WORKSPACE: _sem_workspace()
+    novos = _cria()
     print(f'{paths.NOME}: workspace em {paths.WORKSPACE}' + (f' (criado: {", ".join(novos)})' if novos else ' (ja existia)'))
+
+
+def ensure(tick=False):
+    """The workspace made by itself (PLN0982), idempotent: while CONTEXT.md is missing, what --workspace init makes;
+    nothing once it exists (a CONTEXT.md is never touched). Never raises and prints nothing on stdout but a failure:
+    a drive that does not answer (drive_probe, in a child with a deadline) or cannot be written leaves the instance
+    without the folder and says so once, on stderr, or in the tick as a quiet `AVISO (tick):` line (the runner logs it
+    in avisos.log and does not wake the session for it). Returns the names made."""
+    ws = paths.WORKSPACE
+    if not ws: return []
+    def aviso(why):
+        msg = f'pasta de trabalho {ws} indisponivel ({why}); segue sem ela'
+        if tick: print(f'AVISO (tick): {msg}', flush=True)
+        else: print(f'aviso: {msg}', file=sys.stderr, flush=True)
+        return []
+    try:
+        import drive_probe
+        lab = drive_probe.stuck(ws) or getattr(paths, 'CONTEXT_STUCK', None)
+        if lab: return aviso(f'drive {lab} sem resposta; CONTEXT.md fica de fora')
+        if os.path.lexists(paths.CONTEXT): return []
+        return _cria()
+    except Exception as e:          # OSError, slowfs.Stuck or anything else: the tick and --load go on
+        return aviso(e.__class__.__name__)
 
 
 def artefato(arq, nome=None):
@@ -271,6 +313,7 @@ def anexa(tarefa, arq):
 
 def cli(args):
     """args = what comes after --workspace."""
+    if not paths.WORKSPACE: _sem_workspace()
     if not args: return mostra()
     if args[0] == 'init': return init()
     if args[0] in ('artifact', 'artefato') and len(args) >= 2:

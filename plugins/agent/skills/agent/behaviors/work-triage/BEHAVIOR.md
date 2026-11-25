@@ -139,7 +139,7 @@ reabrir ou editar uma tarefa no Planou vale como a caixinha da página. O que ch
 
 ## Espaço de trabalho
 
-`"workspace"` do config (`{instance}` = o nome curto da empresa; padrão `~/WorkWatch/<empresa>`): `CONTEXT.md` (ler ao
+`"workspace"` do config (`{instance}` = o nome curto da empresa; padrão `~/WorkWatch/<empresa>`, o mesmo de toda instância sem a chave; `null` desliga): `CONTEXT.md` (ler ao
 abrir, atualizar quando algo deixar de ser verdade), `artifacts/` (todo arquivo que o agent gera para o usuário, nunca só
 no scratchpad), `messages/` (captura; `messages/shared/` guarda o material que pessoas compartilham, citado no tick como
 `[guardado: caminho]`), `meetings/`, `decisions/`, `journal/`.

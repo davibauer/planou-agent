@@ -53,6 +53,9 @@ MEETING_MINUTES = _skill_dir('meeting-minutes', 'meeting_minutes')
 
 NAME = ROOT = CONFIG_DIR = DATA_DIR = SECRETS_DIR = CACHE_DIR = ADAPTERS_DIR = LOCAL_BEHAVIORS = None
 CONFIG = STATE = INSTRUCTIONS = CONTEXT = RUNNER_DIR = WORKSPACE = None
+CONTEXT_STUCK = None       # drive label when CONTEXT.md sits on a drive that did not answer (agent.context_stuck)
+WORKSPACE_CHOSEN = False   # the workspace came from the config key, or the instance is a work-watch-<x> (the rule
+                           # before PLN0982); False for the default of any other instance (adapters.Fonte.caminhos)
 NOME = None       # the short name the work-watch adapters know: <x> for work-watch-<x> (== CUSTOS <x>, workspace
                   # {instance}, meetings of the instance), the full name for any other instance
 
@@ -64,7 +67,7 @@ def valid_name(name):
 def instance(name):
     """Points every path at the instance folder. Creates nothing (folders are made on the first write)."""
     global NAME, NOME, ROOT, CONFIG_DIR, DATA_DIR, SECRETS_DIR, CACHE_DIR, ADAPTERS_DIR, LOCAL_BEHAVIORS
-    global CONFIG, STATE, INSTRUCTIONS, CONTEXT, RUNNER_DIR, WORKSPACE
+    global CONFIG, STATE, INSTRUCTIONS, CONTEXT, RUNNER_DIR, WORKSPACE, WORKSPACE_CHOSEN
     if not valid_name(name):
         sys.exit(f'instancia invalida: {name!r} (letras minusculas, digitos, - e _)')
     NAME = name
@@ -80,6 +83,7 @@ def instance(name):
     STATE = os.path.join(DATA_DIR, 'state.json')
     RUNNER_DIR = os.path.join(CACHE_DIR, 'runner')
     WORKSPACE = None
+    WORKSPACE_CHOSEN = False
     CONTEXT = None
     return ROOT
 
@@ -89,15 +93,35 @@ def short_name(name):
     return name[len(WORK_WATCH_PREFIX):] if name and name.startswith(WORK_WATCH_PREFIX) and len(name) > len(WORK_WATCH_PREFIX) else name
 
 
-def use_workspace(p):
-    """config "workspace" ({instance} = the short name, ~ expanded; absolute). The workspace keeps CONTEXT.md for the
-    session. A work-watch instance without "workspace" keeps work-watch's default, ~/WorkWatch/<x>."""
-    global WORKSPACE, CONTEXT
-    if not p and NAME and NAME.startswith(WORK_WATCH_PREFIX): p = '~/WorkWatch/{instance}'
-    if not p: return None
-    p = os.path.expanduser(p.replace('{instance}', NOME or ''))
-    if not os.path.isabs(p): sys.exit(f'"workspace" precisa ser um caminho absoluto: {p!r}')
-    WORKSPACE, CONTEXT = p, os.path.join(p, 'CONTEXT.md')
+DEFAULT_WORKSPACE = '~/WorkWatch/{instance}'   # every instance's workspace without the key (PLN0982); work-watch's since before
+
+
+def workspace_for(cfg, name):
+    """The one rule for an instance's workspace (PLN0982; agent.py through use_workspace and the provisioner use it):
+    the config key "workspace" when present, DEFAULT_WORKSPACE when the key is missing, {instance} = the short name
+    (short_name: <x> for work-watch-<x>, the full name for any other), ~ expanded. None when the key is present with
+    null or blank text (turned off: no folder, no CONTEXT.md) or is not text (--validate says so). ValueError when the
+    result is not an absolute path."""
+    if isinstance(cfg, dict) and 'workspace' in cfg:
+        p = cfg['workspace']
+        if not isinstance(p, str) or not p.strip(): return None
+    else:
+        p = DEFAULT_WORKSPACE
+    p = os.path.expanduser(p.strip().replace('{instance}', short_name(name) or ''))
+    if not os.path.isabs(p): raise ValueError(p)
+    return os.path.normpath(p)
+
+
+def use_workspace(cfg):
+    """Points WORKSPACE and CONTEXT (the CONTEXT.md the session reads) at the instance's workspace, by workspace_for.
+    `cfg` is the config; a text or None (what instance adapters written before PLN0982 pass) is the value of the key,
+    None meaning the key is missing."""
+    global WORKSPACE, CONTEXT, WORKSPACE_CHOSEN
+    if not isinstance(cfg, dict): cfg = {'workspace': cfg} if cfg is not None else {}
+    try: p = workspace_for(cfg, NAME)
+    except ValueError as e: sys.exit(f'"workspace" precisa ser um caminho absoluto: {str(e)!r}')
+    WORKSPACE, CONTEXT = p, (os.path.join(p, 'CONTEXT.md') if p else None)
+    WORKSPACE_CHOSEN = bool(p) and ('workspace' in cfg or bool(NAME and NAME.startswith(WORK_WATCH_PREFIX)))
     return WORKSPACE
 
 

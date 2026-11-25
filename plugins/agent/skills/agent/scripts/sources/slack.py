@@ -182,6 +182,7 @@ def imprime_slack(r):
 
 class Fonte(Base):
     tipo = 'slack'
+    usa_workspace = True     # writes to the instance workspace: its drive is probed before the tick (caminhos)
     lembrar = {'slack': 4.0}
     conserto = 'Slack down — refresh the session token (slack_pull.py --token --cookie, work-inbox skill)'
 

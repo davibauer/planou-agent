@@ -90,11 +90,12 @@ def load_config():
     job_scout.not_migrated(cfg)                        # the old ~/.config/job-scout, before --migrate: its behavior
     import travel_agent
     travel_agent.not_migrated(cfg)                     # the same for the old ~/.config/travel-agent
-    paths.use_workspace(cfg.get('workspace'))
+    paths.use_workspace(cfg)                           # key missing: the default; null or "": none (PLN0982)
     import compartilhado; compartilhado.configura(cfg)   # shared material -> <workspace>/messages/shared
     video_folders(cfg)
     err, warn = schema.validate(cfg, paths.behavior_file, adapters.existe)
-    for f in (paths.INSTRUCTIONS, paths.CONTEXT):
+    context_stuck()
+    for f in (paths.INSTRUCTIONS, None if paths.CONTEXT_STUCK else paths.CONTEXT):
         # the session reads them as text: a NUL byte (a binary file, a bad edit from Planou) is an error
         try:
             with open(f or '', 'rb') as fh:
@@ -102,6 +103,23 @@ def load_config():
         except OSError:
             pass
     return cfg, err, warn
+
+
+def context_stuck():
+    """PLN0982: every instance has a workspace now, often behind a Windows drive (~/WorkWatch as a link to a Windows
+    folder). Its CONTEXT.md is probed (drive_probe, a child with a deadline, once per drive per process) before
+    anything reads it: a drive that does not answer leaves paths.CONTEXT_STUCK with its label and CONTEXT.md is
+    skipped (load_config, load_list, so --load, --docs and the tick), never read. The warning comes from
+    workspace.ensure (stderr in --load, a quiet AVISO (tick) in the tick); --status, --docs and --runner-env stay
+    quiet (their stdout is parsed)."""
+    paths.CONTEXT_STUCK = None
+    if not paths.CONTEXT: return None
+    try:
+        import drive_probe
+        paths.CONTEXT_STUCK = drive_probe.stuck(paths.CONTEXT)
+    except Exception:
+        paths.CONTEXT_STUCK = None
+    return paths.CONTEXT_STUCK
 
 
 def video_folders(cfg):
@@ -473,7 +491,8 @@ def load_list(cfg):
     """Files of the role, in the order of the manifest: instructions.md, CONTEXT.md, each behavior on (always and
     on_demand alike: the Papel tab lists them all). --load groups them by layer (load_plan)."""
     files = [('instrucoes', paths.INSTRUCTIONS)]
-    if paths.CONTEXT and os.path.isfile(paths.CONTEXT): files.append(('contexto', paths.CONTEXT))
+    if paths.CONTEXT and not paths.CONTEXT_STUCK and os.path.isfile(paths.CONTEXT):   # a stuck drive: skipped (PLN0982)
+        files.append(('contexto', paths.CONTEXT))
     for b in cfg.get('behaviors') or []:
         files.append((f'comportamento {b}', paths.behavior_file(b)))
     return files
@@ -609,6 +628,8 @@ def main(argv=None):
         print(json.dumps(status(cfg, err), ensure_ascii=False, indent=1)); return
     if rest == ['--load']:
         if err: sys.exit(f'{paths.NAME}: config com erro (agent.py {paths.NAME} --validate)')
+        import workspace
+        workspace.ensure()                         # PLN0982: the first --load makes the folder and CONTEXT.md
         print('\n'.join(load_plan(cfg)))
         return
     if rest[:1] == ['--brief']:
@@ -627,6 +648,9 @@ def main(argv=None):
         import workspace
         return workspace.cli(rest[rest.index('--workspace') + 1:])
     if err: sys.exit(f'{paths.NAME}: config com erro: ' + '; '.join(err))
+    if '--dry' not in rest and cfg.get('live') is True:   # PLN0982: the live tick makes a missing workspace too (test
+        import workspace                           # mode touches nothing outside); a failure is a quiet AVISO (tick)
+        workspace.ensure(tick=True)
     import job_scout
     if job_scout.on(cfg): sys.exit(job_scout.run(cfg, rest, lambda: docs_manifest(cfg)))
     import travel_agent
