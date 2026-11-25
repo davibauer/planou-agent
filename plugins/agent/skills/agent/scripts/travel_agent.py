@@ -117,8 +117,8 @@ class Planou:
         if self.manifest:
             try: planou.set_docs(job_scout.read_only(self.manifest()))
             except Exception as e: lines.append(f'AVISO (planou): arquivos do papel: {type(e).__name__}: {str(e)[:120]}')
-        import role_edit                           # the interval (PLN0989)
-        role_edit.report_tick(self.cfg)
+        import role_edit                           # the interval (PLN0989), after a change before() applied (PLN0992)
+        role_edit.report_tick(role_edit.config_now(self.cfg))
         return lines + planou.heartbeat('tick', broken_sources=broken_sources)
 
 

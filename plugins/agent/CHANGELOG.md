@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.124.1 (2026-11-25)
+- Job-scout e travel-agent: quando a troca do intervalo das fontes feita no Planou é aplicada pelo tick pesado (e não pelo loop leve), a ficha do funcionário já mostra o intervalo novo; antes ela voltava ao valor antigo até o runner ser relançado.
+- Job-scout: uma edição da aba Papel que não seja o intervalo agora é recusada com o motivo, como no travel-agent, em vez de ficar sem resposta no Planou.
+
 ## 0.124.0 (2026-11-25)
 - O runner informa ao Planou de quanto em quanto tempo confere as fontes, e a troca feita na ficha do funcionário (Configurações > Computador) vale na hora: o loop leve vê a mudança, grava o `interval_s` no config.json, valida, responde aplicada ou recusada com o motivo e já confere as fontes no intervalo novo, sem acordar a sessão. Vale para todos os agentes, inclusive job-scout e travel-agent, nunca abaixo do piso deles (30 min e 3 h).
 

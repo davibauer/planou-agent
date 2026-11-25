@@ -670,6 +670,28 @@ def config_changed():
     return _OUT['config']
 
 
+def config_now(cfg):
+    """The config this tick reports from: config.json read again when an edit of this tick rewrote it, as agent.py
+    send_docs does (job-scout and travel-agent, whose heavy tick may apply a change of the interval before its heartbeat,
+    PLN0992), else `cfg`. A folder not migrated yet keeps its behavior (and so its floor)."""
+    if not config_changed(): return cfg
+    import schema, job_scout, travel_agent
+    try: fresh = schema.load(paths.CONFIG)
+    except Exception: return cfg
+    job_scout.not_migrated(fresh)
+    travel_agent.not_migrated(fresh)
+    return fresh
+
+
+def refuse_other_kinds():
+    """job-scout (PLN0992): the edits in the inbox that are not the interval are answered `refused`, with the reason
+    the travel-agent gives (its manifest goes read only); scout.py would acknowledge them unread and leave Planou
+    waiting for an answer."""
+    from watch_core import planou
+    for ev in planou.docs_events():
+        if (ev.get('payload') or {}).get('kind') != planou.TICK_KIND: _refuse_kind(ev)
+
+
 def block():
     """The blocks for the session (None when nothing happened this tick): `== PAPEL MUDOU (n)` says what to read again
     before going on, `== PAPEL RECUSADO (n)` what was refused and why."""

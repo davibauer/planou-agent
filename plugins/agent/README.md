@@ -444,7 +444,8 @@ fontes a cada 5 min" em Configurações > Computador e a dona troca o valor ali,
 a chave que ele usa) com o mesmo `config-snapshot`, `--validate` e volta do anterior, e responde como as outras
 edições. O runner passa a usar o intervalo novo ali mesmo (o próximo tick pesado nunca fica a mais de um intervalo),
 anota no `avisos.log` e não acorda a sessão. Se o tick pesado pegar o evento antes, ele aplica do mesmo jeito (no
-job-scout e no travel-agent só o `kind` `tick`; o resto continua recusado) e o `== PAPEL MUDOU` traz o relançamento.
+job-scout e no travel-agent só o `kind` `tick`; o resto é recusado com o motivo), o heartbeat desse tick já leva o
+intervalo novo e o `== PAPEL MUDOU` traz o relançamento.
 Cada versão é aplicada e respondida uma vez só (`role_edits.json`). Vale também na confidencialidade mínima (o
 intervalo não é conteúdo). Um Planou mais velho ignora o campo.
 
