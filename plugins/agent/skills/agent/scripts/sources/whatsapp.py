@@ -80,7 +80,7 @@ list the @lid in contatos to read it. A chat by number carries its @lid too (cha
 @lid in the lists or in a verdict also covers it. The mirror: a 1:1 chat by number whose @lid is not known is never a
 candidate while `ignorar` has @lid ids (the bridge drops it and warns with the count only); list the number in contatos.
 """
-import fcntl, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile
+import fcntl, glob, hashlib, json, math, os, re, shutil, subprocess, sys, tempfile
 from datetime import datetime, timezone, timedelta
 
 import core, paths
@@ -134,11 +134,22 @@ def opcoes(cfg, avisos=None):
     return op
 
 
+def _numero(cfg, k, padrao):
+    """A numeric option as a finite float, or the default: the schema refuses NaN and infinity, but a config may reach
+    the tick without being validated, and int() of them raises (ValueError, OverflowError)."""
+    try: v = float(cfg.get(k, padrao))
+    except (TypeError, ValueError): return float(padrao)
+    return v if math.isfinite(v) else float(padrao)
+
+
 def dias_sob_demanda(cfg):
     """sob_demanda_dias as whole days, never below 1 (0 would be "no limit" in the bridge); the schema wants an integer."""
-    try: v = float(cfg.get('sob_demanda_dias', SOB_DEMANDA_DIAS))
-    except (TypeError, ValueError): v = SOB_DEMANDA_DIAS
-    return max(1, int(-(-v // 1)))
+    return max(1, int(-(-_numero(cfg, 'sob_demanda_dias', SOB_DEMANDA_DIAS) // 1)))
+
+
+def msgs_sob_demanda(cfg):
+    """sob_demanda_msgs as the count of one request: 1 to SOB_DEMANDA_MAX, the default when missing or not finite."""
+    return max(1, min(int(_numero(cfg, 'sob_demanda_msgs', SOB_DEMANDA_MSGS)), SOB_DEMANDA_MAX))
 
 
 def aguardando_historico(loc, vs, devidos, agora):
@@ -172,7 +183,7 @@ def pedidos_historico(loc, vs, cfg):
     [(verdict key, time of the verdict, request)]."""
     feitos = _le_json(loc['pedidos'], {})
     feitos = feitos if isinstance(feitos, dict) else {}
-    n = max(1, min(int(cfg.get('sob_demanda_msgs', SOB_DEMANDA_MSGS)), SOB_DEMANDA_MAX))
+    n = msgs_sob_demanda(cfg)
     ignorar = set(lista(cfg.get('ignorar')))
     out = []
     for k, v in sorted(vs.items()):
@@ -203,15 +214,18 @@ def anota_pedidos(loc, devidos, resumo, agora, antes=frozenset()):
         feitos[k] = {'veredito': quando, 'pedido_em': agora.isoformat(), 'chat': chat}
         mudou = True
     respondidos = resumo.get('sob_demanda') or {}
-    novas = {}
-    if respondidos:
-        for r in unicos(le_spool(loc['spool'])):
-            if r.get('origem') == 'sob_demanda' and (r.get('chat'), r.get('id')) not in antes:
-                novas[r.get('chat')] = novas.get(r.get('chat'), 0) + 1
+    regs = unicos(le_spool(loc['spool'])) if respondidos else []
+    novas = [r for r in regs if r.get('origem') == 'sob_demanda' and (r.get('chat'), r.get('id')) not in antes]
+    # the phone may answer by the other id of a 1:1 chat (@lid for a verdict given by the number, or the other way) and
+    # the verdict may not know it: the spool lines of the answered chat carry both (chat_pn, chat_lid)
+    ks = []
     for chat in respondidos:
-        k = next((k for k, v in vs.items() if chat in _ids_veredito(k, v)), None)
-        if k is None: continue
-        n = sum(c for ch, c in novas.items() if ch in _ids_veredito(k, vs[k]) and ch == chat)
+        ids = {chat}.union(*(_ids(r) for r in regs if chat in _ids(r)))
+        k = next((k for k, v in vs.items() if _ids_veredito(k, v) & ids), None)
+        if k is not None and k not in ks: ks.append(k)
+    for k in ks:                                     # one answer per verdict, even when it came by both ids
+        ids = _ids_veredito(k, vs[k])
+        n = sum(1 for r in novas if _ids(r) & ids)
         e = feitos.setdefault(k, {})
         e.update({'respondido_em': agora.isoformat(), 'gravadas': int(e.get('gravadas') or 0) + n})
         respostas.append((vs[k].get('nome') or k, k, n))
@@ -767,7 +781,7 @@ def registra_veredito(chat, veredito, cfg=None):
         msg = 'relevante: acompanhado sempre a partir do proximo tick, com os anexos'
         pagina = e.get('veredito') == 'relevante'        # already relevant: the page before the oldest message known
         ancora = _ancora(regs, mais_antiga=pagina) if todos(cfg) else None
-        n = max(1, min(int(cfg.get('sob_demanda_msgs', SOB_DEMANDA_MSGS)), SOB_DEMANDA_MAX))
+        n = msgs_sob_demanda(cfg)
         if ancora:
             vs[chave]['historico'] = ancora
             msg += (f'; o proximo tick pede ao proprio celular (nunca ao contato) as {n} msgs anteriores a '

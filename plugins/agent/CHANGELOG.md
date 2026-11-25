@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.123.1 (2026-11-25)
+- WhatsApp no modo todos: `NaN` ou `Infinity` numa opção de número da fonte (`sob_demanda_dias`, `sob_demanda_msgs` e as outras) passava no `--validate` e quebrava o tick. Agora o `--validate` recusa com "precisa ser um numero maior que zero", e o tick usa o padrão de `sob_demanda_msgs` e `sob_demanda_dias` se o valor chegar sem validar.
+- Histórico sob demanda: quando o celular responde pelo `@lid` um chat julgado relevante pelo número (ou o contrário), o pedido passa a contar como respondido, e não sai mais o aviso de 24 h sem resposta. A resposta que chega pelos dois ids no mesmo tick aparece uma vez, com as mensagens das duas contadas.
+
 ## 0.123.0 (2026-11-25)
 - WhatsApp no modo todos: marcar um chat como `relevante` agora traz também a conversa de antes do veredito, sem parear de novo. O próximo tick pede ao próprio celular da conta (nunca ao contato) as mensagens anteriores à mais recente que a instância tem daquele chat (o que se perdeu fica entre as candidatas e antes delas), e a resposta passa pelo mesmo filtro e é gravada com origem `sob_demanda`. Opções novas `sob_demanda_msgs` (padrão 50, até 200) e `sob_demanda_dias` (padrão 30). Um pedido por veredito; marcar `relevante` de novo pede a página anterior. Detalhes em `docs/whatsapp.md`, seção Histórico sob demanda.
 

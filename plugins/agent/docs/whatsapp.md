@@ -112,6 +112,10 @@ Vale para qualquer instância e qualquer objetivo (uma obra, outra obra, um proj
 | `sob_demanda_msgs` | quantas mensagens anteriores o veredito `relevante` pede ao próprio celular (padrão 50, até 200) |
 | `sob_demanda_dias` | mensagem do histórico sob demanda mais velha que isso não é gravada (padrão 30) |
 
+As opções de número (estas e `max_anexo_mb`, `timeout_s`, `guardar_dias`, `max_por_chat`) precisam ser números finitos
+maiores que zero: `NaN` e `Infinity`, que o JSON aceita, são recusados pelo `--validate`. Se chegarem ao tick sem passar
+pela validação, `sob_demanda_msgs` e `sob_demanda_dias` voltam ao padrão.
+
 `chats` e `contatos` continuam valendo: no modo todos, o que está neles é acompanhado sempre, como antes. As outras
 opções (`anexos`, `max_anexo_mb`, `timeout_s`, `guardar_dias`, `max_por_chat`) também.
 
@@ -237,7 +241,9 @@ está no spool. Em vez de parear de novo, a ponte pede essa conversa ao **própr
    tinha e que veio de novo na resposta não conta nem aparece duas vezes.
 
 Um pedido por veredito, nunca repetido sozinho: se a ponte não conseguiu enviar (sem conexão), o tick seguinte tenta
-de novo; se o celular não respondeu em 24 h, o tick avisa uma vez e para. Marcar `relevante` outra vez um chat que já
+de novo; se o celular não respondeu em 24 h, o tick avisa uma vez e para. A resposta vale pelo chat, não pelo id:
+o celular pode responder pelo `@lid` um chat julgado pelo número (ou o contrário), e ela conta como respondida quando a
+sessão ou as linhas gravadas conhecem o par id/número. Marcar `relevante` outra vez um chat que já
 é relevante pede a página anterior: a âncora passa a ser a mensagem **mais antiga** guardada do chat.
 O que não dá para buscar assim: mensagem descartada que veio **depois** da última guardada do chat e antes do veredito
 (o pedido só volta no tempo a partir da âncora). Na prática ela é rara, porque o chat entra no bloco de candidatas a

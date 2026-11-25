@@ -223,6 +223,38 @@ func TestARequestSentInThisRunAwaitsItsAnswer(t *testing.T) {
 	}
 }
 
+func TestOnDemandBlockByTheOtherIdOfTheChatIsReportedUnderTheAwaitedOne(t *testing.T) {
+	// the verdict was given by the number and the phone answers by the @lid (or the other way): with the mapping in the
+	// session the answer is reported under the awaited id, even when nothing of it is written (all past the limit)
+	day := 24 * time.Hour
+	lid := types.JID{User: "100000000000055", Server: types.HiddenUserServer}
+	for _, c := range []struct {
+		name            string
+		awaited, answer types.JID
+	}{{"number awaited, @lid answers", friend, lid}, {"@lid awaited, number answers", lid, friend}} {
+		r, dev := testReader(t, allOpts(Options{Chats: []string{c.awaited.String()}, OnDemandDays: 30,
+			AwaitingHistory: []string{c.awaited.String()}}))
+		if err := dev.LIDs.PutLIDMapping(context.Background(), lid, friend); err != nil {
+			t.Fatal(err)
+		}
+		r.historyBlock(onDemandBlob(map[types.JID][]*waHistorySync.HistorySyncMsg{
+			c.answer: {webMsg(c.answer, "OLD1", "x", 50*day)}}), originOnDemand)
+		if n, ok := r.sum.SobDemanda[c.awaited.String()]; !ok || n != 0 || len(r.sum.SobDemanda) != 1 {
+			t.Fatalf("%s: sob_demanda = %v", c.name, r.sum.SobDemanda)
+		}
+		if got := spool(t, r); len(got) != 0 {
+			t.Fatalf("%s: past the limit written: %+v", c.name, got)
+		}
+	}
+	// without the mapping the other id is not known: nothing reported (the source warns after a day, as before)
+	r, _ := testReader(t, allOpts(Options{Chats: []string{friend.String()}, OnDemandDays: 30,
+		AwaitingHistory: []string{friend.String()}}))
+	r.historyBlock(onDemandBlob(map[types.JID][]*waHistorySync.HistorySyncMsg{lid: {webMsg(lid, "OLD2", "x", 50*day)}}), originOnDemand)
+	if len(r.sum.SobDemanda) != 0 {
+		t.Fatalf("unmapped @lid reported: %v", r.sum.SobDemanda)
+	}
+}
+
 func TestOnDemandBlockStillHonoursTheIgnoreList(t *testing.T) {
 	r, _ := testReader(t, allOpts(Options{Chats: []string{friend.String()}, Ignore: []string{friend.String()}, OnDemandDays: 30,
 		AwaitingHistory: []string{friend.String()}}))

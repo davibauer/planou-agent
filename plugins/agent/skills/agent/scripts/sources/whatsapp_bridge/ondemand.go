@@ -166,10 +166,45 @@ func (r *reader) isAwaited(ids []string) bool {
 	return anyIn(r.awaiting, ids)
 }
 
+// awaitedID: the first of the chat's addresses whose on-demand history is awaited, or "" when none is.
+func (r *reader) awaitedID(ids []string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range ids {
+		if r.awaiting[id] {
+			return id
+		}
+	}
+	return ""
+}
+
+// addresses: the chat's id and, for a 1:1 chat, the same person's other id from the mapping kept in the session (the
+// @lid of a number, the number of an @lid), so an answer by either id matches a request made by the other.
+func (r *reader) addresses(chat types.JID) []string {
+	ids := []string{chat.String()}
+	if r.cli == nil || r.cli.Store == nil || r.cli.Store.LIDs == nil {
+		return ids
+	}
+	ctx := context.Background()
+	switch chat.Server {
+	case types.DefaultUserServer:
+		if l, err := r.cli.Store.LIDs.GetLIDForPN(ctx, chat); err == nil && l.Server == types.HiddenUserServer {
+			ids = append(ids, l.ToNonAD().String())
+		}
+	case types.HiddenUserServer:
+		if p, err := r.cli.Store.LIDs.GetPNForLID(ctx, chat); err == nil && p.Server == types.DefaultUserServer {
+			ids = append(ids, p.ToNonAD().String())
+		}
+	}
+	return ids
+}
+
 // historyBlock writes the allowed messages of one downloaded history block. origin is "historico" (pairing) or
 // originOnDemand (the answer to a request); an on-demand block reports each of its awaited chats, even when nothing
 // of it was written (all older than the limit), so the source knows the phone answered. A chat nobody asked for is
-// neither written nor reported.
+// neither written nor reported. The report goes under the awaited id that matched, which may be the chat's other id
+// (the phone answers by the @lid a request made by the number, or the other way), so the source finds its verdict
+// even when nothing was written.
 func (r *reader) historyBlock(blob *waHistorySync.HistorySync, origin string) bool {
 	failed := false
 	for _, conv := range blob.GetConversations() {
@@ -177,13 +212,15 @@ func (r *reader) historyBlock(blob *waHistorySync.HistorySync, origin string) bo
 		if err != nil {
 			continue
 		}
-		if origin == originOnDemand && r.isAwaited([]string{chat.ToNonAD().String()}) {
-			r.mu.Lock()
-			if r.sum.SobDemanda == nil {
-				r.sum.SobDemanda = map[string]int{}
+		if origin == originOnDemand {
+			if id := r.awaitedID(r.addresses(chat.ToNonAD())); id != "" {
+				r.mu.Lock()
+				if r.sum.SobDemanda == nil {
+					r.sum.SobDemanda = map[string]int{}
+				}
+				r.sum.SobDemanda[id] += 0
+				r.mu.Unlock()
 			}
-			r.sum.SobDemanda[chat.ToNonAD().String()] += 0
-			r.mu.Unlock()
 		}
 		for _, hm := range conv.GetMessages() {
 			m, err := r.cli.ParseWebMessage(chat, hm.GetMessage())

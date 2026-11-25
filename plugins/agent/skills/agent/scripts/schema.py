@@ -76,7 +76,7 @@ and nome -> name. Both spellings stay in the normalized config, top level and en
 
   python3 schema.py <config.json>   prints the normalized config and the problems (exit 1 on errors)
 """
-import json, os, re, sys
+import json, math, os, re, sys
 
 import permissions
 from watch_core import behavior_names, column_roles
@@ -432,14 +432,15 @@ def _whatsapp_source(e, i, err, warn):
     for k in ('max_anexo_mb', 'timeout_s', 'historico_dias', 'guardar_dias', 'max_por_chat', 'mudo_apos',
               'guardar_candidatas_dias', 'sob_demanda_msgs', 'sob_demanda_dias'):
         v = e.get(k)
-        if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0):
+        # NaN passes "v <= 0" and inf passes everything (JSON accepts both): the tick would break on int() of them
+        if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) or v <= 0):
             err.append(f'{at}: "{k}" precisa ser um numero maior que zero')
     for k in ('sob_demanda_msgs', 'sob_demanda_dias'):
         v = e.get(k)
-        if isinstance(v, float) and v > 0 and not v.is_integer():
+        if isinstance(v, float) and math.isfinite(v) and v > 0 and not v.is_integer():
             err.append(f'{at}: "{k}" precisa ser um numero inteiro (ex.: 30)')
     v = e.get('sob_demanda_msgs')
-    if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 200:
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 200:
         err.append(f'{at}: "sob_demanda_msgs" vai ate 200 por pedido (padrao 50); para mais, marque o chat relevante de novo')
     if e.get('anexos') is not None and not isinstance(e['anexos'], bool):
         err.append(f'{at}: "anexos" precisa ser true ou false')
