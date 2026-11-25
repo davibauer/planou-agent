@@ -92,3 +92,21 @@ Saída do envio: uma linha por tarefa e o `RESUMO`, que vai como nota da meta:
   CRIADA EXE0204 [P3] Decidir: Limite de linhas do CSV (Backlog)
 RESUMO: meta EXE0200 quebrada em 3 tarefas em EXE (3 no Backlog): EXE0202, EXE0203, EXE0204. Aprovar = mover para A fazer ou passar para o agente.
 ```
+
+## Data de vencimento (opcional)
+
+Uma tarefa do plano pode levar `"due": "AAAA-MM-DD"`, a data de vencimento que aparece na tarefa no Planou. Ela sempre
+vem com `"due_source"`, um texto curto que diz de onde veio a data:
+
+```json
+{"code": "fundacao", "title": "Concretar a fundação", "what": "Concretagem das sapatas e vigas baldrame",
+ "why": "A alvenaria começa depois dela", "done_when": ["concretagem feita e registrada"], "priority": "P2",
+ "agent_can_do": false, "due": "2026-12-10", "due_source": "cronograma rev. 3"}
+```
+
+- Data que não existe ou fora do formato (`2026-02-30`, `10/12/2026`) e `due` sem `due_source` recusam o plano
+  inteiro: nada sobe.
+- A fonte fica só no computador (`cache/planou/product_plans.json`, e o `--list` mostra): nunca sobe como título ou
+  descrição. A data sobe em todos os níveis de `confidentiality` em que o plano é aceito, como no sync das fontes.
+- Mudou a data no plano: rode de novo com `--update` (a linha `JA EXISTE` avisa que a data mudou). Tirou o `due`: o
+  `--update` limpa a data no Planou. Uma data que a pessoa mudou à mão no Planou fica como ela deixou.

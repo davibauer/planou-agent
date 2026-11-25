@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.121.0 (2026-11-25)
+- Plano do `backlog.py`: cada tarefa pode levar a data de vencimento (`"due": "AAAA-MM-DD"`), que sobe no sync e aparece na tarefa no Planou. A data sempre vem com `"due_source"`, um texto curto que diz de onde ela veio (contrato, cronograma, e-mail); sem a fonte, ou com uma data que não existe, o plano é recusado e nada sobe. A fonte fica só no computador (o `--list` mostra) e nunca vai ao Planou.
+- Mudar a data no plano e rodar com `--update` atualiza a tarefa; tirar o `due` limpa a data. A linha `JA EXISTE` avisa quando a data mudou no plano. Uma data que a pessoa mudou à mão no Planou fica como ela deixou. O estado local passa a guardar a data enviada, então uma edição da pessoa no Planou não é mais confundida com uma data diferente.
+
 ## 0.120.0 (2026-11-25)
 - Comportamento novo `construction-management` (Gestão de obra), o papel de gerente ao lado do assistente de obra: as etapas ativas e próximas viram tarefas no Planou com a dependência entre elas (o cronograma inteiro fica num arquivo da instância), prazo de contrato ou e-mail vira aviso quando vence ou passa, as parcelas a pagar do banco de finanças que vencem na janela viram tarefa, pendência com fornecedor vai para a espera e, sem resposta, vira cobrança em rascunho (nunca enviada), e sai um resumo semanal do que andou, travou e vence. Data só de fonte, citando a origem; o que não tem fonte fica "a confirmar". Opções novas: `installments`, `stages_file`, `warn_days`, `followup_days`, `report_weekday` e `report_hour`; as de fonte são as do assistente.
 - `scripts/construction_dates.py`: a conta do que venceu, vence em N dias ou está sem resposta há N dias, a partir de uma lista JSON de prazos, parcelas, etapas ou pendências.

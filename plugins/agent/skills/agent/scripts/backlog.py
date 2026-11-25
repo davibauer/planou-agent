@@ -15,10 +15,17 @@ Plan (JSON, keys in English; texts in the instance language):
    "tasks": [{"code": "csv-model", "title": "...", "what": "...", "why": "...", "done_when": ["...", "..."],
               "priority": "P2", "depends_on": ["other-code" | "PLN0123"], "agent_can_do": "why an agent can do it" | false,
               "decide": false, "ready_reason": "...", "estimate_h": 2,
+              "due": "2026-12-10", "due_source": "contrato, cláusula 5",
               "details": ["Esboço no Planou:", "- ...", "Tamanho: M"]}]}   details: optional, one description line each
+
+  due: optional, the task's due date (AAAA-MM-DD, a real date); it always needs `due_source`, a short text saying where
+  the date came from (contract, schedule, email). The source stays local (product_plans.json, `--list`): it never goes
+  up as title or description. The date goes up in the sync like the full sync's `due`.
 
 What goes up, per task (source_key `<agent>:meta-<goal>-<code>`, so a rerun never duplicates):
 - title (with `Decidir: ` when `decide`), priority 1..4, description with "O que", "Por quê", "Pronto quando", the goal;
+- `due` (null when the plan has none; for Planou an absent due is null too). A due the person changed by hand in Planou
+  stays as she left it (Planou keeps the person's value);
 - `blocked_by` with the source keys of the same plan (Planou resolves them after the whole batch exists) or PIDs;
 - `agent_can_do` {value, reason}: never on a decision (`decide`, or a title `Decidir:`/`Decide:`/`Decisao:`) nor on a
   task whose title or "what" is about cost, billing, account, secret, credential, client, production or deploy
@@ -32,14 +39,14 @@ What goes up, per task (source_key `<agent>:meta-<goal>-<code>`, so a rerun neve
 Limits: at most `behavior_config.backlog-planning.max_tasks` tasks per goal (default 8; `--max` after the person's OK), the
 texts are checked for secrets, the plan is refused under `"confidentiality": "minimum"` and in test mode (`--dry`
 works in both). A task already created is not sent again unless `--update` (then without state: the person's moves
-win). The tasks are recorded in cache/planou/state.json and sent.json like the agent's other tasks (so `pronta`,
+win); a changed or removed `due` goes up with `--update` too (the `JA EXISTE` line says when the date changed). The tasks are recorded in cache/planou/state.json and sent.json like the agent's other tasks (so `pronta`,
 `fila refinar` and the events know them) and the plan in cache/planou/product_plans.json (`--list`).
 
 Output: one line per task (CRIADA, ATUALIZADA, JA EXISTE, RECUSADA, AVISO) and `RESUMO: ...`, the note for the goal.
 Exit 0 ok, 1 Planou refused or failed, 2 invalid plan or command.
 """
 import argparse, json, os, re, sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from watch_core import planou as P   # noqa: E402
@@ -50,6 +57,8 @@ CODE_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 PID_RE = re.compile(r'^[A-Za-z]{2,6}\d{3,}$')
 TITLE_MAX, TITLE_SHORT, DESCRIPTION_MAX = 200, 80, 8000
 DETAILS_MAX = 20
+DUE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+DUE_SOURCE_MAX = 200
 PRIORITIES = {'1': 1, '2': 2, '3': 3, '4': 4, 'p1': 1, 'p2': 2, 'p3': 3, 'p4': 4}
 PLANS = 'product_plans.json'
 STATE_LABEL = {'todo': 'A fazer', None: 'Backlog'}
@@ -157,15 +166,30 @@ def validate(plan, known_codes=(), max_tasks=DEFAULT_MAX):
         est = t.get('estimate_h')
         if est is not None and (isinstance(est, bool) or not isinstance(est, (int, float)) or not 0 <= est <= 100000):
             err.append(f'{where}: "estimate_h" em horas, de 0 a 100000'); est = None
+        due, due_source = t.get('due'), _one(t.get('due_source'))
+        if due is not None:
+            ok = isinstance(due, str) and DUE_RE.match(due.strip())
+            try:
+                if ok: date.fromisoformat(due.strip())
+            except ValueError:
+                ok = False
+            if not ok: err.append(f'{where}: "due" {due!r} não é uma data AAAA-MM-DD válida (ex.: "2026-12-10")'); due = None
+            else: due = due.strip()
+            if not due_source:
+                err.append(f'{where}: "due" sem "due_source": diga de onde veio a data (ex.: "contrato, cláusula 5"), ou tire a data')
+        elif due_source:
+            err.append(f'{where}: "due_source" sem "due": diga a data (AAAA-MM-DD) ou tire a fonte')
+        if len(due_source) > DUE_SOURCE_MAX: err.append(f'{where}: "due_source" até {DUE_SOURCE_MAX} caracteres')
         details = t.get('details') or []
         details = [_one(d, 300) for d in details if _one(d)] if isinstance(details, list) else None
         if details is None: err.append(f'{where}: "details" precisa ser uma lista de linhas'); details = []
         if len(details) > DETAILS_MAX: err.append(f'{where}: "details" até {DETAILS_MAX} linhas')
-        texts = [title, what, why, ready, can if isinstance(can, str) else ''] + done + details
+        texts = [title, what, why, ready, can if isinstance(can, str) else '', due_source] + done + details
         if any(P.looks_secret(x) for x in texts): err.append(f'{where}: um texto parece ter um segredo (token, chave): reescreva sem ele')
         out.append({'code': code, 'title': full, 'what': what, 'why': why, 'done_when': done, 'priority': prio,
                     'depends_on': deps, 'agent_can_do': _one(can, 200) if isinstance(can, str) else (False if can is False else None),
-                    'decide': decide, 'ready_reason': ready or None, 'estimate_h': est, 'details': details})
+                    'decide': decide, 'ready_reason': ready or None, 'estimate_h': est, 'details': details,
+                    'due': due, 'due_source': due_source or None})
     # dependencies: a code of this plan (or of an earlier run of the same goal) or a PID; no self, no cycle
     known = set(known_codes) | codes
     graph = {}
@@ -229,7 +253,9 @@ def build(plan, agent, autonomy, now):
     for t in plan['tasks']:
         out_of_backlog = bool(t['ready_reason']) and autonomy == 'autonomous'
         x = {'source_key': f'{prefix}-{t["code"]}', 'source_id': f'{g["ref"]}/{t["code"]}', 'title': t['title'],
-             'priority': t['priority'], 'origin': origin, 'description': description(t, g)[:DESCRIPTION_MAX]}
+             'priority': t['priority'], 'due': t['due'], 'origin': origin,
+             'description': description(t, g)[:DESCRIPTION_MAX]}
+        # due_source stays local (product_plans.json): never in the body, the title or the description
         if project: x['project'] = project
         if t['depends_on']:
             x['blocked_by'] = [f'{prefix}-{d}' if d in codes or not PID_RE.match(d) else d.upper() for d in t['depends_on']]
@@ -301,6 +327,13 @@ def run(agent, plan_raw, dry=False, max_tasks=None, update=False, now=None):
             for k in ('state', 'ready_reason', 'project_state', 'origin'): x.pop(k, None)
             x['base_version'] = e.get('version')
     send = [x for x in body if x['source_key'] not in skip]
+    if skip:
+        # a date changed in the plan goes up only with --update: the JA EXISTE line says so
+        last = (P._load(PLANS, {}).get(g['slug']) or {}).get('tasks') or {}
+        for x in body:
+            if x['source_key'] in skip and 'due' in x:
+                was = (last.get(x['source_key'][len(prefix):]) or {}).get('due')
+                if was != x['due']: skip[x['source_key']] = {**skip[x['source_key']], 'due_changed': (was, x['due'])}
     picker = None
     if plan['epic'] is None:
         # no "epic" in the plan: the tasks are born under an epic by the rule every path shares (PLN0275,
@@ -350,7 +383,9 @@ def run(agent, plan_raw, dry=False, max_tasks=None, update=False, now=None):
         epic = x.get('kind') == 'epic'
         name = f'[P{x["priority"]}] {x["title"]}'
         if sk in skip:
-            lines.append(f'  JA EXISTE {skip[sk]["pid"]} {name} (não reenviada; --update reenvia)')
+            ch = skip[sk].get('due_changed')
+            lines.append(f'  JA EXISTE {skip[sk]["pid"]} {name} (não reenviada; --update reenvia'
+                         + (f'; a data mudou no plano: {ch[0] or "sem data"} -> {ch[1] or "sem data"})' if ch else ')'))
             if not epic: made.append(skip[sk]['pid']); counts['já existia'] = counts.get('já existia', 0) + 1
             continue
         r = results.get(sk) or {'result': 'error', 'reason': 'sem resposta do Planou para esta tarefa'}
@@ -379,6 +414,7 @@ def _extras(x, pid_of, prefix):
     out = []
     if x.get('blocked_by'):
         out.append('depende de ' + ', '.join(pid_of.get(b) or (b[len(prefix):] if b.startswith(prefix) else b) for b in x['blocked_by']))
+    if x.get('due'): out.append(f'vence {x["due"]}')
     if (x.get('agent_can_do') or {}).get('value'): out.append('um agente pode fazer')
     return ('; ' + '; '.join(out)) if out else ''
 
@@ -396,7 +432,8 @@ def _record(agent, plan, sent, results, now):
             code = _code_of(agent, x['source_key'])
             prev = tasks.get(code) or {}
             notes = list(r.get('warnings') or []) + ([r['reason']] if r.get('reason') else [])
-            entry = {**prev, 'pid': r['pid'], 'version': r.get('version'), 'title': x['title'], 'due': None,
+            # the due that went up (the epic sends none): what the tick's task_changed compares (planou_tick.altera)
+            entry = {**prev, 'pid': r['pid'], 'version': r.get('version'), 'title': x['title'], 'due': x.get('due'),
                      'state': x.get('state') or prev.get('state') or 'backlog',
                      'project_state': x.get('project_state') or prev.get('project_state')}
             if (not prev and 'state' not in x) or P._in_backlog(notes): entry['backlog'] = True
@@ -409,12 +446,16 @@ def _record(agent, plan, sent, results, now):
     plans = P._load(PLANS, {})
     p = plans.setdefault(g['slug'], {'ref': g['ref'], 'created_at': now.isoformat(), 'tasks': {}})
     p.update(title=g['title'] or p.get('title'), project=plan['project'] or P._S.get('project'), updated_at=now.isoformat())
+    source = {t['code']: t.get('due_source') for t in plan['tasks']}
     for x in sent:
         r = results.get(x['source_key']) or {}
         if not r.get('pid'): continue
         code = 'epic' if x.get('kind') == 'epic' else x['source_key'].split(f'meta-{g["slug"]}-', 1)[-1]
         p['tasks'][code] = {'pid': r['pid'], 'title': x['title'], 'priority': x['priority'],
                             'state': 'epic' if x.get('kind') == 'epic' else x.get('state') or 'backlog'}
+        if x.get('kind') != 'epic':
+            # the due and where it came from: the source is local only (never sent to Planou)
+            p['tasks'][code].update(due=x.get('due'), due_source=source.get(code) if x.get('due') else None)
     P._save(PLANS, plans)
 
 
@@ -427,7 +468,8 @@ def list_plans(agent, goal=None):
         if key and s != key: continue
         lines.append(f'META {p.get("ref")}: {p.get("title") or "-"} ({p.get("project") or "-"}, {str(p.get("updated_at") or "")[:16]})')
         for code, t in (p.get('tasks') or {}).items():
-            lines.append(f'  {t.get("pid")} [P{t.get("priority")}] {t.get("title")} ({t.get("state")})')
+            lines.append(f'  {t.get("pid")} [P{t.get("priority")}] {t.get("title")} ({t.get("state")})'
+                         + (f'; vence {t["due"]} ({t.get("due_source") or "sem fonte"})' if t.get('due') else ''))
     return lines or ['nenhuma meta quebrada por esta instância' + (f' com {goal}' if goal else '')]
 
 
