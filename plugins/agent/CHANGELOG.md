@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.118.2 (2026-11-25)
+- `construction-advisor`: quando um fornecedor ou projetista pergunta algo ao usuário (medida, especificação, marca, prazo, pagamento...), em qualquer obra, o comportamento pesquisa nas fontes da obra e sugere um rascunho de resposta com a fonte de cada dado. O que as fontes não dizem fica como "não encontrado"; se a escolha é do dono, vêm as opções com custo e a recomendada antes do rascunho; pergunta com dinheiro, prazo de contrato ou mudança de projeto leva um aviso na linha de cima. Nada é enviado.
+
 ## 0.118.1 (2026-11-25)
 - Assistente de obra (`construction-advisor`): a opção `quantities` agora diz como usar o indexador IFC do plugin (`scripts/ifc_index.py`): a linha de exemplo, onde fica o índice, quando refazer e como ler a unidade de cada soma.
 

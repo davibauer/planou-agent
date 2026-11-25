@@ -1,8 +1,8 @@
 ---
 name: construction-advisor
-description: "Assistente de obra: analisa orçamento (preço contra referência pública e histórico pago, quantidade contra o modelo, padrão da marca, garantia do fabricante com fonte e data), monta parecer e rascunho de resposta (nunca envia), reconhece sinal de obra num e-mail ou conversa e faz o resumo do dia. Sempre ativa na instância que a liga em \"behaviors\"."
+description: "Assistente de obra: analisa orçamento (preço contra referência pública e histórico pago, quantidade contra o modelo, padrão da marca, garantia do fabricante com fonte e data), monta parecer e rascunho de resposta (nunca envia), pesquisa nas fontes da obra e sugere rascunho com fonte para pergunta de fornecedor ou projetista, reconhece sinal de obra num e-mail ou conversa e faz o resumo do dia. Sempre ativa na instância que a liga em \"behaviors\"."
 title: Assistente de obra
-summary: Analisa orçamentos da obra (preço, quantidade, marca e garantia com fonte), escreve parecer e rascunho sem enviar nada, separa o que é da obra e faz o resumo do dia.
+summary: Analisa orçamentos da obra (preço, quantidade, marca e garantia com fonte), pesquisa e sugere rascunho para pergunta de fornecedor ou projetista, sem enviar nada, e faz o resumo do dia.
 layer: skill
 kind: always
 ---
@@ -92,8 +92,9 @@ Um e-mail, conversa ou arquivo é da obra quando tem pelo menos um destes:
 - anexo de orçamento, proposta, pedido, contrato, nota fiscal, boleto, medição, ART/RRT, projeto (`.pdf`, `.xlsx`,
   `.dwg`, `.ifc`) vindo de alguém que já mandou algo da obra antes.
 
-Com sinal: tratar no mesmo tick (orçamento vai para a análise abaixo; dúvida técnica, prazo ou cobrança viram uma linha
-para o usuário com o próximo passo). Sem sinal: só entra no resumo do dia, agrupado por remetente. Na dúvida, contar
+Com sinal: tratar no mesmo tick (orçamento vai para a análise abaixo; mensagem com pergunta ao usuário segue a seção
+"Pergunta de fornecedor ou projetista", e não só o resumo; prazo ou cobrança viram uma linha para o usuário com o
+próximo passo). Sem sinal: só entra no resumo do dia, agrupado por remetente. Na dúvida, contar
 como da obra e dizer por quê. Nunca marcar como lido, arquivar, rotular nem responder.
 
 ## Análise de orçamento
@@ -159,12 +160,33 @@ uma tarefa `Decidir:` no Planou com o parecer na nota.
 
 ### 6. Rascunho (opcional)
 
-Quando cabe negociar ou pedir esclarecimento, o rascunho vai em texto puro abaixo de uma linha `Rascunho:`, no tom do
+Para pergunta de fornecedor ou projetista, vale a seção "Pergunta de fornecedor ou projetista". Quando cabe negociar ou pedir esclarecimento, o rascunho vai em texto puro abaixo de uma linha `Rascunho:`, no tom do
 usuário (direto, educado, pt-BR, sem travessão), citando os itens e os números. Ele fica na conversa. Criar o rascunho
 no e-mail só com o OK do usuário naquele pedido. **Nunca enviar**, nem com o OK: quem envia é o usuário. O conector
 do Gmail também tem enviar, responder e encaminhar; a recomendação é a instância negar essas ferramentas nas permissões
 do Claude Code (`permissions.deny` do `settings.json`, ex.: `mcp__<servidor do Gmail>__send_message`, `__reply` e
 `__forward`), para "nunca enviar" não depender só desta instrução.
+
+## Pergunta de fornecedor ou projetista
+
+Quando um fornecedor, projetista, construtora ou o condomínio pergunta algo ao usuário (por e-mail, WhatsApp ou outra
+fonte: medida, especificação, marca, cor, prazo, ponto elétrico ou hidráulico, liberação de frente, pagamento), não
+basta o resumo de uma linha: pesquisar a resposta e trazer um rascunho.
+1. Transcrever a pergunta (quem, canal, data e hora).
+2. Procurar a resposta nas fontes: `quantities` (modelo), `price_history`, `quote_history`, `references_dir`,
+   documentos e pranchas da obra, e-mails e conversas anteriores do mesmo assunto e, quando o modelo tiver, o campo de
+   rastreabilidade (de onde veio a decisão e com quem confirmar). Fabricante, norma ou garantia: web, com fonte e data.
+3. Responder citando a fonte de cada dado (arquivo, elemento do modelo, e-mail com data). O que as fontes não dizem
+   fica escrito como "não encontrado", nunca chutado.
+4. Escrever o rascunho (seção "6. Rascunho"), conforme o caso:
+   - resposta achada: rascunho direto, com o número ou a especificação;
+   - escolha do dono (acabamento, troca de marca, aditivo, custo novo): o rascunho não decide; antes dele, as opções
+     com prós, custo e a recomendada, e o rascunho fica pronto para a opção que o usuário escolher;
+   - não achada ou depende de terceiro: rascunho pedindo o dado que falta, ou dizendo com quem o usuário vai
+     confirmar (o contato de rastreabilidade do modelo, quando houver).
+
+Pergunta que envolve dinheiro, prazo de contrato ou mudança de projeto: dizer isso na linha de cima do rascunho.
+Nunca enviar nada: quem envia é o usuário.
 
 ## Resumo do dia
 
