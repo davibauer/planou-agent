@@ -23,7 +23,14 @@ Opções em `behavior_config.construction-advisor` (`$A --status` mostra):
 - `quote_history`: o comando da instância que lista os orçamentos já recebidos; a sessão acrescenta uma
   palavra-chave do fornecedor ou do item. Só no computador.
 - `quantities`: o comando da instância que soma quantidades do modelo (IFC ou listas do projeto); a sessão acrescenta a
-  classe ou uma palavra-chave do elemento. Só no computador.
+  classe ou uma palavra-chave do elemento. Só no computador. Para modelo IFC, o plugin traz `$S/scripts/ifc_index.py`:
+  a opção é a linha inteira terminando em `qty --`, com o caminho escrito por extenso (a opção é texto do config, e
+  `$S` não existe no shell que a roda), ex.: `"python3 ~/.claude/skills/agent/scripts/ifc_index.py --instance
+  <instância> --ifc casa=/caminho/modelo.ifc qty --"` (um `--ifc NOME=CAMINHO` por modelo; caminho com espaço vai
+  entre aspas simples, `--ifc 'casa=/pasta da obra/modelo.ifc'`). O índice fica em
+  `$I/data/ifc-index/`, feito uma vez com `build` no lugar de `qty --` (roda com nice 19) e refeito só quando o `.ifc`
+  muda; `status` diz se está em dia (sai 3 quando não). Cada soma sai por chave com a unidade (Qto em m, m2, m3, kg;
+  número de Pset próprio com o nome inteiro e "(unidade do modelo)").
 - `signal_words`: palavras que marcam um e-mail ou conversa como da obra (ex.: `orçamento`, `proposta`, `medição`,
   `ART`, o nome da obra).
 - `signal_senders`: domínios e endereços de quem é da obra (fornecedores, projetistas, construtora).
@@ -113,7 +120,8 @@ Para os itens que somam 80 % do valor:
 ### 3. Quantidade
 
 - Somar no modelo (`quantities`) por classe ou texto do elemento e andar, olhando a unidade de cada soma (nunca somar
-  metro com metro quadrado).
+  metro com metro quadrado). Com o `ifc_index.py`, o andar vai antes do `qty --` (`--storey <andar>`) e o detalhe item
+  a item sai com `class` ou `search` no lugar de `qty --`.
 - Diferença acima de `qty_tolerance_pct` entre o orçado e o projeto: apontar com os números dos dois lados. Perda
   técnica (revestimento, argamassa, aço) aceitável até 10 %, se o fornecedor declarar.
 - Item orçado que não está no projeto, ou do projeto que não está no orçamento: listar.

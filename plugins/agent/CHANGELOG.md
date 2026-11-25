@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.118.1 (2026-11-25)
+- Assistente de obra (`construction-advisor`): a opção `quantities` agora diz como usar o indexador IFC do plugin (`scripts/ifc_index.py`): a linha de exemplo, onde fica o índice, quando refazer e como ler a unidade de cada soma.
+
 ## 0.118.0 (2026-11-25)
 - Índice IFC para o assistente de obra: `scripts/ifc_index.py` lê os modelos IFC da obra (vários por instância, pela linha de comando) uma vez só e guarda um índice compacto em `data/ifc-index/<modelo>/`, refeito só quando o tamanho ou a data do `.ifc` mudam. Consultas curtas, em texto ou JSON: `summary`, `class`, `search`, `qty` (soma por quantidade, com a unidade, sem misturar metro com m2; número de propriedade própria sai com o nome inteiro e a unidade do modelo, nunca somado ao comprimento já convertido para metro), `materials`, `manufacturers` e `spaces`; `status` diz se o índice está em dia. O build roda com prioridade baixa e, sem o `ifcopenshell`, diz como instalar em vez de quebrar. Serve de comando para a opção `quantities`.
 
