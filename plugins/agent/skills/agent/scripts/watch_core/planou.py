@@ -4394,12 +4394,18 @@ DOCS_ANSWERED = 'docs_answered.json'      # version_ids whose answer reached Pla
 DOCS_ANSWERED_KEEP = 200
 
 
+def _docs_answered_ids():
+    """docs_answered.json's list; [] when missing, unreadable or valid JSON that is not a list (PLN0994)."""
+    v = _load(DOCS_ANSWERED, [])
+    return v if isinstance(v, list) else []
+
+
 def docs_mark_answered(version_id):
     """Keeps `version_id` as answered (docs_answered.json, the last DOCS_ANSWERED_KEEP), for docs_answered()."""
     vid = str(version_id or '')
     if not vid or not _S['root']: return
     with _locked(DOCS_ANSWERED):
-        seen = [str(v) for v in _load(DOCS_ANSWERED, []) or [] if str(v) != vid]
+        seen = [str(v) for v in _docs_answered_ids() if str(v) != vid]
         _save(DOCS_ANSWERED, (seen + [vid])[-DOCS_ANSWERED_KEEP:])
 
 
@@ -4409,7 +4415,7 @@ def docs_answered(ev):
     apply_events stops right before it, as the travel-agent's handler does when docs_ack failed; the next tick answers
     it again and only then it is acknowledged."""
     vid = str((ev.get('payload') or {}).get('version_id') or '')
-    return not vid or vid in [str(v) for v in _load(DOCS_ANSWERED, []) or []]
+    return not vid or vid in [str(v) for v in _docs_answered_ids()]
 
 
 def docs_ack(version_id, result, sha256=None, reason=None):

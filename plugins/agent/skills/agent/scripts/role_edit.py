@@ -615,7 +615,8 @@ def handle(cfg, ev, now=None):
         _save(recs)
         _OUT[result].append(line)
     if r.get('acked'):
-        planou.docs_mark_answered(vid)          # answered before docs_answered.json existed (PLN0993)
+        try: planou.docs_mark_answered(vid)     # answered before docs_answered.json existed (PLN0993)
+        except OSError: pass                    # answered all the same, as docs_ack does (PLN0994)
         return True
     done, note = planou.docs_ack(vid, r['result'], r.get('sha256'), r.get('reason'))
     if done:

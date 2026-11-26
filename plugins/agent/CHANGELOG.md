@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.124.4 (2026-11-25)
+- job-scout: uma falha ao aplicar a mudança do intervalo das fontes não impede mais que as outras edições da aba Papel sejam recusadas no mesmo tick; antes, uma falha que se repetia ali deixava essas edições sem resposta para sempre. Cada falha vai para o avisos.log.
+- Papel: uma edição já respondida ao Planou não falha mais quando o registro das respostas não pode ser gravado, e um registro corrompido (JSON que não é lista) passa a contar como vazio em vez de dar erro ou marcar versões como respondidas por engano.
+
 ## 0.124.3 (2026-11-25)
 - Slack no work-watch: quando a busca estoura o tempo lendo a resposta (rede lenta), o tick refaz com páginas menores em vez de ficar preso e falhar. Rede fora (estouro na conexão) continua falhando na hora, sem buscas extras.
 

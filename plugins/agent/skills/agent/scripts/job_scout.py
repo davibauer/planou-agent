@@ -87,12 +87,17 @@ def save_docs(cfg, manifest):
             import role_edit                       # the interval (PLN0989), after a change apply_ticks made (PLN0992)
             role_edit.report_tick(role_edit.config_now(cfg))
     except Exception as e:
-        try:
-            d = os.path.join(paths.CACHE_DIR, 'planou'); os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, 'avisos.log'), 'a', encoding='utf-8') as fh:
-                fh.write(f'AVISO (planou): arquivos do papel: {type(e).__name__}: {str(e)[:120]}\n')
-        except OSError:
-            pass
+        _aviso('arquivos do papel', e)
+
+
+def _aviso(what, e):
+    """An AVISO line in cache/planou/avisos.log for a failure that must never fail the tick."""
+    try:
+        d = os.path.join(paths.CACHE_DIR, 'planou'); os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'avisos.log'), 'a', encoding='utf-8') as fh:
+            fh.write(f'AVISO (planou): {what}: {type(e).__name__}: {str(e)[:120]}\n')
+    except OSError:
+        pass
 
 
 def apply_ticks(cfg):
@@ -106,16 +111,14 @@ def apply_ticks(cfg):
         planou.configure_agent(paths.NAME, paths.ROOT)
         if not planou.active(): return
         import role_edit
-        lines, _ = role_edit.apply_ticks(cfg, fetch=True)
-        if lines: print(lines + '\n')          # before the refusals: a failure there never loses the block (PLN0993)
+        try:
+            lines, _ = role_edit.apply_ticks(cfg, fetch=True)
+            if lines: print(lines + '\n')      # before the refusals: a failure there never loses the block (PLN0993)
+        except Exception as e:                  # nor skips the refusals: each failure is its own AVISO (PLN0994)
+            _aviso('intervalo das fontes', e)
         role_edit.refuse_other_kinds()
     except Exception as e:
-        try:
-            d = os.path.join(paths.CACHE_DIR, 'planou'); os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, 'avisos.log'), 'a', encoding='utf-8') as fh:
-                fh.write(f'AVISO (planou): intervalo das fontes: {type(e).__name__}: {str(e)[:120]}\n')
-        except OSError:
-            pass
+        _aviso('intervalo das fontes', e)
 
 
 def run(cfg, args, manifest=None):
