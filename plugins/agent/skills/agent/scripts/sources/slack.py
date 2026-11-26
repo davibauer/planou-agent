@@ -24,7 +24,7 @@ Config ("fontes": [{"tipo": "slack", ...}]):
   max_por_chat    messages shown per chat (default 20)
   lembrar_horas   business hours until the 1st reminder (default 4)
 """
-import http.client, os, re, sys
+import http.client, os, re, socket, sys
 from datetime import datetime, timezone, timedelta
 
 import core, paths, compartilhado, permalinks
@@ -36,7 +36,10 @@ BOTS_IGNORAR = set()
 CANAIS_IGNORAR = set()
 MAX_POR_CHAT = 20
 TAMANHOS_PAGINA = (100, 50, 20)   # search.messages count, biggest first
-RESPOSTA_CORTADA = (http.client.IncompleteRead, ConnectionResetError)
+# socket.timeout: the response came but its body (or headers) took over the 60 s urlopen timeout (SSL "The read operation
+# timed out" included). It is an alias of TimeoutError only from Python 3.10; on 3.8/3.9 it is not a TimeoutError. A
+# connect timeout comes wrapped in urllib.error.URLError, which is not a socket.timeout and still propagates.
+RESPOSTA_CORTADA = (http.client.IncompleteRead, ConnectionResetError, socket.timeout)
 
 
 def _slack():
@@ -67,8 +70,9 @@ def tick_slack(s, desde, dry):
     dia = (desde - timedelta(days=2)).strftime('%Y-%m-%d')
     corte = desde.timestamp() - 300
     vistos = set(st.get('vistos') or [])
-    # Slow link: a big page can come back cut (IncompleteRead) while smaller ones pass. Retry from page 1 with a smaller
-    # count (page is per count); ts cut and 'vistos' keep it free of duplicates. Other errors (auth, 429, HTTP) are untouched.
+    # Slow link: a big page can come back cut (IncompleteRead) or time out mid-read while smaller ones pass. Retry from
+    # page 1 with a smaller count (page is per count); ts cut and 'vistos' keep it free of duplicates. Other errors (auth,
+    # 429, HTTP, connect timeout as URLError) are untouched: if the network drops, the smaller retry fails to connect and raises.
     for count in TAMANHOS_PAGINA:
         brutas, pagina = [], 1
         try:

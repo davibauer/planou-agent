@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.124.3 (2026-11-25)
+- Slack no work-watch: quando a busca estoura o tempo lendo a resposta (rede lenta), o tick refaz com páginas menores em vez de ficar preso e falhar. Rede fora (estouro na conexão) continua falhando na hora, sem buscas extras.
+
 ## 0.124.2 (2026-11-25)
 - job-scout: uma edição da aba Papel recusada (tudo que não é o intervalo das fontes) cuja resposta não chegou ao Planou por falha de rede fica pendente e é recusada de novo no tick seguinte, como no travel-agent; antes ela era confirmada como lida e a versão ficava esperando resposta para sempre. Enquanto ela espera, os eventos que vieram depois dela também esperam um tick.
 - job-scout: uma falha ao recusar essas edições não esconde mais o aviso de que o intervalo das fontes mudou no mesmo tick.
