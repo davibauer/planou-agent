@@ -21,7 +21,9 @@ Which session is an agent session (every check cheap first; any doubt = stay sil
      for it there is not a `stop` (a stop asked by the person stays a stop).
 PLN1027: a runner killed under memory pressure (heavy.py: the marks runner.sh leaves in cache/runner while it lives,
 or a dead runner.pid with the pressure high now) is logged once in cache/planou/warnings.log, before the rules that
-keep the block quiet, and the block says "parado por falta de memoria (...)".
+keep the block quiet, and the block says "parado por falta de memoria (...)" only with evidence of the cause (PLN1048:
+the harness notice "running low on memory" for the last background launch of the runner in this transcript, or a
+kernel OOM kill of its pid); without it "parado (fim sem sinal; <the pressure>)".
 Against a loop: never with stop_hook_active (the model already got the block in this turn), and after a block that
 did not bring the runner up (no Stop saw it alive since), not again for BACKOFF_S. Any error: exit 0 and no output (a
 broken hook must never stop a session).
@@ -106,11 +108,12 @@ def runner_alive(inst, rdir):
     return False
 
 
-def launched_here(transcript, inst):
-    """True when this session launched the runner in the background and did not stop it after."""
-    if not isinstance(transcript, str) or not os.path.isfile(transcript): return False
+def runner_launches(transcript, inst):
+    """(started, last, last_id): a background start of `runner.sh <inst>` was seen, the last runner.sh command for it
+    ('start', 'stop' or None) and the tool_use id of the last background start."""
+    if not isinstance(transcript, str) or not os.path.isfile(transcript): return False, None, None
     cmd_re = re.compile(r'runner\.sh[\'"]?\s+[\'"]?' + re.escape(inst) + r'[\'"]?(?=\s|$|[;&|)])([^;&|\n]*)')
-    started, last = False, None
+    started, last, last_id = False, None, None
     with open(transcript, 'rb') as f:
         for raw in f:
             if b'runner.sh' not in raw or b'tool_use' not in raw: continue
@@ -126,16 +129,46 @@ def launched_here(transcript, inst):
                     elif rest and rest[0] == '--status': continue
                     else:
                         last = 'start'
-                        if inp.get('run_in_background') is True: started = True
+                        if inp.get('run_in_background') is True: started, last_id = True, c.get('id')
+    return started, last, last_id
+
+
+def launched_here(transcript, inst):
+    """True when this session launched the runner in the background and did not stop it after."""
+    started, last, _ = runner_launches(transcript, inst)
     return started and last == 'start'
 
 
-def memory_death(root, rdir, inst):
-    """PLN1027: the runner died under memory pressure (heavy.runner_mem_death: the marks runner.sh leaves while it
-    lives, or a dead runner.pid with the pressure high now): the cause, logged once in cache/planou/warnings.log."""
+LOW_MEMORY = b'stopped because the system is running low on memory'
+
+
+def harness_low_memory(transcript, inst):
+    """PLN1048: the evidence that the memory took the runner down: the harness notice of a background task "stopped
+    because the system is running low on memory" naming the tool_use id of the LAST background launch of the runner
+    (a notice about an earlier launch says nothing about this end). Raw bytes of a line, not its JSON shape. The id
+    counts only inside the notice's <tool-use-id> tag, with the whole phrase: the launch's own tool_use line also has
+    the id, beside free text (description, the assistant's words) such as "relaunch runner (stopped: low on memory)"."""
+    try:
+        _, _, tid = runner_launches(transcript, inst)
+        if not isinstance(tid, str) or not tid: return None
+        key = b'<tool-use-id>' + tid.encode() + b'</tool-use-id>'
+        with open(transcript, 'rb') as f:
+            for raw in f:
+                if LOW_MEMORY in raw and key in raw:
+                    return 'o Claude Code parou o runner: system is running low on memory'
+    except (OSError, ValueError): pass
+    return None
+
+
+def memory_death(root, rdir, inst, transcript=None):
+    """PLN1027: the runner ended under memory pressure (heavy.runner_mem_death: the marks runner.sh leaves while it
+    lives, or a dead runner.pid with the pressure high now), logged once in cache/planou/warnings.log. Returns what
+    follows "parado": "por falta de memoria (...)" only with evidence (PLN1048: the harness notice in this transcript,
+    or a kernel OOM kill), otherwise "(fim sem sinal; <pressure>)"."""
     try:
         import heavy
-        return heavy.log_mem_death(root, rdir, inst)
+        if not heavy.runner_mem_death(rdir): return None     # no transcript scan when the pressure was not high
+        return heavy.log_mem_death(root, rdir, inst, lambda: harness_low_memory(transcript, inst))
     except Exception: return None
 
 
@@ -156,7 +189,7 @@ def main():
         except OSError: pass
         return
     if os.path.exists(os.path.join(rdir, STOPPED)): return   # stopped on purpose, here or outside the session
-    mem = memory_death(root, rdir, inst)   # logged once, before any rule below keeps the block quiet
+    mem = memory_death(root, rdir, inst, hook.get('transcript_path'))   # logged once, before any rule below keeps the block quiet
     if hook.get('stop_hook_active'): return
     try:
         if time.time() - os.path.getmtime(mark) < BACKOFF_S: return
@@ -166,7 +199,7 @@ def main():
     with open(mark, 'w') as f:
         json.dump({'blocked_at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'session_id': hook.get('session_id')}, f)
     runner = os.path.join(HERE, 'runner.sh')
-    why = f' por falta de memoria ({mem})' if mem else ''
+    why = f' {mem}' if mem else ''
     print(json.dumps({'decision': 'block', 'reason': (
         f'runner da instancia {inst} parado{why}: relance agora com `FIRST_NOW=0 bash {runner} {inst}` '
         f'(Bash com run_in_background), em uma linha e mais nada. Se uma acordada do runner ainda estiver para '

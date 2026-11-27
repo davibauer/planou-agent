@@ -4252,11 +4252,9 @@ def _date_time(v):
 
 def _log(name, line, now=None):
     try:
-        f = os.path.join(_cache_dir(), name)
-        os.makedirs(_cache_dir(), exist_ok=True)
-        old = open(f).read().splitlines()[-199:] if os.path.exists(f) else []
-        with open(f, 'w') as fh:
-            fh.write('\n'.join(old + [f'{(now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}\t{line}']) + '\n')
+        # PLN1048: under the log's lock with an atomic rewrite; heavy.log_mem_death writes warnings.log too
+        fileio.append_line(os.path.join(_cache_dir(), name),
+                           f'{(now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}\t{line}')
     except OSError:
         pass
 

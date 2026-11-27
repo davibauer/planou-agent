@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.129.3 (2026-11-27)
+- Runner parado com a memória alta: o aviso só diz "por falta de memória" com prova da causa (o aviso do Claude Code "running low on memory" para o último lançamento do runner, ou o OOM do kernel com o pid dele depois que o runner subiu); um texto do próprio lançamento com "low on memory" não conta como prova; sem prova, diz "fim sem sinal" e mostra a pressão como dado. O aviso continua aparecendo nos mesmos casos (PLN1048).
+- `heavy.py` dentro de um job pesado reconhece o job pelo pid de quem tem a trava entre os seus ancestrais, não pela variável: com `env -i` não espera mais a própria trava, e `AGENT_HEAVY_ACTIVE=1` sozinha não pula a fila (PLN1048).
+- `warnings.log` não perde linha quando dois processos escrevem ao mesmo tempo: a gravação vai sob a trava do arquivo, com troca atômica (PLN1048).
+
 ## 0.129.2 (2026-11-27)
 - Capturas da entrega na fila de release (PLN1046): a vaga de anexos conta todos os anexos da tarefa, inclusive os que a pessoa mandou, como o Planou conta, e nunca deixa a tarefa passar de 20. As 9 capturas valem por entrega: a tarefa que volta de retrabalho com capturas novas recebe as novas ao lado das antigas, até o limite de 20 anexos da tarefa. A linha da fila diz qual limite segurou o que ficou fora ("limite de 9 capturas da entrega" ou "limite de 20 anexos da tarefa"; só o segundo pede apagar um anexo antigo). Duas pastas que davam o mesmo nome de anexo (uma com "senha" no nome e outra sem, ou subpastas de mesmo nome) agora dão nomes diferentes, e uma não substitui a outra. No `done`, a captura que ainda não subiu (rede, Planou fora) fica no computador até o tick enviar, com uma linha no warnings.log; só o `drop` a apaga.
 

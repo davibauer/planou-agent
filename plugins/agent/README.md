@@ -649,10 +649,17 @@ python3 skills/agent/scripts/heavy.py --status                    # memória, qu
   não consegue baixar o próprio valor sem privilégio, e isso não muda o que o Claude Code decide matar.
 - Comando `dotnet`: `dotnet build-server shutdown` no fim, ainda com a trava (`--dotnet-shutdown` força,
   `AGENT_HEAVY_DOTNET_SHUTDOWN=0` desliga).
+- `heavy.py` dentro de um job pesado roda direto, sem esperar a própria trava: vale quando o pid gravado na trava é um
+  ancestral do processo (a árvore em `/proc`), mesmo com `env -i`. A variável `AGENT_HEAVY_ACTIVE=1` sozinha não pula
+  a trava. Limite conhecido: um daemon que o job deixa para trás deixa de ser descendente e espera a trava como
+  qualquer outro job.
 - Runner parado por falta de memória: o runner anota a pressão alta em `cache/runner/mem.alta` enquanto vive (só
   quando passa de `AGENT_MEM_HIGH_PSI`, 10, ou fica abaixo de `AGENT_MEM_HIGH_AVAIL_MB`, 1024), e um sinal com a
   pressão alta deixa `cache/runner/runner.memoria`. O gancho Stop diz "runner da instância X parado por falta de
-  memória (...)" e a causa vai uma vez para `cache/planou/warnings.log`. Quem relança continua sendo a sessão.
+  memória (...)" só com prova da causa: o aviso do Claude Code "running low on memory" para o último lançamento do
+  runner na conversa, ou o OOM do kernel no `dmesg` com o pid do runner. Sem prova, diz "parado (fim sem sinal; ...)"
+  com a pressão como dado. A linha vai uma vez para `cache/planou/warnings.log`, sob a trava do arquivo e com troca
+  atômica, sem perder linha de outro processo que escreve ao mesmo tempo. Quem relança continua sendo a sessão.
 
 ## Ganchos do plugin
 

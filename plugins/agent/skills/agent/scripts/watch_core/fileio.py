@@ -9,6 +9,8 @@ temporary file already renamed by the first (FileNotFoundError), or renames the 
   locked(path)              exclusive flock on `<path>.lock` for load, change, save; reentrant in the same thread
                             (a nested call does not lock again: a second flock on another descriptor of the same file
                             would block the process on itself)
+  append_line(path, line)   one line at the end of a log that keeps its last `keep` lines (warnings.log), under
+                            locked(path) and with write(): two processes logging at once never lose a line (PLN1048)
 """
 import contextlib
 import fcntl
@@ -64,6 +66,14 @@ def locked(path):
         finally:
             del held[key]
             fcntl.flock(lk, fcntl.LOCK_UN)
+
+
+def append_line(path, line, keep=200):
+    with locked(path):
+        try:
+            with open(path, encoding='utf-8', errors='replace') as f: old = f.read().splitlines()
+        except FileNotFoundError: old = []
+        write(path, '\n'.join(old[max(0, len(old) - keep + 1):] + [line]) + '\n')
 
 
 def holding(path_fn):

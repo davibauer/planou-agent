@@ -26,15 +26,23 @@ job of every agent now goes through this wrapper:
    a wrapper killed with -9 never leaves a render running without the lock.
 5. A dotnet job (an argument named dotnet, or "dotnet " inside a `bash -c` text) or --dotnet-shutdown: `dotnet
    build-server shutdown` right after, still under the lock (AGENT_HEAVY_DOTNET_SHUTDOWN=0 turns it off).
-6. Inside a heavy job (AGENT_HEAVY_ACTIVE=1, exported to the job) a nested heavy.py runs the command directly: no lock
-   wait on itself, no second scope.
+6. Inside a heavy job a nested heavy.py runs the command directly (no lock wait on itself, no second scope). Nested
+   means the pid written in the held lock file is one of its ancestors (/proc/<pid>/stat, the parent chain), never the
+   environment alone (PLN1048): a job under `env -i` loses every variable and still nests, and an AGENT_HEAVY_ACTIVE=1
+   inherited by a process outside the job (or set by hand) no longer skips the lock. AGENT_HEAVY_ACTIVE=1 is still
+   exported to the job, as information only. Known limit: a daemon the job leaves behind is reparented away from the
+   wrapper, so a heavy.py it starts waits for the lock like any other job (the right serialization, at worst a wait
+   up to the ceiling while the outer job lasts).
 
 The exit code is the job's (a signal N as 128+N). AGENT_MEM_PROC (default /proc) and AGENT_HEAVY_CGROUP_ROOT (default
 /sys/fs/cgroup) are for the tests; AGENT_HEAVY_CGROUP=0 skips the ceiling; AGENT_HEAVY_SYSTEMD_RUN names systemd-run.
 
 mem_state() and mem_high() are also what the runner's Stop hook (stop_guard.py) reads to tell a runner killed under
 memory pressure: high = PSI some avg10 >= AGENT_MEM_HIGH_PSI (10) or MemAvailable < AGENT_MEM_HIGH_AVAIL_MB (1024),
-the same rule runner.sh records in cache/runner/mem.alta while it lives (runner_mem_death below).
+the same rule runner.sh records in cache/runner/mem.alta while it lives (runner_mem_death below). High pressure is
+only data: the notice says "por falta de memoria" only with evidence of the cause (PLN1048: the harness notice
+"stopped because the system is running low on memory" for the runner's launch, read by stop_guard.py from the
+transcript, or a kernel OOM kill of the runner's pid in dmesg); without it, "fim sem sinal" with the pressure beside it.
 """
 import json, os, re, shlex, shutil, signal, subprocess, sys, time
 
@@ -131,6 +139,24 @@ def holder_text(h):
     if not h: return 'livre'
     since = time.strftime('%H:%M', time.localtime(h['since'])) if isinstance(h.get('since'), (int, float)) else '?'
     return f'com o pid {h.get("pid", "?")} ({h.get("cmd", "?")}) desde {since}'
+
+
+def _ppid(pid):
+    try:
+        with open(f'/proc/{pid}/stat') as f: return int(f.read().rsplit(')', 1)[1].split()[1])
+    except (OSError, IndexError, ValueError): return 0
+
+
+def nested(path=None):
+    """True when the lock is held by one of this process's ancestors (we run inside its job)."""
+    pid = holder(path).get('pid')
+    if not isinstance(pid, int) or pid <= 1: return False
+    p = os.getppid()
+    for _ in range(64):
+        if p == pid: return True
+        if p <= 1: return False
+        p = _ppid(p)
+    return False
 
 
 def try_lock(fd):
@@ -259,7 +285,7 @@ def main(args=None):
                 f'[--dotnet-shutdown] -- <comando> | heavy.py --status'); return 2
     cmd = args[1:]
     if not cmd: log('faltou o comando depois de --'); return 2
-    if os.environ.get('AGENT_HEAVY_ACTIVE') == '1': return run(cmd, (), adj)   # nested: the outer one holds it all
+    if nested(): return run(cmd, (), adj)   # inside the job of the lock's holder: the outer one holds it all
     if shutdown is None: shutdown = is_dotnet(cmd) and os.environ.get('AGENT_HEAVY_DOTNET_SHUTDOWN') != '0'
     deadline = time.monotonic() + max(0.0, wait_s)
     fd = acquire(cmd, deadline, min(poll, 2.0), log)
@@ -299,7 +325,9 @@ def _pid_runs(pid):
 
 
 def runner_mem_death(rdir):
-    """(key, text) when the runner of this cache/runner folder died under memory pressure, else None.
+    """(key, text, pid) when the runner of this cache/runner folder ended with the memory pressure high, else None.
+    The text is the pressure (data, not the cause: log_mem_death adds the cause only with evidence); pid is the dead
+    runner's (None for runner.memoria).
     - runner.memoria: the runner itself saw a signal with the pressure high (TERM, HUP; it removed runner.pid);
     - runner.pid naming a dead process (a KILL leaves it) and mem.alta (the last state it recorded was high), or no
       mark at all but the pressure high right now (a pinned older runner.sh that records nothing)."""
@@ -309,13 +337,13 @@ def runner_mem_death(rdir):
         except OSError: return None, None
     death, dt = read(DEATH_MARK)
     if death is not None:
-        return f'{DEATH_MARK}:{int(dt)}', _mark_text(death, 'sinal')
+        return f'{DEATH_MARK}:{int(dt)}', _mark_text(death, 'sinal'), None
     pid, _ = read('runner.pid')
     if not pid or not pid.isdigit() or _pid_runs(pid): return None
     mark, mt = read(MEM_MARK)
-    if mark is not None: return f'{pid}:{int(mt)}', _mark_text(mark, 'morto')
+    if mark is not None: return f'{pid}:{int(mt)}', _mark_text(mark, 'morto'), int(pid)
     st = mem_state()
-    if mem_high(st): return f'{pid}:agora', f'morto com a memoria alta agora ({describe(st)})'
+    if mem_high(st): return f'{pid}:agora', f'memoria alta agora ({describe(st)})', int(pid)
     return None
 
 
@@ -327,37 +355,87 @@ def _mark_text(line, how):
     st = {}
     try: st = {'some10': float(f[1]), 'full10': float(f[2]), 'avail_mb': int(f[3])}
     except (IndexError, ValueError): pass
-    return (f'{how} as {when}' if how == 'sinal' else f'memoria alta desde {when}') + (f' ({describe(st)})' if st else '')
+    return (f'TERM ou HUP as {when} com a memoria alta' if how == 'sinal' else f'memoria alta desde {when}') + (
+        f' ({describe(st)})' if st else '')
 
 
-def log_mem_death(root, rdir, inst):
-    """Logs a death under memory pressure once in <root>/cache/planou/warnings.log (the format of watch_core.planou's
-    _log: ISO time, tab, text; the last 200 lines). Returns the text (also when it was logged before) or None."""
+def kernel_oom(pid, since=None):
+    """Evidence text when the kernel log has an OOM kill of this pid ("Killed process <pid>", "oom-kill:...pid=<pid>"),
+    else None. AGENT_MEM_KLOG names a file to read instead of `dmesg` (the tests; set but unreadable = no evidence).
+    since (epoch): a line stamped before it is an older process that had the same pid, not this runner. The "[secs]"
+    stamp is the kernel clock, which does not count a suspend, as CLOCK_MONOTONIC does not: its epoch is taken from
+    the age (now on that clock minus the stamp), not from the boot time; a line without a stamp counts."""
+    if not pid: return None
+    src = os.environ.get('AGENT_MEM_KLOG')
+    try:
+        if src is not None:
+            with open(src, errors='replace') as f: text = f.read()
+        else:
+            text = subprocess.run(['dmesg'], capture_output=True, text=True, errors='replace', timeout=5).stdout
+    except (OSError, ValueError, subprocess.SubprocessError): return None
+    for line in (text or '').splitlines():
+        if not re.search(rf'(Killed process {pid}\b|oom-kill:.*\bpid={pid}\b)', line): continue
+        m = re.match(r'\s*\[\s*(\d+(?:\.\d+)?)\]', line)
+        if since and m and time.time() - (time.monotonic() - float(m.group(1))) < since - 60: continue
+        return f'o kernel matou o pid {pid} por falta de memoria (OOM)'
+    return None
+
+
+def cause(text, evidence):
+    """What follows "parado": the memory as the cause only with evidence; otherwise the end has no known cause and the
+    pressure goes as data."""
+    return f'por falta de memoria ({evidence}; {text})' if evidence else f'(fim sem sinal; {text})'
+
+
+def log_mem_death(root, rdir, inst, evidence=None):
+    """Logs a runner that ended under memory pressure once in <root>/cache/planou/warnings.log (the format of
+    watch_core.planou's _log: ISO time, tab, text; the last 200 lines). evidence: the cause seen by the caller (the
+    harness notice in the transcript), or a callable that finds it; otherwise a kernel OOM kill of the dead pid since
+    the runner's start (runner.pid). Both are looked for only when this death is not logged yet. Returns what follows "parado" in
+    the notice (also when it was logged before: then the phrase the first logger wrote, so the starting runner never
+    contradicts the Stop hook that saw the evidence) or None. The check of the logged key, the line and the key go under
+    the lock of warnings.log, with an atomic rewrite (fileio.append_line): the Stop hook and a starting runner never
+    log it twice, and a line of watch_core.planou written at the same time is never lost."""
     found = runner_mem_death(rdir)
     if not found: return None
-    key, text = found
-    try:
-        with open(os.path.join(rdir, LOGGED)) as f: done = f.read().strip() == key
-    except OSError: done = False
-    if not done:
+    key, text, pid = found
+    def logged():
+        """The phrase of this death when it is already logged (a key alone, from an older version: no evidence)."""
         try:
-            d = os.path.join(root, 'cache', 'planou'); os.makedirs(d, exist_ok=True)
-            f = os.path.join(d, 'warnings.log')
-            old = open(f).read().splitlines()[-199:] if os.path.exists(f) else []
-            from datetime import datetime, timezone
-            stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
-            with open(f, 'w') as fh:
-                fh.write('\n'.join(old + [f'{stamp}\trunner da instancia {inst} parado por falta de memoria: {text}']) + '\n')
-            with open(os.path.join(rdir, LOGGED), 'w') as fh: fh.write(key)
-        except OSError: pass
-    return text
+            with open(os.path.join(rdir, LOGGED)) as fh: done = fh.read().split('\n', 1)
+        except OSError: return None
+        if done[0].strip() != key: return None
+        return done[1].strip() if len(done) > 1 and done[1].strip() else cause(text, None)
+    def found_now():                   # the transcript scan and dmesg: only for a death not logged yet
+        ev = evidence() if callable(evidence) else evidence
+        try: since = os.path.getmtime(os.path.join(rdir, 'runner.pid'))
+        except OSError: since = None
+        return cause(text, ev or kernel_oom(pid, since))
+    phrase = logged()
+    new = None if phrase else found_now()
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path: sys.path.insert(0, here)
+        from watch_core import fileio
+        from datetime import datetime, timezone
+        f = os.path.join(root, 'cache', 'planou', 'warnings.log')
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        with fileio.locked(f):
+            phrase = logged()
+            if not phrase:
+                phrase = new or found_now()
+                stamp = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                fileio.append_line(f, f'{stamp}\trunner da instancia {inst} parado {phrase}')
+                with open(os.path.join(rdir, LOGGED), 'w') as fh: fh.write(f'{key}\n{phrase}\n')
+    except OSError: phrase = phrase or new
+    return phrase
 
 
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--runner-death']:      # runner.sh at start, before it clears the marks: <root> <inst>
         try:
             t = log_mem_death(sys.argv[2], os.path.join(sys.argv[2], 'cache', 'runner'), sys.argv[3])
-            if t: print(f'runner: o anterior parou por falta de memoria ({t})')
+            if t: print(f'runner: o anterior parou {t}')
         except Exception: pass
         sys.exit(0)
     sys.exit(main())

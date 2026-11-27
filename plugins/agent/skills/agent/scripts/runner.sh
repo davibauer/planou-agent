@@ -189,7 +189,8 @@ FG=; ESPERA_RC=
 # AGENT_MEM_HIGH_PSI, default 10, or MemAvailable < AGENT_MEM_HIGH_AVAIL_MB, default 1024: the rule of heavy.mem_high)
 # cache/runner/mem.alta holds "<since> <some10> <full10> <avail MB>" (rewritten at most once a minute); it goes when the
 # pressure drops. A runner killed with -9 leaves it beside a dead runner.pid; a TERM or HUP under high pressure writes
-# runner.memoria. The Stop hook (stop_guard.py, heavy.runner_mem_death) reads both and says "parado por falta de memoria".
+# runner.memoria. The Stop hook (stop_guard.py, heavy.runner_mem_death) reads both; it says "parado por falta de memoria"
+# only with evidence of the cause (PLN1048), otherwise "fim sem sinal" with the pressure as data.
 MEM_PROC=${AGENT_MEM_PROC:-/proc}; MEM_HIGH_PSI=${AGENT_MEM_HIGH_PSI:-10}; MEM_HIGH_MB=${AGENT_MEM_HIGH_AVAIL_MB:-1024}
 MEM_T=-999; MEM_W=-999; MEM_SOME=0; MEM_FULL=0; MEM_AVAIL=
 mem_le() {
