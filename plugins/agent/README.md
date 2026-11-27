@@ -609,6 +609,36 @@ python3 $S/ifc_index.py $M materials         # e também manufacturers e spaces
   ilegível numa consulta (ex.: `elements.jsonl.gz` cortado) dá uma linha curta de erro para aquele modelo, saída 1, e
   os outros respondem; `build --force` refaz.
 
+## Jobs pesados sem faltar memória (`heavy.py`)
+
+Build, suíte de teste e render de qualquer agente passam por `skills/agent/scripts/heavy.py` (linha `PESADO` do
+`--brief`), para um job pesado não derrubar o runner de outro agente por falta de memória:
+
+```bash
+python3 skills/agent/scripts/heavy.py -- dotnet test --filter X   # roda quando houver memória, um por vez
+python3 skills/agent/scripts/heavy.py --status                    # memória, quem está com a trava, se há teto
+```
+
+- Espera enquanto a memória disponível estiver abaixo de `AGENT_HEAVY_MIN_AVAIL_MB` (3072) ou o PSI `some avg10` de
+  `/proc/pressure/memory` acima de `AGENT_HEAVY_MAX_PSI` (5).
+- Um job pesado por vez entre todos os agentes do usuário: trava em `~/.cache/agent/heavy.lock`
+  (`AGENT_HEAVY_LOCK`), que fica com o `heavy.py` e nunca com o job (um VBCSCompiler que sobra não a segura).
+- Trava e memória têm um teto de espera só, `AGENT_HEAVY_WAIT_S` (1800 s): passou dele, nada roda e a saída é 75 com
+  quem está com a trava ou como está a memória. Numa sessão, rode em background (a Bash corta em 10 min no máximo).
+- O `heavy.py` vai sempre por fora de outra trava (`heavy.py -- flock -o <trava> <comando>`), nunca o contrário: duas
+  travas em ordem trocada esperam uma pela outra até o teto.
+- Teto de memória com `systemd-run --user --scope -p MemoryMax=<--mem> -p MemorySwapMax=<--swap>`
+  (`AGENT_HEAVY_MEMORY_MAX`, padrão 50% da RAM; `AGENT_HEAVY_SWAP_MAX`, padrão 512M), quando o systemd do usuário
+  delega o controlador de memória. Sem isso, roda sem teto e avisa.
+- O job ganha `oom_score_adj` 500 (`AGENT_HEAVY_OOM_ADJ`), para o OOM do kernel levar o job antes do runner. O runner
+  não consegue baixar o próprio valor sem privilégio, e isso não muda o que o Claude Code decide matar.
+- Comando `dotnet`: `dotnet build-server shutdown` no fim, ainda com a trava (`--dotnet-shutdown` força,
+  `AGENT_HEAVY_DOTNET_SHUTDOWN=0` desliga).
+- Runner parado por falta de memória: o runner anota a pressão alta em `cache/runner/mem.alta` enquanto vive (só
+  quando passa de `AGENT_MEM_HIGH_PSI`, 10, ou fica abaixo de `AGENT_MEM_HIGH_AVAIL_MB`, 1024), e um sinal com a
+  pressão alta deixa `cache/runner/runner.memoria`. O gancho Stop diz "runner da instância X parado por falta de
+  memória (...)" e a causa vai uma vez para `cache/planou/warnings.log`. Quem relança continua sendo a sessão.
+
 ## Ganchos do plugin
 
 | Tipo | O que faz | Opções |

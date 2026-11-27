@@ -70,6 +70,8 @@ Projeto novo com o mesmo jeito de trabalhar: uma entrada nova em `repos`, sem c�
 
 - Uma entrega por worker. Dois workers em paralelo só quando não mexem nos mesmos arquivos.
 - Pedido novo que chega com um worker rodando vai para a próxima rodada, não para o worker em andamento.
+- Job pesado (build, suíte de teste, render) só pelo `scripts/heavy.py` (linha `PESADO` do `--brief`): espera a memória,
+  um por vez entre os agentes, com teto de memória e `dotnet build-server shutdown` no fim.
 - Economia: testes filtrados e saída resumida (`| tail -n 20`); suíte completa só quem integra. O worker agrupa
   leituras e comandos independentes na mesma rodada e nunca lê arquivo grande inteiro (`grep -n` e `sed -n` do
   trecho): a linha `ECONOMIA` do `--brief` diz isso a ele.

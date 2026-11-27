@@ -29,6 +29,8 @@ PLN0345: without `repos` in the config, the discovered repositories count (repo_
 the instance; the person's `repos` always win), and `repo` may be a pr_url or a repository URL: when no repository
 has it yet, it is cloned in ~/src/<name> and read first. A discovered repository gets a DESCOBERTO line, and the QA
 role an AMBIENTE DE QA line with each environment command and where it came from.
+PLN1027: PESADO tells the worker to run builds, test suites and renders through heavy.py (absolute path: the worker
+works in another repository) and never two .NET builds or tests at once.
 PLN0054: `--role prototype` is the brief of a worker whose output never enters the repository (SCRATCH_ROLES): no
 worktree (the scratchpad), no release, the PNGs as the done criterion.
 """
@@ -74,6 +76,13 @@ MODEL_TODO = '(a sessao escolhe sonnet ou default pela regra do delegate-to-work
 ECONOMY = ('comece pelos ARQUIVOS PROVAVEIS e pelo mapa, sem busca exploratoria de uma linha por vez; junte leituras e '
            'comandos independentes na mesma rodada; arquivo grande nunca inteiro (grep -n e sed -n do trecho); saida '
            'de teste e build resumida (| tail -n 20)')
+# PLN1027: heavy jobs of every worker go through one wrapper (heavy.py beside this file): wait for memory, one at a time
+HEAVY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'heavy.py')
+HEAVY_TEXT = ('build, suite de teste e render so por `python3 {heavy} -- <comando>` (espera memoria, um job pesado por vez '
+              'entre os agentes, teto de memoria; dotnet build-server shutdown sozinho no fim de um comando dotnet); '
+              'o heavy.py sempre por fora de qualquer outra trava (heavy.py -- flock -o ... <comando>); pode esperar ate '
+              '30 min: rode com run_in_background ou timeout 600000; saida 75 = esperou demais, tente depois; nunca '
+              'dois builds ou testes .NET em paralelo')
 RELEASE_TEXT = {
     'batch': 'em lote: o worker de desenvolvimento termina numa branch pronta; suite completa, versao, tag e deploy sao '
              'so do integrador (comportamento batch-release)',
@@ -164,6 +173,7 @@ def brief(cfg, key=None, perms=None, model=None, files=None):
     out.append('ARQUIVOS PROVAVEIS: ' + (files or FILES_TODO))
     out.append('MODELO: ' + (model or MODEL_TODO))
     out.append('ECONOMIA: ' + ECONOMY)
+    out.append('PESADO: ' + HEAVY_TEXT.format(heavy=HEAVY))
     if schema.is_public(cfg, repo):
         out.append('PUBLICO: sim; nenhum nome de cliente ou de pessoa, id real ou captura com dado real (o code-review reprova)')
     tests = repo.get('tests') or {}

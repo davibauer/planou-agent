@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.124.5 (2026-11-26)
+- Jobs pesados (build, suíte de teste, render) passam por `scripts/heavy.py`: espera a memória voltar, roda um por vez entre todos os agentes, com teto de memória pelo `systemd-run --user --scope` quando o computador deixa, e chama `dotnet build-server shutdown` no fim de um comando dotnet. O pedido ao worker ganha a linha `PESADO` com esse uso.
+- O runner anota quando a memória fica no limite e, se cair nessa hora, o aviso para relançar diz "parado por falta de memória", com a causa registrada uma vez em `warnings.log`.
+
 ## 0.124.4 (2026-11-25)
 - job-scout: uma falha ao aplicar a mudança do intervalo das fontes não impede mais que as outras edições da aba Papel sejam recusadas no mesmo tick; antes, uma falha que se repetia ali deixava essas edições sem resposta para sempre. Cada falha vai para o avisos.log.
 - Papel: uma edição já respondida ao Planou não falha mais quando o registro das respostas não pode ser gravado, e um registro corrompido (JSON que não é lista) passa a contar como vazio em vez de dar erro ou marcar versões como respondidas por engano.

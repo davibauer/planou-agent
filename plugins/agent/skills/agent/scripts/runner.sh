@@ -185,6 +185,45 @@ WAIT=${PLANOU_WAIT_S:-50}; [ "$WAIT" -lt "$STEP" ] 2>/dev/null && WAIT=$STEP; [ 
 # PLN0241: never a blocking `wait` on a child that may be in D (a dead Windows drive): poll with `kill -0` and /proc, and
 # `wait` only for the exit code of one that is gone already.
 FG=; ESPERA_RC=
+# PLN1027: memory pressure, read by builtins only (no fork) at most once per STEP. While it is high (PSI some avg10 >=
+# AGENT_MEM_HIGH_PSI, default 10, or MemAvailable < AGENT_MEM_HIGH_AVAIL_MB, default 1024: the rule of heavy.mem_high)
+# cache/runner/mem.alta holds "<since> <some10> <full10> <avail MB>" (rewritten at most once a minute); it goes when the
+# pressure drops. A runner killed with -9 leaves it beside a dead runner.pid; a TERM or HUP under high pressure writes
+# runner.memoria. The Stop hook (stop_guard.py, heavy.runner_mem_death) reads both and says "parado por falta de memoria".
+MEM_PROC=${AGENT_MEM_PROC:-/proc}; MEM_HIGH_PSI=${AGENT_MEM_HIGH_PSI:-10}; MEM_HIGH_MB=${AGENT_MEM_HIGH_AVAIL_MB:-1024}
+MEM_T=-999; MEM_W=-999; MEM_SOME=0; MEM_FULL=0; MEM_AVAIL=
+mem_le() {
+  local k a _r; MEM_SOME=0; MEM_FULL=0; MEM_AVAIL=
+  if [ -r "$MEM_PROC/pressure/memory" ]; then
+    while read -r k a _r; do case $k in some) MEM_SOME=${a#avg10=};; full) MEM_FULL=${a#avg10=};; esac; done < "$MEM_PROC/pressure/memory"
+  fi
+  [ -r "$MEM_PROC/meminfo" ] && while read -r k a _r; do [ "$k" = MemAvailable: ] && { MEM_AVAIL=$(( a / 1024 )); break; }; done < "$MEM_PROC/meminfo"
+  return 0
+}
+mem_alta() {
+  mem_le
+  [ "${MEM_SOME%%.*}" -ge "$MEM_HIGH_PSI" ] 2>/dev/null && return 0
+  [ -n "$MEM_AVAIL" ] && [ "$MEM_AVAIL" -lt "$MEM_HIGH_MB" ] 2>/dev/null
+}
+mem_vigia() {
+  local up since _r; read -r up _r < /proc/uptime; up=${up%.*}
+  [ $(( up - MEM_T )) -lt "$STEP" ] && return 0; MEM_T=$up
+  if mem_alta; then
+    [ -f "$D/mem.alta" ] && [ $(( up - MEM_W )) -lt 60 ] && return 0
+    since=; [ -f "$D/mem.alta" ] && read -r since _r < "$D/mem.alta"; [ -n "$since" ] || printf -v since '%(%s)T' -1
+    printf '%s %s %s %s\n' "$since" "$MEM_SOME" "$MEM_FULL" "$MEM_AVAIL" > "$D/mem.alta"; MEM_W=$up
+  elif [ -f "$D/mem.alta" ]; then
+    rm -f "$D/mem.alta"
+  fi
+}
+mem_anterior() {   # at start: the previous runner died under memory pressure (its marks, a dead runner.pid)? Logged
+  # once in cache/planou/warnings.log (the Stop hook may have logged it already); then the marks go. Also before the
+  # rollout's exec: a pinned older runner.sh would never clear them.
+  if [ -f "$D/runner.memoria" ] || { [ -f "$D/mem.alta" ] && [ -s "$D/runner.pid" ]; }; then
+    timeout 20 python3 "$S/heavy.py" --runner-death "$ROOT" "$INST" 2>/dev/null
+  fi
+  rm -f "$D/mem.alta" "$D/runner.memoria"
+}
 vivo() {   # $1 = pid: alive and not a zombie. Only stat, by the builtin: cmdline and environ can block on a process in D
   local s; [ -n "$1" ] || return 1
   read -r s 2>/dev/null < "/proc/$1/stat" || return 1; s=${s##*) }; [ "${s%% *}" != Z ]
@@ -194,6 +233,7 @@ espera() {   # $1 = child pid, $2 = limit in s: 0 = it ended (its exit code in E
   # monotonic (the WSL wall clock steps), in hundredths: whole seconds cut a limit short by up to 1 s (PLN0307)
   read -r up _ < /proc/uptime; t0=$(( 10#${up%.*}${up#*.} ))
   while vivo "$1"; do
+    mem_vigia
     read -r up _ < /proc/uptime; [ $(( 10#${up%.*}${up#*.} - t0 )) -ge $(( $2 * 100 )) ] && return 1
     sleep "$d" & SONO=$!; wait "$SONO" || kill "$SONO" 2>/dev/null; SONO=   # a trapped signal cuts it at once
     case $d in 0.05) d=0.1;; 0.1) d=0.2;; 0.2) d=0.5;; *) d=1;; esac
@@ -296,9 +336,10 @@ if [ -z "$ROLLOUT_LIVE" ]; then
     STOP=*) echo "runner: $INST: ${RO#STOP=}"; exit 1;;
     # the stopped mark (PLN0383) goes here too: the pinned runner.sh may be a version that does not know it. Never
     # before STOP=*: a runner the rollout refused stays down, and the Stop hook must not insist on it.
-    PIN=*) rm -f "$D/runner.stopped"; RUNNER_LOCK_HELD=$$ ROLLOUT_LIVE=$(cd -P "$S/../../.." && pwd -P) exec bash "${RO#PIN=}/runner.sh" "$@";;
+    PIN=*) rm -f "$D/runner.stopped"; mem_anterior; RUNNER_LOCK_HELD=$$ ROLLOUT_LIVE=$(cd -P "$S/../../.." && pwd -P) exec bash "${RO#PIN=}/runner.sh" "$@";;
   esac
 fi
+mem_anterior
 echo $$ > "$D/runner.pid"; rm -f "$D/runner.stop" "$D/runner.stopped"
 
 # volta leve so' com o Planou configurado, live e com chave (conferido sem rede)
@@ -352,6 +393,7 @@ EM_READ=; SINAL=
 # must not (PLN0133: the read's timer could cut the handler right after and leave the runner deaf).
 sinal() { SINAL=1; if [ -n "$EM_READ" ]; then echo sinal >&3; else trap '' HUP TERM INT; no_sinal; fi; }
 dorme() {
+  mem_vigia
   if [ "$2" = poll ] && [ "$FIFO_OK" = 1 ]; then
     [ "$POLL_DONE" = 1 ] && return 0
     local l rc; EM_READ=1; read -r -t "$1" -u 3 l; rc=$?; EM_READ=
@@ -381,6 +423,10 @@ live_children() {   # a child of the runner that is not a zombie yet (pgrep -P l
 }
 no_sinal() {
   mata_filhos
+  # PLN1027: a signal (not our stop) with the memory pressure high: leave the cause for the Stop hook
+  if ! grep -qx "$$" "$D/runner.stop" 2>/dev/null && { mem_alta || [ -f "$D/mem.alta" ]; }; then
+    printf '%(%s)T %s %s %s\n' -1 "$MEM_SOME" "$MEM_FULL" "$MEM_AVAIL" > "$D/runner.memoria"
+  fi
   [ "$(cat "$D/runner.pid" 2>/dev/null)" = "$$" ] && rm -f "$D/runner.pid"   # a relaunch may start right away
   grep -qx "$$" "$D/runner.stop" 2>/dev/null && exit 143                     # `runner.sh <inst> stop`: the session goes on
   # closing the terminal takes the session down around the same time: a detached watcher gives it 10 s to go (and then

@@ -19,6 +19,9 @@ Which session is an agent session (every check cheap first; any doubt = stay sil
      session stays a stop;
   5. this session's transcript has a Bash run_in_background of `runner.sh <instance>`, and the last runner.sh command
      for it there is not a `stop` (a stop asked by the person stays a stop).
+PLN1027: a runner killed under memory pressure (heavy.py: the marks runner.sh leaves in cache/runner while it lives,
+or a dead runner.pid with the pressure high now) is logged once in cache/planou/warnings.log, before the rules that
+keep the block quiet, and the block says "parado por falta de memoria (...)".
 Against a loop: never with stop_hook_active (the model already got the block in this turn), and after a block that
 did not bring the runner up (no Stop saw it alive since), not again for BACKOFF_S. Any error: exit 0 and no output (a
 broken hook must never stop a session).
@@ -127,6 +130,15 @@ def launched_here(transcript, inst):
     return started and last == 'start'
 
 
+def memory_death(root, rdir, inst):
+    """PLN1027: the runner died under memory pressure (heavy.runner_mem_death: the marks runner.sh leaves while it
+    lives, or a dead runner.pid with the pressure high now): the cause, logged once in cache/planou/warnings.log."""
+    try:
+        import heavy
+        return heavy.log_mem_death(root, rdir, inst)
+    except Exception: return None
+
+
 def main():
     if '--plugin' in sys.argv[1:] and os.environ.get('TEAM_STOP_GUARD') == '1': return   # the launcher's copy runs
     try: hook = json.loads(sys.stdin.read() or '{}')
@@ -143,20 +155,23 @@ def main():
         try: os.remove(mark)
         except OSError: pass
         return
+    if os.path.exists(os.path.join(rdir, STOPPED)): return   # stopped on purpose, here or outside the session
+    mem = memory_death(root, rdir, inst)   # logged once, before any rule below keeps the block quiet
     if hook.get('stop_hook_active'): return
     try:
         if time.time() - os.path.getmtime(mark) < BACKOFF_S: return
     except OSError: pass
-    if os.path.exists(os.path.join(rdir, STOPPED)): return   # stopped on purpose, here or outside the session
     if not launched_here(hook.get('transcript_path'), inst): return
     os.makedirs(rdir, exist_ok=True)
     with open(mark, 'w') as f:
         json.dump({'blocked_at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'session_id': hook.get('session_id')}, f)
     runner = os.path.join(HERE, 'runner.sh')
+    why = f' por falta de memoria ({mem})' if mem else ''
     print(json.dumps({'decision': 'block', 'reason': (
-        f'runner da instancia {inst} parado: relance agora com `FIRST_NOW=0 bash {runner} {inst}` '
+        f'runner da instancia {inst} parado{why}: relance agora com `FIRST_NOW=0 bash {runner} {inst}` '
         f'(Bash com run_in_background), em uma linha e mais nada. Se uma acordada do runner ainda estiver para '
-        f'tratar, trate depois de relancar, como sempre (a saida fica em {rdir}/tick.out).')}))
+        f'tratar, trate depois de relancar, como sempre (a saida fica em {rdir}/tick.out).'
+        + (' Job pesado (build, teste, render) so pelo heavy.py, que espera a memoria voltar.' if mem else ''))}))
 
 
 if __name__ == '__main__':
