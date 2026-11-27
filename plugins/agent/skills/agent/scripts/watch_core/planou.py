@@ -4915,7 +4915,8 @@ NOT_FOUND_WAIT = timedelta(days=1)  # a registered file whose task Planou does n
 _DENY_DIRS = {'secrets', '.ssh', '.gnupg', '.aws', '.kube', '.docker', 'cache', '.cache', '.git'}
 _DENY_NAME = re.compile(r'(?i)(^\.env|\.env$|token|cookie|credential|secret|passw|senha|\.key$|\.pem$|id_rsa)')
 _TEXT_KINDS = ('.md', '.markdown', '.txt')
-MAX_PER_TASK = 20                   # Planou keeps up to 20 attachments per task
+MAX_PER_TASK = 20                   # this agent's own cap per task; Planou's (Attachments:MaxPerTask, 100 by default) counts
+                                    # every live attachment, the person's ones too (PLN1046)
 SEEN_TEXT = 'ver anexo'
 
 

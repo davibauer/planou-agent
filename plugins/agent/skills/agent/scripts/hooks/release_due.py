@@ -41,7 +41,7 @@ CLI (the session never edits the file by hand):
 
 Never raises in the tick: an unreadable file is reported once (same error, same line) and the tick goes on.
 """
-import json, os, re, shutil, subprocess, sys
+import hashlib, json, os, re, shutil, subprocess, sys
 from datetime import datetime, timedelta, timezone
 
 import core, paths, planou_release
@@ -51,7 +51,7 @@ from adapters import Gancho as Base
 BRANCH_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,200}')
 
 # PLN1034: the screenshots a dev worker takes in docs/<delivery>/ go to the task when the branch enters the queue, so the
-# person reviews the delivery from the task. Review order: desktop, phone, tablet, then the rest; at most SHOTS_MAX.
+# person reviews the delivery from the task. Review order: desktop, phone, tablet, then the rest; at most SHOTS_MAX per delivery.
 # The base is origin/main only (PLN1040): a local main may be behind and its diff would bring screenshots of other
 # deliveries, so without origin/main nothing is attached and the add says why.
 SHOT_WIDTHS = ('1360', '390', '834')
@@ -270,7 +270,7 @@ class Gancho(Base):
             q['branches'] = [b for b in q['branches'] if b['branch'] not in rest]
             q['integrating'] = [n for n in q.get('integrating') or [] if n not in rest]
             self.write(q); self.mirror(q)
-            clean_shots(q)
+            clean_shots(q, dropped=[b.get('pid') for b in gone])
             print('fora da fila: ' + (', '.join(_label(b) for b in gone) or '(nenhuma)')); return True
         if cmd == 'done':
             which = rest or q.get('integrating') or []
@@ -345,15 +345,21 @@ def shot_name(path):
     """The attachment name of a screenshot: its folder and its name (docs/pln0001-x/home-1360.png ->
     pln0001-x-home-1360.png), the same on every add, so a new version replaces the old one in the task. The folder is
     docs/<delivery>, chosen by the dev: a credential-looking word in it ("senha", "token") is taken out of the name, so
-    the local gate (planou.attachable, which reads the file name) judges only the file's own name (PLN1040)."""
+    the local gate (planou.attachable, which reads the file name) judges only the file's own name (PLN1040). A folder
+    changed that way, or one deeper than docs/<delivery>/, gets a short hash of its whole path (PLN1046): docs/pln0001-
+    senha/ and docs/pln0001/ (or docs/a/tela/ and docs/b/tela/) would give the same name, and the second screenshot would
+    replace the first one in the task. A plain docs/<delivery>/ keeps the name it had, so what is on a task stays."""
     from watch_core import planou
-    folder = os.path.basename(os.path.dirname(path)) or 'docs'
+    parent = os.path.dirname(path)
+    folder = plain = os.path.basename(parent) or 'docs'
     if planou._DENY_NAME.search(folder):
         while True:
-            plain = planou._DENY_NAME.sub('', folder)
-            if plain == folder: break
-            folder = plain
+            clean = planou._DENY_NAME.sub('', folder)
+            if clean == folder: break
+            folder = clean
         folder = re.sub(r'[-_.]{2,}', '-', folder).strip('-_.') or 'docs'
+    if folder != plain or os.path.dirname(parent) not in ('docs', ''):      # hex never matches the credential words
+        folder += '-' + hashlib.sha256(parent.encode('utf-8', 'replace')).hexdigest()[:8]
     return f'{folder}-{os.path.basename(path)}'
 
 
@@ -362,37 +368,95 @@ def shots_dir(pid):
     return os.path.join(paths.DATA_DIR, 'release_shots', re.sub(r'[^A-Za-z0-9_-]', '_', str(pid)))
 
 
-def clean_shots(q):
-    """Removes data/release_shots/<pid>/ of every task no longer in the release queue (after `done` and `drop`): the
-    screenshots are in Planou by then, and a branch added again takes them from git again (PLN1040). Never raises."""
+def clean_shots(q, dropped=()):
+    """Removes from data/release_shots/ the screenshots of every task no longer in the release queue (after `done` and
+    `drop`): the ones Planou already has, refused for good or the person deleted; a branch added again takes them from
+    git again (PLN1040). One that has not gone up yet (network, a 5xx) stays, for the tick to send (PLN1046), with one
+    line in warnings.log (the task and how many, never the folder: its name is the delivery's); the folder goes once
+    empty. `dropped`: the pids of the branches dropped now: their screenshots go whole, the pending ones too (the line
+    says so). Never raises."""
     base = os.path.join(paths.DATA_DIR, 'release_shots')
     keep = {os.path.basename(shots_dir(b['pid'])) for b in q.get('branches') or [] if b.get('pid')}
+    gone = {os.path.basename(shots_dir(p)) for p in dropped if p} - keep
     try:
         names = os.listdir(base)
     except OSError:
         return
+    planou = None
+    try:
+        from watch_core import planou
+        planou.configure_agent(paths.NAME, paths.ROOT)
+    except Exception:
+        planou = None                               # nothing tells what went up: only the dropped folders go
     for n in names:
-        if n not in keep: shutil.rmtree(os.path.join(base, n), ignore_errors=True)
+        if n in keep: continue
+        d = os.path.join(base, n)
+        if planou is None:
+            if n in gone: shutil.rmtree(d, ignore_errors=True)
+            continue
+        try:
+            pending = [f for f in sorted(os.listdir(d)) if _shot_pending(planou, n, os.path.join(d, f))]
+        except Exception:
+            pending = []
+        if n in gone or not pending:
+            shutil.rmtree(d, ignore_errors=True)
+        else:
+            for f in os.listdir(d):
+                if f not in pending:
+                    try: os.remove(os.path.join(d, f))
+                    except OSError: pass
+        if pending:
+            said = ('apagada(s) com a branch fora da fila (drop)' if n in gone else
+                    'guardada(s) no computador ate o tick enviar')
+            try:
+                planou.note_warnings(n, [f'{len(pending)} captura(s) da entrega ainda nao subiram para o Planou: {said}'])
+            except Exception:
+                pass
 
 
-def _live_keys(planou, pid):
-    """The source_keys of the attachments on the task now (GET; Planou hides the ones the person sent to the Lixeira),
-    or None when Planou does not answer: then the agent's own record counts (known_attachments), which only learns of a
-    deletion when a new version is refused."""
+def _shot_pending(planou, pid, path):
+    """True while a screenshot in data/release_shots/<pid>/ waits for the tick: registered to go (attach_files.json)
+    and Planou does not have its content yet (attachments.json: the same sha256 with an id, under its key or another
+    one of the task). Sent, refused for good or deleted by the person is not pending; neither is a file nobody will send
+    (not registered: Planou was off when it was read)."""
+    key = planou.file_key(path)
+    if key not in (planou._registry().get(str(pid)) or {}): return False
+    code = planou._task_ref(pid)[0]
+    cache = planou._load('attachments.json', {})
+    e = cache.get(f'{code}|{key}') or {}
+    if e.get('result') == 'ignored': return False
+    with open(path, 'rb') as f: sha = hashlib.sha256(f.read()).hexdigest()
+    if e.get('sha') == sha and (e.get('id') or e.get('refused')): return False
+    return not any(k.startswith(f'{code}|') and isinstance(v, dict) and v.get('sha') == sha and v.get('id')
+                   for k, v in cache.items())
+
+
+def _on_task(planou, pid):
+    """(source_keys, how many) of the attachments on the task now (GET; Planou hides the ones the person sent to the
+    Lixeira), or None when Planou does not answer: then the agent's own record counts (known_attachments), which only
+    learns of a deletion when a new version is refused and knows nothing of the person's attachments. The count is what
+    Planou counts for its own limit (Attachments:MaxPerTask, 100 by default): every live attachment, the person's ones
+    without source_key too (PLN1046)."""
     try:
         res = planou.task_attachments(pid)
     except planou.PlanouError:
         return None
     rows = res.get('attachments') if isinstance(res, dict) else None
-    return {str(a.get('source_key')) for a in rows if isinstance(a, dict) and a.get('source_key')} if isinstance(rows, list) else None
+    if not isinstance(rows, list): return None
+    rows = [a for a in rows if isinstance(a, dict)]
+    return {str(a['source_key']) for a in rows if a.get('source_key')}, len(rows)
 
 
 def attach_screenshots(cfg, branch, pid, dest=None, now=None):
     """Attaches to task `pid` the screenshots `branch` delivers (screenshots()), read with `git show` into
     data/release_shots/<pid>/ (kept while the branch is in the queue: the tick sends again what Planou did not take now;
-    `done` and `drop` remove it). At most SHOTS_MAX per task and never past MAX_PER_TASK attachments on it, both
-    counted on what is on the task now (a screenshot the person deleted frees its place); an unchanged file is not sent
-    again (attach_file), and a file with a credential-looking name never goes. Returns one line for the output, or None
+    `done` and `drop` remove what went up). At most SHOTS_MAX screenshots per delivery: the ones of this branch already on
+    the task count, so a task back from rework with new screenshots gets them (the person reviews the new delivery, not
+    the old screens). The task as a whole never goes past MAX_PER_TASK attachments, counted on every live attachment on it,
+    the person's ones and older deliveries' screenshots too (PLN1046). Both are counted on the task now (a screenshot the
+    person deleted frees its place; the local folder is gone after a `done`, the task's attachments are not). A file with
+    the same name replaces the old one and takes no new place; an unchanged file is not sent again (attach_file), and a
+    file with a credential-looking name never goes. Returns one line for the output, or None
     (nothing to attach, no batch release repository, Planou off). Never raises: a failure is one AVISO line, and the add
     stands."""
     repo = column_roles.release_repo(cfg or {})
@@ -405,14 +469,14 @@ def attach_screenshots(cfg, branch, pid, dest=None, now=None):
         if not files: return None
         dest = dest or shots_dir(pid)
         os.makedirs(dest, exist_ok=True)
-        live, known = _live_keys(planou, pid), planou.known_attachments(pid)
+        listed, known = _on_task(planou, pid), planou.known_attachments(pid)
+        live = listed[0] if listed else None
         on_task = live if live is not None else known
-        # the screenshots of this task still on it, from an earlier add (the local folder) or from this branch (git: the
-        # folder is gone after a drop and a new add); a deleted one frees its place
-        names = {n for n in os.listdir(dest) if n.lower().endswith('.png')} | {shot_name(f) for f in files}
-        placed = {n for n in names if planou.file_key(n) in on_task}
-        room = planou.MAX_PER_TASK - len(on_task)
-        counts, warn, held, skipped = {}, None, False, 0
+        # SHOTS_MAX is per delivery: this branch's screenshots already on the task (PLN1046: the local folder goes with
+        # `done`, so the task is what counts); a deleted one frees its place. The room holds the task's total.
+        placed = {planou.file_key(shot_name(f)) for f in files} & set(on_task)
+        room = planou.MAX_PER_TASK - (listed[1] if listed else len(known))
+        counts, warn, held, skipped = {}, None, False, {}
         for f in files:
             if planou._DENY_NAME.search(os.path.basename(f)):        # the file's own name: never read nor written
                 counts['blocked'] = counts.get('blocked', 0) + 1
@@ -421,7 +485,8 @@ def attach_screenshots(cfg, branch, pid, dest=None, now=None):
             name = shot_name(f)
             new_there = planou.file_key(name) not in on_task
             if new_there and (len(placed) >= SHOTS_MAX or room <= 0):
-                skipped += 1; continue
+                why = 'delivery' if len(placed) >= SHOTS_MAX else 'task'
+                skipped[why] = skipped.get(why, 0) + 1; continue
             data = _git(repo, 'show', f'{ref}:{f}', binary=True)
             local = os.path.join(dest, name)
             _write(local, data)
@@ -433,10 +498,10 @@ def attach_screenshots(cfg, branch, pid, dest=None, now=None):
             if new_there and live is not None and outcome == 'unchanged' and planou.file_key(name) in known:
                 outcome = 'ignored'                     # sent before and no longer on the task: the person deleted it
             if new_there and outcome in ('sent', 'pending'):
-                placed.add(name); room -= 1
+                placed.add(planou.file_key(name)); room -= 1
             counts[outcome] = counts.get(outcome, 0) + 1
             if lines and outcome in ('refused', 'blocked', 'inactive') and not warn: warn = lines[0]
-        return _shots_line(branch, pid, counts, skipped, warn)
+        return _shots_line(branch, pid, counts, skipped, warn, planou.MAX_PER_TASK)
     except Exception as e:
         return f'AVISO (planou): capturas de {branch} nao anexadas a {pid} ({type(e).__name__}: {e})'[:400]
 
@@ -454,9 +519,12 @@ SHOTS_SAID = (('sent', 'enviada(s)'), ('unchanged', 'igual(is) ao que ja esta la
               ('inactive', 'nao enviada(s): Planou desligado ou confidencialidade minima'))
 
 
-def _shots_line(branch, pid, counts, skipped, warn):
+def _shots_line(branch, pid, counts, skipped, warn, max_task):
+    """`skipped` says which limit held each one left out: the delivery's SHOTS_MAX, or the task's attachments (only this
+    one asks the person to delete an old attachment)."""
     parts = [f'{counts[k]} {said}' for k, said in SHOTS_SAID if counts.get(k)]
-    if skipped: parts.append(f'{skipped} fora (limite de {SHOTS_MAX} capturas ou de anexos da tarefa)')
+    if skipped.get('delivery'): parts.append(f'{skipped["delivery"]} fora (limite de {SHOTS_MAX} capturas da entrega)')
+    if skipped.get('task'): parts.append(f'{skipped["task"]} fora (limite de {max_task} anexos da tarefa)')
     if not parts: return None
     head = 'AVISO (planou): ' if warn else ''
     return f'{head}capturas de {branch} em {pid}: ' + ', '.join(parts) + (f' ({warn})' if warn else '')
