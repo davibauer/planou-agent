@@ -201,6 +201,7 @@ CLI (the agent's config is read from its own folder; without a "planou" block no
       pergunta --title "Quer que eu ...?" [--option "A=..." --option "B=..." --recommended A] [--auto] [--task a12] [--context ...] [--ref ...] |
       cancel CODE [--reason ...] | result CODE executed|failed [--reason ...] |
       comentario PID --text - [--reply-to COMMENT_ID] | comentario PID --ver |
+      referencia ver [--project P] | referencia nova --name N [--url URL] [--why TEXT|-] [--project P] |
       tools | anexo CODE SOURCE_KEY FILE [--name NAME] | attach TASK FILE [--name NAME] |
       sugestao --title "..." --what "..." --expected "..." --example "..." [--subject "..."] [--priority P1..P4]
 
@@ -5608,6 +5609,108 @@ def _comentario(a, ap):
     return 0
 
 
+# ---------------------------------------------------------------- the project's references (Planou PLN1023, PLN1036)
+# Products worth keeping an eye on, kept by Planou per project: the weekly competitor review reads the list and seeds it.
+# The person removes on the screen and a removed item never comes back through the agent (200 removed_by_person).
+
+REF_NAME_MAX, REF_WHY_MAX, REF_URL_MAX = 120, 280, 2000
+_SPACES = re.compile(r'\s+')
+
+
+def _ref_project(project):
+    """The project of `referencia`: --project, else the instance's, else Planou's default for this employee."""
+    p = str(project or '').strip() or _S['project'] or (allocation() or {}).get('default')
+    if not p: raise PlanouError(0, 'project', 'diga o projeto (--project SIGLA): a instancia nao tem projeto padrao')
+    return p
+
+
+def _ref_error(e, project):
+    """A refusal of the references routes, in words."""
+    if e.code == 'project_not_allocated':
+        return PlanouError(e.status, e.code, f'o agente nao esta alocado no projeto {project}: aloque o funcionario no Planou')
+    if e.status == 404 and e.code in ('not_found', 'http_404'):
+        return PlanouError(e.status, e.code, f'projeto {project} nao encontrado (ou Planou sem Referencias): {e.message}')
+    if e.code == 'forbidden_scope':
+        return PlanouError(e.status, e.code, f'a chave deste agente nao tem o escopo tasks:own ({e.message})')
+    if e.status == 422:
+        return PlanouError(e.status, e.code, f'o Planou recusou a referencia: {e.message}')
+    return e
+
+
+def project_references(project=None):
+    """`referencia ver [--project P]`: the project's live references, in the order they came in (GET
+    /agent/projects/{key}/references). Raises PlanouError."""
+    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    p = _ref_project(project)
+    try:
+        _, res = _call('GET', f'/agent/projects/{urllib.parse.quote(p, safe="")}/references')
+    except PlanouError as e:
+        raise _ref_error(e, p) from None
+    return res or {}
+
+
+def add_reference(name, url=None, why=None, project=None):
+    """`referencia nova --name N [--url U] [--why W] [--project P]` (POST /agent/projects/{key}/references). Returns the
+    answer with `why_kept` when the why stayed here: the why is the agent's free text, so under "minimum" it never goes
+    up (the name and the link are the reference itself, a public product). The server answers created (201), unchanged
+    (the same name, any case, or the same link is already there: `name` is the one on the list) or removed_by_person (the
+    person removed it: it does not come back through the agent). Raises PlanouError (checked here first: name, url, why)."""
+    name = _SPACES.sub(' ', str(name or '')).strip()
+    url = str(url or '').strip() or None
+    why = _SPACES.sub(' ', str(why or '')).strip() or None
+    if not name: raise PlanouError(0, 'name', 'diga o nome da referencia (--name)')
+    if len(name) > REF_NAME_MAX: raise PlanouError(0, 'name', f'nome acima de {REF_NAME_MAX} caracteres: resuma')
+    if url:
+        u = urllib.parse.urlsplit(url)
+        if u.scheme not in ('http', 'https') or not u.netloc or len(url) > REF_URL_MAX:
+            raise PlanouError(0, 'url', '--url: um link que comece com http:// ou https://')
+    if why and len(why) > REF_WHY_MAX: raise PlanouError(0, 'why', f'--why acima de {REF_WHY_MAX} caracteres: uma linha curta')
+    if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
+    p = _ref_project(project)
+    kept = bool(why) and _S['confidentiality'] == 'minimum'
+    body = {'name': name, **({'url': url} if url else {}), **({'why': why} if why and not kept else {})}
+    try:
+        status, res = _call('POST', f'/agent/projects/{urllib.parse.quote(p, safe="")}/references', body)
+    except PlanouError as e:
+        raise _ref_error(e, p) from None
+    return {**(res or {}), 'project': p, 'status': status, 'why_kept': kept}
+
+
+def _referencia(a, ap):
+    """referencia ver [--project P] | referencia nova --name N [--url U] [--why W|-] [--project P]."""
+    sub = (a.arg or [''])[0]
+    if sub not in ('ver', 'nova') or len(a.arg) != 1 or (sub == 'nova' and not a.name):
+        ap.error("use: referencia ver [--project SIGLA] | referencia nova --name '<produto>' [--url URL] [--why '<uma linha>'|-] "
+                 "[--project SIGLA]")
+    try:
+        if sub == 'ver':
+            res = project_references(a.project)
+            rows = res.get('references') or []
+            print(f'{one_line(res.get("project"), 20) or a.project}: {len(rows)} referencia(s) de {res.get("max") or 50}')
+            for r in rows:
+                by = r.get('added_by') or {}
+                who = ('este agente' if by.get('is_me') else
+                       f'{one_line(by.get("name"), 60) or "?"}{" (agente)" if by.get("kind") == "agent" else ""}') if by else '?'
+                print(f'- {one_line(r.get("name"), REF_NAME_MAX)} | {one_line(r.get("url"), REF_URL_MAX) or "sem link"} | '
+                      f'{one_line(r.get("why"), REF_WHY_MAX) or "-"} (por {who}, {_stamp(r.get("created_at"))})')
+            return 0
+        res = add_reference(a.name, a.url, _text_arg(a.why) if a.why else None, a.project)
+    except PlanouError as e:
+        print(f'AVISO (planou): {e.message}', file=sys.stderr)
+        return 1
+    p, n = res['project'], one_line(res.get('name'), REF_NAME_MAX) or one_line(a.name, REF_NAME_MAX)
+    if res.get('result') == 'removed_by_person':
+        print(f'{p}: "{n}" foi removida pela pessoa: nao volta pelo agente (so a pessoa a adiciona de novo pela tela). '
+              'Nada foi criado; nao insista')
+        return 0
+    if res.get('result') == 'unchanged':
+        print(f'{p}: ja esta na lista como "{n}" (mesmo nome ou mesmo link): nada foi criado')
+        return 0
+    print(f'{p}: referencia "{n}" adicionada ({res.get("id")})'
+          + ('; o por que ficou aqui (confidencialidade Minimo: so nome e link sobem)' if res.get('why_kept') else ''))
+    return 0
+
+
 # ---------------------------------------------------------------- the task an ask grants (Acesso pelo pedido, PLN0334)
 # An ask the agent opened about a person's task (pergunta --task PID) lets it comment, change the column and read the
 # attachments of that task while the ask is open and up to 24 h after the answer (Planou:AskTaskAccessHours).
@@ -6255,7 +6358,7 @@ def main(argv=None):
     ap.add_argument('cmd', choices=['key', 'status', 'active', 'heartbeat', 'poll', 'cursor-commit', 'ack-delivered', 'ack',
                                     'events', 'draft', 'approval', 'decision', 'pergunta', 'alert', 'cancel', 'result', 'tarefa',
                                     'fila', 'tools', 'anexo', 'attach', 'pronta', 'autonomia', 'sugestao',
-                                    'worker', 'comentario'])
+                                    'worker', 'comentario', 'referencia'])
     ap.add_argument('arg', nargs='*')
     ap.add_argument('--next-heavy', help='epoch of the next heavy tick (poll, heartbeat)')
     ap.add_argument('--poll-s', type=int, help='light loop interval, sent with the poll')
@@ -6305,7 +6408,11 @@ def main(argv=None):
     ap.add_argument('--key', help='fila worker: the key printed by fila worker-start (default: the one open here for the task and role)')
     ap.add_argument('--phases-from', help="fila worker: the worker's transcript (the Agent tool's output_file) or its agent id: sends the time per phase and the usage per model")
     ap.add_argument('--label', help='fila worker-start, worker start|ping: what the worker is doing, one line')
-    ap.add_argument('--name', help='anexo: the file name shown in Planou (default: the file name)')
+    ap.add_argument('--name', help='anexo: the file name shown in Planou (default: the file name); referencia nova: the '
+                                   'product name (up to 120)')
+    ap.add_argument('--url', help='referencia nova: the product link (http or https)')
+    ap.add_argument('--why', help="referencia nova: why it is worth watching, one line up to 280 (not sent under minimum); "
+                                  "'-' reads stdin")
     ap.add_argument('--out', help='anexo baixar: folder or file to save into (default: cache/planou/downloads/<PID>/)')
     ap.add_argument('--self', dest='take', action='store_true', help='pronta: the agent also takes the task (assignee self)')
     ap.add_argument('--what', help='sugestao: what happened'); ap.add_argument('--expected', help='sugestao: what was expected')
@@ -6313,7 +6420,7 @@ def main(argv=None):
     ap.add_argument('--priority', help='sugestao: suggested priority, P1 (urgent) to P4 (low); default P3')
     ap.add_argument('--reply-to', help='comentario: the comment_id it answers (from the -- COMENTARIO line)')
     ap.add_argument('--ver', action='store_true', help='comentario: list the task comments instead of posting')
-    ap.add_argument('--project', help='tarefa nova: the project (sigla); default the instance\'s, else Planou\'s default')
+    ap.add_argument('--project', help='tarefa nova, referencia: the project (sigla); default the instance\'s, else Planou\'s default')
     ap.add_argument('--evidence', help='tarefa nova|concluir: the evidence (MR/PR link, result in one line)')
     ap.add_argument('--done', action='store_true', help='tarefa nova: the work is already done: record it closed')
     ap.add_argument('--fila', action='store_true', help='tarefa nova: the task is born the agent\'s and started, so it shows '
@@ -6378,6 +6485,8 @@ def main(argv=None):
         return _worker(a, ap)
     if a.cmd == 'comentario':
         return _comentario(a, ap)
+    if a.cmd == 'referencia':
+        return _referencia(a, ap)
     if a.cmd == 'autonomia':
         print(autonomy() or 'desconhecida (sem projeto, Planou desligado ou antigo): vale semi_autonomous')
         return 0

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.129.0 (2026-11-27)
+- Referências do projeto pela linha de comando (Planou PLN1023): `referencia ver [--project SIGLA]` lista os produtos que vale acompanhar (nome, link e por quê, um por linha; sem `--project`, o projeto da instância), e `referencia nova --name ... [--url ...] [--why ...]` semeia um. A repetida (mesmo nome ou link) não duplica e diz o nome que já está na lista; a que a pessoa removeu não volta pelo agente e a saída diz isso. Em Mínimo sobem só o nome e o link: o por quê fica na máquina. A revisão de concorrentes lê a lista daqui.
+
 ## 0.128.0 (2026-11-27)
 - Release em lote: `--release-queue add <branch> <PID>` anexa à tarefa no Planou as capturas da entrega, os PNG que a branch adiciona ou muda em `docs/` (fora `docs/fase4/`), lidos do que está commitado na branch. Vão até 9, na ordem das larguras 1360, 390 e 834 e depois o resto, sem passar do limite de anexos da tarefa e sem reenviar o que já foi; com o Planou fora do ar o próximo tick manda, e uma falha só deixa uma linha de aviso, sem atrapalhar o `add` (PLN1034).
 
