@@ -72,14 +72,21 @@ def _norm(path):
     return os.path.normpath(os.path.expanduser(path)) if isinstance(path, str) and path.strip() else None
 
 
-def release_ok(cfg):
-    """True when the batch release is configured: batch-release.repo is the path of a repos entry with release batch."""
+def release_repo(cfg):
+    """The path of the repository the batch release publishes (batch-release.repo, the path of a repos entry with
+    release batch), or None when the batch release is not configured."""
     bc = cfg.get('behavior_config') if isinstance(cfg.get('behavior_config'), dict) else {}
     br = bc.get('batch-release') or bc.get('deploy-notice') or {}
     repo = _norm(br.get('repo')) if isinstance(br, dict) else None
-    if not repo: return False
-    return any(isinstance(e, dict) and e.get('release') == 'batch' and _norm(e.get('path')) == repo
-               for e in cfg.get('repos') or [])
+    if not repo: return None
+    ok = any(isinstance(e, dict) and e.get('release') == 'batch' and _norm(e.get('path')) == repo
+             for e in cfg.get('repos') or [])
+    return repo if ok else None
+
+
+def release_ok(cfg):
+    """True when the batch release is configured: batch-release.repo is the path of a repos entry with release batch."""
+    return release_repo(cfg) is not None
 
 
 def gaps(cfg, env=None):

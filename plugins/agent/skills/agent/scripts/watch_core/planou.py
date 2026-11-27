@@ -4996,6 +4996,17 @@ def register_files(task, files, now=None):
         if changed: _save('attach_files.json', reg)
 
 
+def known_attachments(task):
+    """The source_keys this agent knows on `task`: sent (cache/planou/attachments.json) or registered to go
+    (attach_files.json). A key the person deleted in Planou (ignored) or that Planou refused is not on the task."""
+    code, _pid = _task_ref(task)
+    keys = {k.split('|', 1)[1] for k, v in _load('attachments.json', {}).items()
+            if k.startswith(f'{code}|') and isinstance(v, dict) and v.get('result') != 'ignored' and not v.get('refused')}
+    reg = _registry()
+    for t in {str(task), code}: keys |= set((reg.get(t) or {}).keys())
+    return keys
+
+
 def attach_file(task, path, name=None, now=None):
     """Attaches a local file the agent produced for `task` (code, pid or queue task) and registers it, so a later tick
     retries it and sends each new version. Returns (outcome, lines): sent, unchanged, pending, inactive, blocked (the

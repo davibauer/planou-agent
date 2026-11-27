@@ -30,7 +30,9 @@ The file: {"branches": [{"branch": "feat/x", "ready_at": ISO UTC, "pid": "ABC000
 
 CLI (the session never edits the file by hand):
   agent.py <instance> --release-queue [list]          the queue and whether a release is due
-  agent.py <instance> --release-queue add BRANCH [PID] a branch is ready (again: ready_at is now)
+  agent.py <instance> --release-queue add BRANCH [PID] a branch is ready (again: ready_at is now); with a PID and the
+                                                       batch release repository configured, the PNGs the branch adds or
+                                                       changes in docs/ go to the task as attachments (PLN1034)
   agent.py <instance> --release-queue start [ok]       the integrator starts with the branches in the queue ("ok": the
                                                        person's OK, needed when the project is not autonomous)
   agent.py <instance> --release-queue drop BRANCH      the culprit goes back to its worker; the integration goes on
@@ -39,14 +41,21 @@ CLI (the session never edits the file by hand):
 
 Never raises in the tick: an unreadable file is reported once (same error, same line) and the tick goes on.
 """
-import json, os, re, sys
+import json, os, re, subprocess, sys
 from datetime import datetime, timedelta, timezone
 
 import core, paths, planou_release
-from watch_core import fileio
+from watch_core import column_roles, fileio
 from adapters import Gancho as Base
 
 BRANCH_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,200}')
+
+# PLN1034: the screenshots a dev worker takes in docs/<delivery>/ go to the task when the branch enters the queue, so the
+# person reviews the delivery from the task. Review order: desktop, phone, tablet, then the rest; at most SHOTS_MAX.
+SHOT_WIDTHS = ('1360', '390', '834')
+SHOTS_MAX = 9
+SHOTS_SKIP = 'docs/fase4/'
+SHOTS_BASES = ('origin/main', 'main')
 
 
 def _now():
@@ -238,6 +247,10 @@ class Gancho(Base):
             print(f'{rest[0]} na fila de release ({len(q["branches"])} pronta(s))'
                   + ('; integracao em andamento: entra no proximo lote' if q.get('integrating_since') else
                      '; release devido: sim' if due else ''))
+            if entry['pid']:            # after the queue is saved and mirrored: nothing here undoes or blocks the add
+                cfg = getattr(ctx, 'cfg', None) or getattr(self.ctx, 'cfg', None) or {}
+                line = attach_screenshots(cfg, rest[0], entry['pid'])
+                if line: print(line)
             return True
         if cmd == 'start':
             if not q['branches']: sys.exit('fila de release vazia: nada a integrar')
@@ -283,3 +296,111 @@ class Gancho(Base):
 
 def _label(b):
     return b['branch'] + (f' ({b["pid"]})' if b.get('pid') else '')
+
+
+# ---------------------------------------------------------------- screenshots of the delivery (PLN1034)
+
+def _git(repo, *args, binary=False):
+    r = subprocess.run(['git', '-C', repo, *args], capture_output=True, timeout=60)
+    if r.returncode:
+        err = r.stderr.decode('utf-8', 'replace').strip().splitlines()
+        raise RuntimeError(f'git {args[0]}: {(err or ["falhou"])[-1][:200]}')
+    return r.stdout if binary else r.stdout.decode('utf-8', 'replace')
+
+
+def _ref(repo, names):
+    for n in names:
+        r = subprocess.run(['git', '-C', repo, 'rev-parse', '--verify', '--quiet', f'{n}^{{commit}}'],
+                           capture_output=True, timeout=30)
+        if r.returncode == 0: return n
+    return None
+
+
+def _width_rank(path):
+    """0, 1, 2 for a name that starts or ends with 1360, 390, 834 (home-1360.png, 390_login.png); 3 for the rest."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    for i, w in enumerate(SHOT_WIDTHS):
+        if re.match(rf'{w}(?!\d)', stem) or re.search(rf'(?<!\d){w}$', stem): return i
+    return len(SHOT_WIDTHS)
+
+
+def screenshots(repo, branch):
+    """(ref, [paths]) of the PNGs `branch` adds or changes under docs/ against origin/main (the merge base), in review
+    order: 1360, 390, 834, then the rest. Only what is committed on the branch; never docs/fase4/. LookupError when
+    the branch or the base is not in the repository."""
+    ref = _ref(repo, (branch, f'origin/{branch}'))
+    if not ref: raise LookupError(f'branch {branch} nao encontrada em {repo}')
+    base = _ref(repo, SHOTS_BASES)
+    if not base: raise LookupError(f'sem origin/main em {repo}')
+    out = _git(repo, 'diff', '--name-only', '--no-renames', '--diff-filter=AM', '-z', f'{base}...{ref}', '--', 'docs/')
+    files = [f for f in out.split('\0') if f.lower().endswith('.png') and not f.startswith(SHOTS_SKIP)]
+    return ref, sorted(files, key=lambda f: (_width_rank(f), f))
+
+
+def shot_name(path):
+    """The attachment name of a screenshot: its folder and its name (docs/pln0001-x/home-1360.png ->
+    pln0001-x-home-1360.png), the same on every add, so a new version replaces the old one in the task."""
+    return f'{os.path.basename(os.path.dirname(path)) or "docs"}-{os.path.basename(path)}'
+
+
+def attach_screenshots(cfg, branch, pid, dest=None, now=None):
+    """Attaches to task `pid` the screenshots `branch` delivers (screenshots()), read with `git show` into
+    data/release_shots/<pid>/ (kept: the tick sends again what Planou did not take now, and each new version). At most
+    SHOTS_MAX per task, and never past MAX_PER_TASK attachments the agent knows on it; an unchanged file is not sent
+    again (attach_file). Returns one line for the output, or None (nothing to attach, no batch release repository,
+    Planou off). Never raises: a failure is one AVISO line, and the add stands."""
+    repo = column_roles.release_repo(cfg or {})
+    if not repo or not pid: return None
+    try:
+        from watch_core import planou
+        planou.configure_agent(paths.NAME, paths.ROOT)
+        if not planou.active(): return None
+        ref, files = screenshots(repo, branch)
+        if not files: return None
+        dest = dest or os.path.join(paths.DATA_DIR, 'release_shots', re.sub(r'[^A-Za-z0-9_-]', '_', pid))
+        os.makedirs(dest, exist_ok=True)
+        placed = {n for n in os.listdir(dest) if n.lower().endswith('.png')}   # from an earlier add of this task
+        known = planou.known_attachments(pid)
+        room = planou.MAX_PER_TASK - len(known)
+        counts, warn, held, skipped = {}, None, False, 0
+        for f in files:
+            name = shot_name(f)
+            new_here, new_there = name not in placed, planou.file_key(name) not in known
+            if (new_here and len(placed) >= SHOTS_MAX) or (new_there and room <= 0):
+                skipped += 1; continue
+            data = _git(repo, 'show', f'{ref}:{f}', binary=True)
+            local = os.path.join(dest, name)
+            _write(local, data)
+            placed.add(name)
+            if new_there: room -= 1
+            if held:                                    # Planou did not answer: the tick sends the rest
+                planou.register_files(pid, [local], now); outcome, lines = 'pending', []
+            else:
+                outcome, lines = planou.attach_file(pid, local, now=now)
+                if outcome == 'pending' and lines: held = True
+            counts[outcome] = counts.get(outcome, 0) + 1
+            if lines and outcome in ('refused', 'blocked', 'inactive') and not warn: warn = lines[0]
+        return _shots_line(branch, pid, counts, skipped, warn)
+    except Exception as e:
+        return f'AVISO (planou): capturas de {branch} nao anexadas a {pid} ({type(e).__name__}: {e})'[:400]
+
+
+def _write(path, data):
+    tmp = f'{path}.{os.getpid()}.tmp'
+    with open(tmp, 'wb') as f: f.write(data)
+    os.replace(tmp, path)
+
+
+SHOTS_SAID = (('sent', 'enviada(s)'), ('unchanged', 'igual(is) ao que ja esta la'),
+              ('pending', 'vao no proximo tick'), ('refused', 'recusada(s) pelo Planou'),
+              ('blocked', 'barrada(s) no filtro local'), ('missing', 'sumida(s)'),
+              ('not_found', 'sem a tarefa no Planou'), ('ignored', 'apagada(s) pela pessoa'),
+              ('inactive', 'nao enviada(s): Planou desligado ou confidencialidade minima'))
+
+
+def _shots_line(branch, pid, counts, skipped, warn):
+    parts = [f'{counts[k]} {said}' for k, said in SHOTS_SAID if counts.get(k)]
+    if skipped: parts.append(f'{skipped} fora (limite de {SHOTS_MAX} capturas ou de anexos da tarefa)')
+    if not parts: return None
+    head = 'AVISO (planou): ' if warn else ''
+    return f'{head}capturas de {branch} em {pid}: ' + ', '.join(parts) + (f' ({warn})' if warn else '')

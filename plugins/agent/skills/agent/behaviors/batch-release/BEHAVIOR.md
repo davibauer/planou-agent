@@ -51,6 +51,9 @@ integrador, para colar no pedido ao integrador (sem o `--role`, o bloco é o do 
   que tem o PID no nome (`git ls-remote --heads origin | grep -i <pid>`). Depois do deploy, `fila done <PID>`: a coluna de
   release não tem próximo, então conclui a tarefa. A branch leva o PID no nome
   (ex.: `feat/pln0123-filtro`), que é como o revisor e o integrador a acham.
+- As capturas da entrega sobem sozinhas no `add` com `<PID>`: os PNG que a branch adiciona ou muda em `docs/` (fora
+  `docs/fase4/`) vão como anexo da tarefa, até 9, na ordem 1360, 390, 834 e o resto; sem reenviar o que já está lá, e
+  uma falha só dá uma linha `AVISO` (PLN1034).
 - `$A --release-queue` mostra a fila e se o release está devido. Depois de um `add`, conferir: devido, disparar na hora,
   sem esperar o tick.
 - O gancho `release_due` acorda a sessão com `== RELEASE DEVIDO` quando há `min_branches` ou mais prontas, ou uma

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.128.0 (2026-11-27)
+- Release em lote: `--release-queue add <branch> <PID>` anexa à tarefa no Planou as capturas da entrega, os PNG que a branch adiciona ou muda em `docs/` (fora `docs/fase4/`), lidos do que está commitado na branch. Vão até 9, na ordem das larguras 1360, 390 e 834 e depois o resto, sem passar do limite de anexos da tarefa e sem reenviar o que já foi; com o Planou fora do ar o próximo tick manda, e uma falha só deixa uma linha de aviso, sem atrapalhar o `add` (PLN1034).
+
 ## 0.127.0 (2026-11-27)
 - Todo funcionário fecha o dia útil com as lições, não só os de trabalho e o job-scout: o gancho `licoes` entra sozinho em toda instância (sem precisar estar no config) e o travel-agent ganhou o mesmo fechamento. A regra da retrospectiva (uma por dia, de 1 a 5 lições reais, com os selos de sempre) passou para o núcleo, no SKILL.md.
 - O texto das lições só sobe para o Planou na privacidade Detalhe; em Resumo e Mínimo ele fica no computador e vai só o tamanho e a data. Em Detalhe, o job-scout e o travel-agent voltam a mandar o texto, que antes nunca ia.
