@@ -11,7 +11,8 @@ what is due but writes nothing. A tick that comes late the same day (runner stop
 starts clean. By default only on business days (Monday to Friday); "dias": "todos" includes the weekend.
 
 Config ("hooks": [{"type": "agenda", ...}]):
-  nome     required, unique among the agenda entries (the state key and the block title)
+  name     required, unique among the agenda entries (the state key and the block title); "nome" is the old spelling
+           and still works (PLN1028)
   texto    required, what the session must do when woken
   hora     "HH:MM" (default "09:00")
   dias     "uteis" (default) or "todos"
@@ -27,6 +28,7 @@ class Gancho(Base):
     roda_em_dry = True
 
     def configura(self):
+        self.nome = str(self.cfg.get('name') or self.cfg.get('nome') or '').strip() or self.tipo
         h, m = (self.cfg.get('hora') or '09:00').split(':')
         self.hora = (int(h), int(m))
         self.texto_agenda = str(self.cfg.get('texto') or '').strip()

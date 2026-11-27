@@ -449,9 +449,10 @@ def _whatsapp_source(e, i, err, warn):
 def _agenda_hook(e, i, hooks, err, warn):
     """agenda (PLN0439): a reminder at a fixed time; the name is the state key, so it must be set and unique."""
     at = f'"hooks"[{i}] (agenda)'
-    n = e.get('name')
-    if not isinstance(n, str) or not n.strip(): err.append(f'{at}: precisa de "nome" (chave do estado)')
-    elif sum(1 for h in hooks if isinstance(h, dict) and h.get('type') == 'agenda' and h.get('name') == n) > 1:
+    def nm(h): return h.get('name') or h.get('nome')   # "nome" is the old spelling the hook still reads (PLN1028)
+    n = nm(e)
+    if not isinstance(n, str) or not n.strip(): err.append(f'{at}: precisa de "name" (chave do estado)')
+    elif sum(1 for h in hooks if isinstance(h, dict) and h.get('type') == 'agenda' and nm(h) == n) > 1:
         err.append(f'{at}: nome "{n}" repetido entre os ganchos agenda')
     if not isinstance(e.get('texto'), str) or not e['texto'].strip(): err.append(f'{at}: precisa de "texto"')
     h = e.get('hora')

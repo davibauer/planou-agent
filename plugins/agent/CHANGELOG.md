@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.124.6 (2026-11-26)
+- Gancho agenda: o campo `name` (o que o validador e o schema exigem) agora é o lido pelo gancho, com a chave de estado por entrada; antes só `nome` valia e várias entradas com `name` dividiam a mesma chave, então uma entrada semanal podia não disparar. `nome` continua valendo como nome antigo.
+
 ## 0.124.5 (2026-11-26)
 - Jobs pesados (build, suíte de teste, render) passam por `scripts/heavy.py`: espera a memória voltar, roda um por vez entre todos os agentes, com teto de memória pelo `systemd-run --user --scope` quando o computador deixa, e chama `dotnet build-server shutdown` no fim de um comando dotnet. O pedido ao worker ganha a linha `PESADO` com esse uso.
 - O runner anota quando a memória fica no limite e, se cair nessa hora, o aviso para relançar diz "parado por falta de memória", com a causa registrada uma vez em `warnings.log`.
