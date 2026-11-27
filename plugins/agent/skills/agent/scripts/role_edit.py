@@ -211,6 +211,14 @@ def minimum(cfg):
     return planou.in_effect(paths.ROOT, (cfg.get('planou') or {}).get('confidentiality') or default) == 'minimum'
 
 
+def lessons_text(cfg):
+    """The text of the lessons goes to Planou only under confidentiality "detail" (product decision, PLN1024): under
+    "title" (Resumo) and "minimum" it stays on this machine, and the lessons file goes with its size and date only."""
+    from watch_core import planou
+    default = 'minimum' if work_watch(cfg) else 'title'
+    return planou.in_effect(paths.ROOT, (cfg.get('planou') or {}).get('confidentiality') or default) == 'detail'
+
+
 # ---------------------------------------------------------------- the tick interval (PLN0989)
 
 def tick_interval(cfg):

@@ -160,7 +160,7 @@ Critério é **porteiro de custo**, não julgamento: preferência fina ("prefiro
 
 ## Lições do dia
 
-No primeiro tick de dia útil a partir das 18h (fuso do config) o bloco `== LICOES` reimprime a lição do dia útil anterior e pede a de hoje. Escrever 3–6 itens `[aplicada em <onde>|proposta|recusada|a aplicar] o que o usuário teve de pedir ou corrigir → o que muda` e gravar com `python3 $V --lessons set "…"` (histórico em `~/.config/watch-core/data/lessons.md`, o mesmo dos agents do work-watch: o código das lições é o `watch_core`, compartilhado). "aplicada" = já está no perfil, nos critérios, nas instruções pessoais ou no código (dizer onde); "proposta" amplia o que o agent faz sozinho e espera o OK; "a aplicar" é dívida que o dia seguinte cobra. `--lessons` mostra as últimas; `--lessons proposals`, as que esperam resposta.
+Como em todo funcionário (seção "Lições do dia" do SKILL.md do plugin), com o comando do job-scout: `python3 $V --lessons set "…"`. Aqui o bloco só aparece com vaga acompanhada, e "aplicada" pode estar no perfil, nos critérios, nas instruções pessoais ou no código (dizer onde). `--lessons` mostra as últimas; `--lessons proposals`, as que esperam resposta.
 
 ## Pacote de candidatura (opcional, sob pedido)
 

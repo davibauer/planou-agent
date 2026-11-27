@@ -324,7 +324,7 @@ def docs_manifest(cfg, now=None):
                                  [_clip(p, 300) for p in r['problems'] if isinstance(p, str) and p.strip()][:20]}
         files.append(item)
         if len(files) >= 37: break                 # + lessons, handoff and options: 40 at most
-    lessons = _lessons_item(cfg, minimum, now)
+    lessons = _lessons_item(cfg, role_edit.lessons_text(cfg), now)
     if lessons: files.append(lessons)
     memory = _handoff_item(minimum)
     if memory: files.append(memory)
@@ -337,12 +337,12 @@ def docs_manifest(cfg, now=None):
     return out
 
 
-def _lessons_item(cfg, minimum, now):
+def _lessons_item(cfg, with_text, now):
     """The lessons of the Memory layer (PLN0292): this agent's sections of the shared lessons.md from the last days
     (watch_core.lessons.recentes), as a read-only "lessons" file whose content and sha256 are that text, so the Papel
     tab shows each lesson with its state ([aplicada em ...], [proposta], [recusada], [a aplicar]) and the manifest goes
-    again when a state changes. Under confidentiality "minimum", or with no lesson in those days, only the file's size
-    and date. None when there is no lessons.md. An older Planou refuses the content: watch_core.planou drops it."""
+    again when a state changes. The text goes only under confidentiality "detail" (PLN1024, role_edit.lessons_text):
+    under "title" and "minimum", or with no lesson in those days, only the file's size and date. None when there is no lessons.md. An older Planou refuses the content: watch_core.planou drops it."""
     import hashlib
     from watch_core import lessons
     f = lessons.LICOES_MD
@@ -354,7 +354,7 @@ def _lessons_item(cfg, minimum, now):
     item = {'kind': 'lessons', 'name': 'lessons.md', 'path_label': _path_label(f), 'bytes': len(data),
             'sha256': hashlib.sha256(data).hexdigest(),
             'updated_at': datetime.fromtimestamp(mtime, timezone.utc).isoformat(timespec='seconds'), 'editable': False}
-    text = '' if minimum else lessons.recentes(paths.agent(cfg), hoje=now.astimezone(lessons.BRT).date())
+    text = '' if not with_text else lessons.recentes(paths.agent(cfg), hoje=now.astimezone(lessons.BRT).date())
     if text:
         raw = text.encode('utf-8')
         item.update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(), content=text)
@@ -448,7 +448,18 @@ def send_docs(cfg, now):
         role_edit.report_tick(cfg)             # how often it looks at its sources (PLN0989), with the tick's heartbeat
         planou.set_docs(docs_manifest(cfg, now), now)
     except Exception as e: return [f'AVISO (planou): arquivos do papel: {type(e).__name__}: {str(e)[:120]}']
+    send_lesson_days(cfg, now)
     return []
+
+
+def send_lesson_days(cfg, now=None):
+    """PLN1024: this agent's days of lessons to Planou's history, the past ones once and then only the changed ones
+    (watch_core.planou.send_lesson_days). Never fails the tick nor prints: a failure is tried again on the next one."""
+    try:
+        from watch_core import lessons, planou
+        return planou.send_lesson_days(lessons.dias(paths.agent(cfg)), now)
+    except Exception:
+        return 0
 
 
 def planou_output(lines):
@@ -692,6 +703,10 @@ def main(argv=None):
     ap.add_argument('--backfill-links', action='store_true',
                     help='manutencao: acha a mensagem das pendencias antigas de Slack/Teams sem link e grava o link; com --dry so mostra')
     for x in ganchos + fontes: x.args(ap)
+    if '--licoes' not in ap._option_string_actions and adapters.carrega('licoes').by_default():
+        g = adapters.instancia({'type': 'licoes'}, 'Gancho', ctx)   # PLN1024: every employee writes the day's lessons,
+        g.args(ap); ganchos.append(g)                 # not only the ones that list the hook (an instance adapter that
+                                                      # already takes --licoes keeps doing it its own way)
     so_top = []
     if cfg.get('code') and '--top' not in ap._option_string_actions:   # tasks engine inside an instance adapter
         import importlib

@@ -120,6 +120,22 @@ def recentes(agent, dias=PLANOU_DIAS, max_bytes=PLANOU_MAX, hoje=None):
     return out
 
 
+def dias(agent):
+    """Every section of this agent (new or old name) in lessons.md, at any age, as {'AAAA-MM-DD': its non-empty lines}
+    (the last one of a repeated day wins): the history Planou keeps per day (PLN1024). {} when there is none."""
+    try: txt = open(LICOES_MD, encoding='utf-8').read()
+    except FileNotFoundError: return {}
+    out = {}
+    for bloco in re.split(r'(?m)^(?=## )', txt):
+        cab = bloco.split('\n', 1)[0].strip()
+        if not cab.startswith('## ') or not same_agent(_agent_da_secao(cab[3:]), agent): continue
+        try: d = datetime.strptime(cab[3:].split('·', 1)[0].strip(), '%d/%m/%Y').date()
+        except ValueError: continue
+        corpo = '\n'.join(l.rstrip() for l in bloco.split('\n')[1:] if l.strip())
+        if corpo: out[d.isoformat()] = corpo
+    return out
+
+
 def regras():
     try: return open(REGRAS_MD, encoding='utf-8').read()
     except FileNotFoundError: return '(sem rules.md ainda)'

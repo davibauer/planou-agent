@@ -755,6 +755,75 @@
         }
       }
     },
+    "/v1/agent/lessons": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "days": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "day": {
+                          "type": "string",
+                          "description": "The day of the section (dd/mm/aaaa in lessons.md), as YYYY-MM-DD.",
+                          "format": "date"
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "The lines of the section, without its heading; empty drops the day."
+                        }
+                      }
+                    },
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonsResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agent/messages": {
       "post": {
         "tags": [
@@ -1232,6 +1301,116 @@
                       "nullable": true
                     }
                   }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent/projects/{key}/references": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentReferencesDto"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Erro: {\"error\": {\"code\", \"message\", \"fields\"?}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "url": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "why": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentReferenceResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentReferenceResponse"
                 }
               }
             }
@@ -4782,6 +4961,131 @@
           }
         }
       },
+      "AgentReferenceAuthorDto": {
+        "required": [
+          "kind",
+          "name",
+          "is_me"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "is_me": {
+            "type": "boolean"
+          }
+        },
+        "nullable": true
+      },
+      "AgentReferenceDto": {
+        "required": [
+          "id",
+          "name",
+          "url",
+          "why",
+          "added_by",
+          "created_at"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "why": {
+            "type": "string",
+            "nullable": true
+          },
+          "added_by": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AgentReferenceAuthorDto"
+              }
+            ],
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AgentReferenceRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "why": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AgentReferenceResponse": {
+        "required": [
+          "result",
+          "id",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentReferencesDto": {
+        "required": [
+          "project",
+          "project_id",
+          "max",
+          "references"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentReferenceDto"
+            }
+          }
+        }
+      },
       "AgentReleaseQueueBranch": {
         "type": "object",
         "properties": {
@@ -6498,6 +6802,11 @@
             "format": "int32",
             "nullable": true
           },
+          "lessons_erased_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "paused": {
             "allOf": [
               {
@@ -6850,6 +7159,62 @@
         "type": "object",
         "default": null,
         "nullable": true
+      },
+      "LessonDayRequest": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "The day of the section (dd/mm/aaaa in lessons.md), as YYYY-MM-DD.",
+            "format": "date"
+          },
+          "text": {
+            "type": "string",
+            "description": "The lines of the section, without its heading; empty drops the day."
+          }
+        }
+      },
+      "LessonsRequest": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "string",
+                  "description": "The day of the section (dd/mm/aaaa in lessons.md), as YYYY-MM-DD.",
+                  "format": "date"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "The lines of the section, without its heading; empty drops the day."
+                }
+              }
+            },
+            "nullable": true
+          }
+        }
+      },
+      "LessonsResponse": {
+        "required": [
+          "stored",
+          "refused"
+        ],
+        "type": "object",
+        "properties": {
+          "stored": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "MessageIn": {
         "type": "object",

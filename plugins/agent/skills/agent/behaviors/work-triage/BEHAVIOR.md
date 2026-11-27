@@ -82,12 +82,9 @@ $A --pendente pN status=ignorar nota="..."        # status=aberta reabre
 
 ## Lições (`== LICOES`, gancho `licoes`)
 
-No primeiro tick a partir do fechamento (18:00) de dia útil, o gancho imprime a lição do dia anterior (conferir se foi
-aplicada) e as pistas do dia. Reler o dia na sessão e escrever 3 a 6 itens (dia sem fricção: "nada a mudar"), cada um
-`[aplicada em <onde>]`, `[proposta] <regra, limite e critério de segurança>` (amplia a autonomia: espera o OK),
-`[a aplicar]` ou `[recusada]`. Gravar com `$A --licoes set "<itens>"` e mostrar em até 10 linhas. `--licoes propostas`
-lista as propostas abertas desta instância, reapresentadas na lição seguinte até virarem aplicada ou recusada.
-Regras gerais em `~/.config/watch-core/docs/lessons.md`.
+Como em todo funcionário: seção "Lições do dia" do SKILL.md do plugin. Aqui as pistas do dia trazem também as
+pendências podadas, as ações manuais e as fontes quebradas do dia; regra que serve só a esta empresa vai nas instruções
+da instância.
 
 ## Custo e tempo por tarefa (gancho `custos`)
 

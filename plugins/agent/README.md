@@ -328,9 +328,24 @@ As lições vão no arquivo `lessons` do manifesto: o texto das seções deste a
 últimos 7 dias, da mais nova para a mais antiga (até 32 KB, cortando as mais antigas), só leitura. A aba Papel mostra
 cada lição com o selo do estado (`[aplicada em ...]`, `[proposta]`, `[recusada]`, `[a aplicar]`) e quantas faltam
 aplicar. Depois do `--licoes set`, o tick seguinte manda o manifesto novo; mudar o estado de uma linha no arquivo
-também manda. Na confidencialidade `minimum` vai só o tamanho e a data. Um Planou que ainda não aceita o texto (até a
+também manda. O texto só vai na confidencialidade `detail`: em `title` (Resumo) e `minimum` vai só o tamanho e a data,
+e as lições ficam no computador. Um Planou que ainda não aceita o texto (até a
 0.74.1) recusa o manifesto por ele, e o runner manda o arquivo sem o texto por um dia, sem perder o resto. A cobrança
-do "a aplicar" no dia seguinte continua no fechamento (`--licoes`).
+do "a aplicar" no dia seguinte continua no fechamento (`--licoes`). Todo funcionário escreve as lições do dia (seção
+"Lições do dia" do SKILL.md): o gancho `licoes` entra sozinho em toda instância cujo config não traz um gancho ou
+fonte que já aceite `--licoes`; o travel-agent faz o mesmo fechamento com as datas em `data/lessons.json`, e o
+job-scout segue com o dele. O job-scout e o travel-agent sobem o texto das lições como os outros (só leitura), com a
+mesma regra: só em `detail`.
+
+O Planou guarda também o histórico, um registro por dia (`POST /v1/agent/lessons`): no tick pesado o runner manda os
+dias deste agente no `lessons.md` em qualquer idade, na primeira vez todos (em partes de até 60 dias e 64 KB, no
+máximo 5 partes por tick), depois só os dias cujo texto mudou (`cache/planou/lesson_days.json`). Dia com mais de
+16 KB fica no computador. Só em `detail`: em `title` e `minimum` nada vai; um Planou sem a rota (404) ou que recusa o texto (409) é chamado de
+novo um dia depois. Abaixo de `detail`, num 409 ou com outro agente recebendo, o runner esquece o que já mandou: de
+volta a `detail`, todos os dias sobem de novo. O mesmo vale quando a ficha do Planou desce de `detail` e volta sem o
+runner ver (parado, ou entre dois heartbeats): o Planou apagou o histórico, e a resposta do heartbeat traz
+`lessons_erased_at`; um valor diferente do guardado em `lesson_days.json` faz o runner esquecer o que mandou. Um
+Planou sem o campo não muda nada.
 
 ### Nome e frase de cada comportamento
 

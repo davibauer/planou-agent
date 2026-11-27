@@ -315,6 +315,19 @@ registrar uma sugestão. O planou a transforma em tarefa no backlog do projeto P
   `fila blocked`) e esperar.
 - Nada de gravar credencial em log, em commit ou no Planou.
 
+## Lições do dia (`== LICOES`)
+
+Todo funcionário fecha o dia útil com as lições, no mesmo histórico (`~/.config/watch-core/data/lessons.md`, uma seção
+`## dd/mm/aaaa · <agente>`), que a aba Papel do Planou mostra em Memória. No primeiro tick a partir das 18h de dia útil
+o bloco `== LICOES` traz a lição do dia útil anterior (conferir se foi aplicada) e as pistas do dia. Reler o dia na
+sessão e escrever **uma** retrospectiva: de 1 a 5 lições reais, cada uma `[aplicada em <onde>]`, `[proposta] <regra,
+limite e critério de segurança>` (amplia a autonomia: espera o OK), `[a aplicar]` (dívida que o fechamento seguinte
+cobra) ou `[recusada]`, seguida de `o que o usuário teve de pedir ou corrigir → o que muda`. Nada de lição inventada:
+dia sem fricção é uma linha `[aplicada em nada] dia sem correção → nada a mudar`. Gravar com
+`python3 $S/scripts/agent.py <instância> --licoes set "<itens, um por linha>"` (o bloco para de aparecer; o job-scout
+usa o `--lessons set` dele) e mostrar em até 10 linhas. `--licoes propostas` lista as propostas abertas, que voltam na
+lição seguinte até virarem aplicada ou recusada. Regra que vale para todos vai em `~/.config/watch-core/data/rules.md`.
+
 ## Modo teste
 
 Config sem `"live": true` = modo teste (toda instância nova nasce assim): o tick é sempre dry, nada sobe para o Planou,

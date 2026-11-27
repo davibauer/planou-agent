@@ -67,10 +67,14 @@ def read_only(manifest):
     """The Papel tab's manifest with nothing editable: no file content, no catalog of behaviors to turn on. scout.py
     applies no agent_docs_changed (it only waits until one is answered, PLN0993), so Planou must not offer an edit this
     instance would leave unapplied (the interval is the exception: apply_ticks, before scout.py, PLN0989; any other edit
-    is refused there, PLN0992)."""
+    is refused there, PLN0992). The lessons file keeps its text under confidentiality "detail", the only level whose
+    lessons go to Planou (agent.py _lessons_item already leaves it out below it; checked here again): it is read only
+    anyway, and without it the Papel tab had the title and no lesson (PLN1024)."""
+    from watch_core import planou
+    keep = planou._S.get('confidentiality') == 'detail'
     files = []
     for f in (manifest or {}).get('files') or []:
-        f = {k: v for k, v in f.items() if k != 'content'}
+        f = {k: v for k, v in f.items() if k != 'content' or (keep and f.get('kind') == 'lessons')}
         f['editable'] = False
         files.append(f)
     return {'files': files}
@@ -84,6 +88,8 @@ def save_docs(cfg, manifest):
         planou.configure_agent(paths.NAME, paths.ROOT)
         if planou.active():
             planou.set_docs(read_only(manifest()))
+            from watch_core import lessons         # the days of lessons for Planou's history (PLN1024)
+            planou.send_lesson_days(lessons.dias(paths.agent(cfg)))
             import role_edit                       # the interval (PLN0989), after a change apply_ticks made (PLN0992)
             role_edit.report_tick(role_edit.config_now(cfg))
     except Exception as e:

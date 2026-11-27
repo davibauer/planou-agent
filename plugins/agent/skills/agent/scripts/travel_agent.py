@@ -14,6 +14,8 @@ not live in one process, so this plugin's agent.py runs travel-agent's in a proc
   agent.py travel-agent --dry | --trip ID  the same, as travel-agent takes them; in test mode ("live" not true) always dry
   agent.py travel-agent --report | --miles | --compare | --hotels | --points ... | --gmail ... | --booked ...
                                          any other travel-agent command, answered by travel-agent's agent.py
+  agent.py travel-agent --licoes [set "texto" | regras | propostas | tudo]
+                                         the day's lessons, as every employee (hooks/licoes.py standalone_cli; PLN1024)
   agent.py travel-agent --plan-cards [--dry]
                                          one Planou card per trip plan (PLN0374, "plan_cards" in the config): synced now,
                                          or with --dry (or in test mode, or without Planou) only printed as JSON
@@ -117,6 +119,10 @@ class Planou:
         if self.manifest:
             try: planou.set_docs(job_scout.read_only(self.manifest()))
             except Exception as e: lines.append(f'AVISO (planou): arquivos do papel: {type(e).__name__}: {str(e)[:120]}')
+        try:                                       # the days of lessons for Planou's history (PLN1024); never fails the tick
+            from watch_core import lessons
+            planou.send_lesson_days(lessons.dias(paths.agent(self.cfg)))
+        except Exception: pass
         import role_edit                           # the interval (PLN0989), after a change before() applied (PLN0992)
         role_edit.report_tick(role_edit.config_now(self.cfg))
         return lines + planou.heartbeat('tick', broken_sources=broken_sources)
@@ -224,6 +230,8 @@ def run(cfg, args, manifest=None, tools=None, output=None):
     """Runs travel-agent's agent.py with `args` for this instance; returns its exit code (2 = AGENTE QUEBRADO, as the
     runner reads it). `manifest()` and `tools()` feed the thin Planou tick; `output(lines)` -> (block, loose lines)."""
     args = list(args)
+    if args[:1] in (['--licoes'], ['--lessons']):          # the day's lessons, as every employee (PLN1024)
+        return _lessons().standalone_cli(cfg, args[1:])
     k = kind(args)
     if k is None:
         print(f'{paths.NAME}: comando que o travel-agent nao conhece: {" ".join(args)} (os dele: --dry, --trip ID, '
@@ -262,5 +270,15 @@ def run(cfg, args, manifest=None, tools=None, output=None):
         import role_edit
         b = role_edit.block()                     # == PAPEL MUDOU / RECUSADO: a change of the interval (PLN0989)
         if b: print('\n' + b)
+    if '--trip' not in args:                      # the closing of the day's lessons (PLN1024): live full tick only
+        try: b = _lessons().standalone_block(cfg, '--dry' in args)
+        except Exception as e:                    # never fails the tick nor wakes the session for it
+            print(f'licoes: {type(e).__name__}: {str(e)[:160]}', file=sys.stderr); b = None
+        if b: print('\n' + b)
     sys.stdout.flush()
     return r.returncode
+
+
+def _lessons():
+    import adapters
+    return adapters.carrega('licoes')

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.127.0 (2026-11-27)
+- Todo funcionário fecha o dia útil com as lições, não só os de trabalho e o job-scout: o gancho `licoes` entra sozinho em toda instância (sem precisar estar no config) e o travel-agent ganhou o mesmo fechamento. A regra da retrospectiva (uma por dia, de 1 a 5 lições reais, com os selos de sempre) passou para o núcleo, no SKILL.md.
+- O texto das lições só sobe para o Planou na privacidade Detalhe; em Resumo e Mínimo ele fica no computador e vai só o tamanho e a data. Em Detalhe, o job-scout e o travel-agent voltam a mandar o texto, que antes nunca ia.
+- As lições dos dias passados também sobem para o Planou, que passa a guardar o histórico por dia: na primeira vez todos os dias do funcionário, em partes, e depois só o que mudou. Só na privacidade Detalhe; em Resumo e Mínimo nada sobe. Se a ficha do Planou sair de Detalhe e voltar com o funcionário desligado, ele percebe no próximo sinal de vida e manda todos os dias de novo.
+
 ## 0.126.0 (2026-11-27)
 - `--brief`: a primeira linha agora é `CANAL:` e decide sozinha por onde o worker sai. Com a cota semanal da assinatura em 90% ou mais e saldo nos créditos de API, `CANAL: claude-api` com o comando pronto (`claude-api --permission-mode bypassPermissions`, os `--add-dir` do workspace e da worktree, o pedido pelo stdin, `CLAUDE_API_JSON` e `CLAUDE_API_LABEL`); abaixo de 90%, sem leitura, com a janela virada ou com o saldo no teto, `CANAL: agent`. A 99%, uma linha a mais diz que a sessão também passa a trabalhar só pelo claude-api. A sessão não depende mais de lembrar de ler a statusline antes de delegar.
 - Histórico da cota semanal em `~/.config/agent/api-quota-history.jsonl`, gravado pelo `--brief` e pelo tick pesado (só leitura nova, oito dias): a linha `CANAL` diz desde quando a cota está acima de 90% na janela e, com leitura de mais de 1 h, `leitura de HH:MM`.

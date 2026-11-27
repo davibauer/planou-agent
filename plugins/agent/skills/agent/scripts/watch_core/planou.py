@@ -1549,6 +1549,7 @@ def heartbeat(phase, next_tick=None, broken_sources=(), session_id=None, now=Non
     if docs: _docs_taken(docs[0], now)
     if 'roles' in body: _role_limit_from(res)
     told = pause_from_heartbeat(res, phase, now) + confidentiality_from(res, phase, now)
+    lessons_erased_from(res)
     return reaped + told + (flush_attachments(now) if phase == 'tick' else [])
 
 
@@ -4545,6 +4546,100 @@ def _docs_refused(e, sig, now):
     line = f'AVISO (planou): arquivos do papel recusados ({e.code}: {", ".join(e.fields) or "sem campo"})'
     _log('docs.log', line, now)
     return [line]
+
+
+# ---------------------------------------------------------------- lessons history (PLN1024)
+
+# Planou keeps each day of an agent's lessons (POST /v1/agent/lessons), so a day is not lost when it leaves the 7 days the
+# manifest carries. The first sync sends every past day of this agent in lessons.md, in parts; later ones only the days
+# whose text changed (lesson_days.json: {to: Planou and agent, days: {day: sha256 of the text Planou took}}). Only in
+# confidentiality "detail": under "title" and "minimum" the text stays on this machine. A Planou without the route
+# (404/405) or that refuses the text (409 lessons_stay_local, the level changed on its screen) is asked again after a
+# day; the 409, a level below "detail" and another receiving agent forget what was sent, so everything goes again.
+# Planou erases the history also when its screen goes below "detail" and back while this runner does not see it (stopped,
+# or between two heartbeats): its heartbeat answers lessons_erased_at, kept here as `erased_at`, and a value other than
+# the one kept forgets what was sent (an older Planou without the field changes nothing).
+LESSON_DAYS_FILE = 'lesson_days.json'
+LESSON_DAYS_PER_CALL = 60                 # the route's limit
+LESSON_DAYS_PART_BYTES = 64_000           # a part never goes over this much text
+LESSON_DAY_MAX_BYTES = 16_000             # the route's limit per day: a longer day stays on the computer
+LESSON_DAYS_CALLS = 5                     # parts per tick at most (the rest goes on the next ticks)
+
+
+def _lesson_parts(days, sent):
+    """The changed days in parts: [[(day, text, sha), ...], ...], oldest first."""
+    parts, cur, size = [], [], 0
+    for day in sorted(days):
+        text = days[day]
+        raw = len(text.encode('utf-8'))
+        sha = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        if sent.get(day) == sha or raw > LESSON_DAY_MAX_BYTES: continue
+        if cur and (len(cur) >= LESSON_DAYS_PER_CALL or size + raw > LESSON_DAYS_PART_BYTES):
+            parts.append(cur); cur, size = [], 0
+        cur.append((day, text, sha)); size += raw
+    if cur: parts.append(cur)
+    return parts
+
+
+def _lesson_to():
+    return f"{_S.get('base_url') or ''}|{_S.get('agent') or ''}"
+
+
+def lessons_erased_from(res):
+    """Takes lessons_erased_at from a heartbeat answer: when it differs from the one kept, Planou lost days this runner
+    had sent, so they are all forgotten and the next send_lesson_days sends every day again. Absent (an older Planou,
+    or nothing ever erased): nothing changes."""
+    mark = res.get('lessons_erased_at') if isinstance(res, dict) else None
+    if not isinstance(mark, str) or not mark: return False
+    with _locked(LESSON_DAYS_FILE):
+        st = _load(LESSON_DAYS_FILE, {})
+        to = _lesson_to()
+        if not isinstance(st, dict) or st.get('to') != to: st = {'to': to}
+        if st.get('erased_at') == mark: return False
+        st.update(erased_at=mark, days={})
+        _save(LESSON_DAYS_FILE, st)
+    return True
+
+
+def send_lesson_days(days, now=None):
+    """Sends the changed days of `days` ({'AAAA-MM-DD': text}, watch_core.lessons.dias) to Planou, at most
+    LESSON_DAYS_CALLS parts per call, only under confidentiality "detail" (under "title" and "minimum" the text stays on
+    this machine, PLN1024). Returns the number of days Planou took; quiet on any failure (the next tick tries).
+    What was sent is forgotten whenever Planou no longer has it: below "detail" (Planou erases the history), on a 409
+    lessons_stay_local (its screen went below "detail") and when the receiving agent or Planou changes, so that back
+    in "detail" every past day goes again."""
+    if not _S['root'] or not active(): return 0
+    if _S['confidentiality'] != 'detail':
+        st = _load(LESSON_DAYS_FILE, {})
+        if not isinstance(st, dict): _save(LESSON_DAYS_FILE, {})
+        elif st.get('days') or st.get('retry_at'):           # the mark of the last erase stays
+            _save(LESSON_DAYS_FILE, {k: v for k, v in st.items() if k in ('to', 'erased_at')})
+        return 0
+    if not days: return 0
+    now = now or datetime.now(timezone.utc)
+    to = _lesson_to()
+    st = _load(LESSON_DAYS_FILE, {})
+    if not isinstance(st, dict) or st.get('to') != to: st = {}
+    st['to'] = to
+    wait = _date_time(st.get('retry_at'))
+    if wait and now < wait: return 0
+    sent = st.get('days') if isinstance(st.get('days'), dict) else {}
+    taken = 0
+    for part in _lesson_parts(days, sent)[:LESSON_DAYS_CALLS]:
+        try:
+            _call('POST', '/agent/lessons', {'days': [{'day': d, 'text': x} for d, x, _ in part]})
+        except PlanouError as e:
+            if e.status in (404, 405, 409):
+                st['retry_at'] = (now + timedelta(days=1)).isoformat()
+                _log('docs.log', f'AVISO (planou): histórico das lições não aceito ({e.status} {e.code or ""}); de novo amanhã', now)
+            if e.status == 409: sent, taken = {}, 0     # Planou erased the history: everything goes again in "detail"
+            break
+        for d, _, sha in part: sent[d] = sha        # a refused day (looks like a credential) is not asked again either
+        taken += len(part)
+    if taken: st.pop('retry_at', None)
+    st['days'] = sent
+    _save(LESSON_DAYS_FILE, st)
+    return taken
 
 
 # ---------------------------------------------------------------- tick interval (PLN0989)
