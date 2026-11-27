@@ -193,6 +193,8 @@ consegue, sem cada comportamento em `behaviors`:
   com nome, link e por quê; a revisão de concorrentes lê a lista daqui. `$PL referencia nova --name '<produto>' [--url
   <link>] [--why '<uma linha>'] [--project <sigla>]` semeia uma: a repetida (mesmo nome ou link) não duplica, e a que a
   pessoa removeu não volta pelo agente (não insistir). Em Mínimo sobem só nome e link; o `--why` fica na máquina.
+  Em Mínimo (`confidentiality: minimum`) a referência é só produto público, nunca nome ou link de cliente. Um campo
+  que pareça segredo (link com `?token=`, chave, senha) é recusado antes de sair.
 - Acesso pelo pedido (Planou 0.84): um pedido aberto pelo agente com `--task <PID>` sobre a tarefa de uma pessoa
   libera só aquela tarefa, enquanto o pedido está aberto e até 24 h depois da resposta, para fechar o ciclo:
   comentar (`$PL comentario`), mudar a coluna com `$PL tarefa estado <PID> "<coluna>"` e ler os anexos com

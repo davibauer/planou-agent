@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.129.1 (2026-11-27)
+- `referencia nova` recusa nome, link ou por quê que pareçam segredo (link com `?token=`, chave, senha), sem mostrar o valor, e aceita link de até 2048 caracteres, o mesmo limite do Planou; um link longo demais agora diz isso em vez de pedir http://. Em Mínimo, a referência é só produto público, nunca nome ou link de cliente (PLN1040).
+- Capturas da entrega na fila de release: uma pasta de entrega com "senha" ou "token" no nome não barra mais todas as capturas (a palavra sai do nome do anexo); um arquivo com nome de credencial continua fora. Sem `origin/main` no repositório nada é anexado e a linha diz por quê, em vez de comparar com um `main` local defasado. A conta das 9 capturas e do limite de anexos olha o que está na tarefa agora, então uma captura que a pessoa apagou libera a vaga. A pasta local das capturas (`data/release_shots/<PID>`) é apagada quando a branch sai da fila (`done` ou `drop`) (PLN1040).
+
 ## 0.129.0 (2026-11-27)
 - Referências do projeto pela linha de comando (Planou PLN1023): `referencia ver [--project SIGLA]` lista os produtos que vale acompanhar (nome, link e por quê, um por linha; sem `--project`, o projeto da instância), e `referencia nova --name ... [--url ...] [--why ...]` semeia um. A repetida (mesmo nome ou link) não duplica e diz o nome que já está na lista; a que a pessoa removeu não volta pelo agente e a saída diz isso. Em Mínimo sobem só o nome e o link: o por quê fica na máquina. A revisão de concorrentes lê a lista daqui.
 

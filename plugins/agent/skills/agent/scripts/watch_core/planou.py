@@ -5613,7 +5613,7 @@ def _comentario(a, ap):
 # Products worth keeping an eye on, kept by Planou per project: the weekly competitor review reads the list and seeds it.
 # The person removes on the screen and a removed item never comes back through the agent (200 removed_by_person).
 
-REF_NAME_MAX, REF_WHY_MAX, REF_URL_MAX = 120, 280, 2000
+REF_NAME_MAX, REF_WHY_MAX, REF_URL_MAX = 120, 280, 2048      # the server's ReferenceLimits (NameMax, WhyMax, UrlMax)
 _SPACES = re.compile(r'\s+')
 
 
@@ -5654,17 +5654,23 @@ def add_reference(name, url=None, why=None, project=None):
     answer with `why_kept` when the why stayed here: the why is the agent's free text, so under "minimum" it never goes
     up (the name and the link are the reference itself, a public product). The server answers created (201), unchanged
     (the same name, any case, or the same link is already there: `name` is the one on the list) or removed_by_person (the
-    person removed it: it does not come back through the agent). Raises PlanouError (checked here first: name, url, why)."""
+    person removed it: it does not come back through the agent). Raises PlanouError (checked here first: name, url, why;
+    a field that looks like a credential, such as a link with ?token=, is refused without echoing it, PLN1040)."""
     name = _SPACES.sub(' ', str(name or '')).strip()
     url = str(url or '').strip() or None
     why = _SPACES.sub(' ', str(why or '')).strip() or None
     if not name: raise PlanouError(0, 'name', 'diga o nome da referencia (--name)')
     if len(name) > REF_NAME_MAX: raise PlanouError(0, 'name', f'nome acima de {REF_NAME_MAX} caracteres: resuma')
     if url:
+        if len(url) > REF_URL_MAX: raise PlanouError(0, 'url', f'--url acima de {REF_URL_MAX} caracteres: use o link curto do produto')
         u = urllib.parse.urlsplit(url)
-        if u.scheme not in ('http', 'https') or not u.netloc or len(url) > REF_URL_MAX:
+        if u.scheme not in ('http', 'https') or not u.netloc:
             raise PlanouError(0, 'url', '--url: um link que comece com http:// ou https://')
     if why and len(why) > REF_WHY_MAX: raise PlanouError(0, 'why', f'--why acima de {REF_WHY_MAX} caracteres: uma linha curta')
+    for flag, value in (('--name', name), ('--url', url), ('--why', why)):
+        if looks_secret(value):         # the value is never printed: it may be the credential itself
+            raise PlanouError(0, 'secret', f'{flag} parece ter um segredo (token, chave ou senha, inclusive no link): '
+                                           'reescreva sem ele (a referencia e o produto publico, nunca um link com acesso)')
     if not active(): raise PlanouError(0, 'inactive', 'Planou desligado para este agente (config, chave ou modo teste)')
     p = _ref_project(project)
     kept = bool(why) and _S['confidentiality'] == 'minimum'
