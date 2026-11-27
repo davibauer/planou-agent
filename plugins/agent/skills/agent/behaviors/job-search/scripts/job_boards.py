@@ -112,7 +112,7 @@ def collect(since, filter_titles=True, ignore=frozenset()):
         try:
             for v in fn(since):
                 if v['id'] in ignore: continue
-                if filter_titles and not lj.title_ok(v['title']): continue
+                if filter_titles and not (lj.title_ok(v['title']) and lj.company_ok(v.get('company'))): continue
                 v['points'], v['ptags'] = lj.score(v['title'] + '\n' + ' '.join(v['tags']) + '\n' + v['description']); v['work_format'] = lj.work_format(v['description']); v['tech_test'] = lj.tech_test(v['description'])
                 v['quick_match'] = lj.quick_match(v['title'] + '\n' + ' '.join(v['tags']) + '\n' + v['description'])
                 if filter_titles and v['points'] < lj.MIN_SCORE and not v['description']: v['points'] = max(v['points'], 0)

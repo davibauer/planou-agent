@@ -62,7 +62,7 @@ RECRUITER = {'nome': 'name', 'perfil': 'profile'}
 CLOSURE = {'tipo': 'kind', 'quando': 'when'}
 
 CONFIG = {'_nota': '_note', 'buscas': 'searches', 'cv_perfis': 'cv_profiles', 'empresas': 'companies',
-          'entrevistas_dir': 'interviews_dir', 'excluir': 'exclude', 'faixas': 'pay_ranges', 'fontes_logadas': 'logged_in_sources',
+          'entrevistas_dir': 'interviews_dir', 'excluir': 'exclude', 'excluir_empresa': 'exclude_company', 'faixas': 'pay_ranges', 'fontes_logadas': 'logged_in_sources',
           'habilidades': 'skills', 'incluir': 'include', 'mercado': 'boards', 'min_pontos': 'min_score', 'pontos': 'points',
           'fuso_horas': 'tz_hours', 'funil_md': 'pipeline_md'}
 SEARCH = {'remoto': 'remote'}

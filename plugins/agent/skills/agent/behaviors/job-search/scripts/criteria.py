@@ -23,7 +23,7 @@ from watch_core import fileio
 DIR = paths.ROOT
 CONFIG = paths.CONFIG
 LOG = paths.CRITERIA_LOG
-KEYS = {'searches': list, 'include': str, 'exclude': str, 'points': list, 'min_score': int,
+KEYS = {'searches': list, 'include': str, 'exclude': str, 'exclude_company': str, 'points': list, 'min_score': int,
           'boards': dict, 'companies': dict, 'logged_in_sources': bool, 'tz_hours': (int, float), 'pipeline_md': str, 'pay_ranges': dict,
           'skills': list, 'cv_profiles': dict, 'cv_dir': str, 'interviews_dir': str, 'applications_dir': str, 'tick_hooks': list,
           'daily_tasks': dict, 'kpi_targets': dict, 'shortlist_skip_process': str, 'saturation': dict}
@@ -64,7 +64,7 @@ def errors(c):
         if k not in KEYS: out.append(f'chave desconhecida: {k}'); continue
         if not isinstance(v, KEYS[k]) or (KEYS[k] is int and isinstance(v, bool)):
             t = KEYS[k]; out.append(f'{k}: esperado {t.__name__ if isinstance(t, type) else "numero"}')
-    for k, name in (('include', 'incluir'), ('exclude', 'excluir')):
+    for k, name in (('include', 'incluir'), ('exclude', 'excluir'), ('exclude_company', 'excluir_empresa')):
         try: re.compile(c.get(k) or '')
         except re.error as e: out.append(f'{name}: regex invalida ({e})')
     for i, p in enumerate(c.get('points') or []):
@@ -91,6 +91,7 @@ def show():
     for b in c.get('searches', []): print(f'  - {b["keywords"]}  @ {b["location"]}{" (remoto)" if b.get("remote") else ""}')
     print(f'incluir no titulo ({orig("include")}): {c.get("include")}')
     print(f'excluir do titulo ({orig("exclude")}): {c.get("exclude")}')
+    print(f'excluir pela empresa ({orig("exclude_company")}): {c.get("exclude_company") or "nenhuma"}')
     print(f'pontos ({orig("points")}): ' + ', '.join(p[1] for p in c.get('points', [])) + f'  | minimo para aparecer: {c.get("min_score")}')
     m = c.get('boards', {})
     print(f'mercado ({orig("boards")}): ' + ', '.join(m.get('sources', [])) + ''.join(f' | {f}: {", ".join(m[f])}' for f in ('wwr', 'web3career') if f in m.get('sources', []) and m.get(f)))

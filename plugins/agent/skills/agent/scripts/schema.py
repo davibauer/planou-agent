@@ -153,7 +153,7 @@ QA = 'acceptance-testing'                # the behavior that tests a delivery as
 REPO_RELEASE = ('batch', 'pr', 'ci', 'none')
 # job-search (behaviors/job-search, the job-scout instance): its data schema version and the criteria keys its scripts read (criteria.py KEYS)
 JOB_SCOUT_SCHEMA = 2
-JOB_SCOUT_KEYS = {'searches', 'include', 'exclude', 'points', 'min_score', 'boards', 'companies', 'logged_in_sources',
+JOB_SCOUT_KEYS = {'searches', 'include', 'exclude', 'exclude_company', 'points', 'min_score', 'boards', 'companies', 'logged_in_sources',
                   'pipeline_md', 'pay_ranges', 'skills', 'cv_profiles', 'cv_dir', 'interviews_dir', 'applications_dir',
                   'tick_hooks', 'daily_tasks', 'kpi_targets', 'shortlist_skip_process', 'saturation', 'test', 'mode'}
 # flight-price-watch (behaviors/flight-price-watch, the travel-agent instance): the keys of its config.json (trips, points, alert rules; config-example)

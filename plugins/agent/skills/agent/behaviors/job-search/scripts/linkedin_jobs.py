@@ -29,6 +29,7 @@ BRT = criteria.tz()                                     # historical name: it is
 SEARCHES = _CFG.get('searches') or []                 # each search = 1 call per tick; remote=True -> f_WT=2
 INCLUDE = re.compile(_CFG.get('include') or '.', re.I)
 EXCLUDE = re.compile(_CFG.get('exclude') or r'(?!x)x', re.I)
+EXCLUDE_COMPANY = re.compile(_CFG.get('exclude_company') or r'(?!x)x', re.I)   # regex on the company name; empty = cuts nothing
 POINTS = [tuple(p) for p in _CFG.get('points') or []]  # [(regex, label)]: one point per matching group; only sorts
 MIN_SCORE = int(_CFG.get('min_score') or 0)           # below this the job does not even show in the tick (shows in --all)
 # inbox and recommended use LinkedIn's internal API with the user's cookie (outside LinkedIn's terms of use):
@@ -245,6 +246,10 @@ def test_tag(v):
 def title_ok(t):
     return bool(INCLUDE.search(t)) and not EXCLUDE.search(t)
 
+def company_ok(name):
+    """False when the company name matches exclude_company (a staffing/republishing intermediary the user never wants)."""
+    return not EXCLUDE_COMPANY.search(name or '')
+
 # ---------------- Quick match (every job; the full matrix is for the strong ones) ----------------
 # Generic technology vocabulary: what the job ASKS for (found in the description) against what you HAVE (config "skills":
 # list of labels from this vocabulary, or [regex, label] for something not here). Score = have / asked. It is a cheap
@@ -305,18 +310,19 @@ def parse_since(s):
 
 # Signals for the "LinkedIn changed the HTML" alarm (scout.py reads it after each collect): raw search cards and
 # detail pages that came back without a description. A broken parser gives no error, it gives zero: without this the scout would go silent.
-LAST_COLLECTION = {'cards': 0, 'details': 0, 'empty_details': 0}
+LAST_COLLECTION = {'cards': 0, 'details': 0, 'empty_details': 0, 'company_out': 0}
 
 def collect(seconds, filter_titles=True, max_details=MAX_DETAILS_PER_TICK, ignore=frozenset(), pages=2):
     """Runs all SEARCHES, dedups by id, filters by title, fetches the detail of the candidates and scores. Returns (jobs, errors)."""
     jobs, errors = {}, []
-    LAST_COLLECTION.update(cards=0, details=0, empty_details=0)
+    LAST_COLLECTION.update(cards=0, details=0, empty_details=0, company_out=0)
     for b in SEARCHES:
         try:
             for c in search(b['keywords'], b['location'], seconds, b.get('remote', True), pages):
                 LAST_COLLECTION['cards'] += 1
                 if c['id'] in ignore or c['id'] in jobs: continue
                 if filter_titles and not title_ok(c['title']): continue
+                if filter_titles and not company_ok(c.get('company')): LAST_COLLECTION['company_out'] += 1; continue
                 c['search'] = b['keywords'][:30]; jobs[c['id']] = c
         except RuntimeError as e:
             errors.append(f'{b["keywords"][:30]} @ {b["location"]}: {e}')
@@ -363,6 +369,7 @@ def print_block(jobs, errors=()):
             print(f'-- [{v["points"]}] {v["title"]} — {v["company"]} · {v["location"]}{level}{out}{fmt}{test_tag(v)}{age(v)} · {", ".join(v["tags"]) or "-"}{extras(v)}')
             if v.get('snippet'): print(f'   {v["snippet"][:220]}…')
             print(f'   {v["url"]}')
+    if jobs and LAST_COLLECTION['company_out']: print(f'   (+{LAST_COLLECTION["company_out"]} vaga(s) fora pela empresa — exclude_company)')
     for e in errors: print(f'   (busca falhou: {e})')
     return True
 

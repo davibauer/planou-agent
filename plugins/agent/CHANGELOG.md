@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.125.0 (2026-11-27)
+- job-search: nova chave `exclude_company` no config (regex no nome da empresa, sem diferença de maiúsculas; vazia não corta nada). O porteiro agora corta pela empresa antes do juiz na busca do LinkedIn, nas recomendadas (inclusive TOP APPLICANT), nos alertas do Gmail e nas fontes externas, o que resolve intermediárias que republicam vagas em massa com título comum. A lista `companies` não é cortada, porque o usuário a escolhe. A contagem do que ficou fora mostra quando foi pela empresa. Entra em `criteria.py --show` e `--apply` (alias `excluir_empresa`).
+
 ## 0.124.6 (2026-11-26)
 - Gancho agenda: o campo `name` (o que o validador e o schema exigem) agora é o lido pelo gancho, com a chave de estado por entrada; antes só `nome` valia e várias entradas com `name` dividiam a mesma chave, então uma entrada semanal podia não disparar. `nome` continua valendo como nome antigo.
 

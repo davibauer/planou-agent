@@ -30,6 +30,7 @@
     }
   },
   "companies": {},
+  "exclude_company": "",
   "exclude": "\\b(junior|j[uú]nior|jr\\.?|est[aá]gi\\w*|intern(ship)?|trainee|pleno|sales|vendas)\\b",
   "pay_ranges": {
     "_note": "Faixas de referência (bruto mensal, equivalente PJ) por tipo de contratante. Estimativas; ajuste com dados reais (propostas, recrutadores). O anúncio, quando traz valor, sempre manda.",

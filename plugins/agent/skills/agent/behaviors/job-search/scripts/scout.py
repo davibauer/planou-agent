@@ -233,8 +233,11 @@ def tick_recommended(s, since, dry):
         if not dry: st['cursor'] = now.isoformat(); st['seen'] = [c['id'] for c in cs]
         return {'baseline': True, 'n': len(cs), 'top': [c for c in cs if c['top']]}
     seen = set(st.get('seen') or []) if since is None else set()
-    # EXCLUDE also applies to recommended, except TOP APPLICANT, which always passes
-    new = [c for c in cs if c['id'] not in seen and (c['top'] or not lj.EXCLUDE.search(c['title']))]
+    # EXCLUDE also applies to recommended, except TOP APPLICANT, which always passes; exclude_company has no such exception
+    # (a company the user said they never want does not become relevant because LinkedIn flagged the job)
+    fresh = [c for c in cs if c['id'] not in seen]
+    company_out = [c for c in fresh if not lj.company_ok(c.get('company'))]
+    new = [c for c in fresh if lj.company_ok(c.get('company')) and (c['top'] or not lj.EXCLUDE.search(c['title']))]
     for i, v in enumerate(new):
         v['points'], v['tags'] = lj.score(v['title'])
         if i >= MAX_RECO_DETAILS: continue
@@ -251,7 +254,7 @@ def tick_recommended(s, since, dry):
     if not dry:
         st['cursor'] = now.isoformat()
         st['seen'] = (list(seen) + [c['id'] for c in cs])[-MAX_SEEN:]
-    return {'baseline': False, 'new': new, 'saturated': sat}
+    return {'baseline': False, 'new': new, 'saturated': sat, 'company_out': len(company_out)}
 
 def print_recommended(r):
     if r['baseline']:
@@ -262,6 +265,7 @@ def print_recommended(r):
     if r.get('saturated'):
         print(f'   (+{len(r["saturated"])} saturada(s) fora — anuncio antigo com >100 candidatos: ' + '; '.join(f'{v["title"][:40]} — {v["company"]}' for v in r['saturated'][:5]) + ')')
         ok = True
+    if ok and r.get('company_out'): print(f'   (+{r["company_out"]} recomendada(s) fora pela empresa — exclude_company)')
     return ok
 
 # ---------------- Boards (sources outside LinkedIn) ----------------
@@ -462,9 +466,9 @@ def gmail_triage(s, subjects):
         emp, tit = m.group(1).strip(), m.group(2).strip()
         key = f'{emp.lower()}|{tit.lower()}'
         if key in seen or (emp.lower(), tit.lower()) in known: print(f'-- ja visto: {tit} — {emp}'); continue
-        ok = lj.title_ok(tit)
+        ok = lj.title_ok(tit) and lj.company_ok(emp)
         seen.add(key)
-        print(f'{"OK" if ok else "fora"}: {tit} — {emp}' + ('' if ok else ' (porteiro)'))
+        print(f'{"OK" if ok else "fora"}: {tit} — {emp}' + ('' if ok else ' (porteiro: empresa)' if lj.title_ok(tit) else ' (porteiro)'))
     st['seen'] = list(seen)[-2000:]
 
 def gmail_body(s, text):
@@ -474,7 +478,7 @@ def gmail_body(s, text):
     seen_g = set(st.get('seen') or []); seen_j = set((s.get('jobs') or {}).get('seen') or [])
     an = (s.get('jobs') or {}).get('tracked') or {}
     blocks = re.split(r'\n-{10,}\n', text)
-    jobs, out, repeated = [], [], 0
+    jobs, out, repeated, by_company = [], [], 0, 0
     for b in blocks:
         m = re.search(r'jobs/view/(\d+)', b)
         if not m: continue
@@ -484,7 +488,8 @@ def gmail_body(s, text):
         title, company, location = lines[0], lines[1], (lines[2] if len(lines) > 2 else '')
         if jid in seen_g or jid in seen_j or jid in an: repeated += 1; continue
         v = {'id': jid, 'title': title, 'company': company, 'location': location, 'url': f'https://www.linkedin.com/jobs/view/{jid}', 'search': 'gmail'}
-        (jobs if lj.title_ok(title) else out).append(v)
+        if lj.title_ok(title) and not lj.company_ok(company): by_company += 1; out.append(v)
+        else: (jobs if lj.title_ok(title) else out).append(v)
         seen_g.add(jid); seen_j.add(jid)   # marked on both outcomes; the order relative to the gatekeeper has no effect. What keeps a header-cut id free is GMAIL_ALERT_NOISE plus the len(lines) < 2 skip above
     import time
     for i, v in enumerate(jobs):
@@ -502,8 +507,9 @@ def gmail_body(s, text):
     jobs.sort(key=lambda v: (-v['points'], v['title']))
     st['seen'] = list(seen_g)[-2000:]
     s.setdefault('jobs', {})['seen'] = list(seen_j)[-MAX_SEEN:]
+    by_co = f' ({by_company} pela empresa)' if by_company else ''
     if jobs:
-        print(f'== GMAIL (alertas do LinkedIn: {len(jobs)} novas que passam no porteiro; +{len(out)} fora, {repeated} repetidas)')
+        print(f'== GMAIL (alertas do LinkedIn: {len(jobs)} novas que passam no porteiro; +{len(out)} fora{by_co}, {repeated} repetidas)')
         for v in jobs:
             level = f' · {v["level"]}' if v.get('level') else ''
             fmt = (f' · formato: {"/".join(v["work_format"])}' if v.get('work_format') else '') + lj.test_tag(v)
@@ -512,7 +518,7 @@ def gmail_body(s, text):
             print(f'   {v["url"]}')
         if saturated: print(f'   (+{len(saturated)} saturada(s) fora — anuncio antigo com >100 candidatos)')
     else:
-        print(f'gmail: nada novo que passe no porteiro (+{len(out)} fora, {len(saturated)} saturadas, {repeated} repetidas)')
+        print(f'gmail: nada novo que passe no porteiro (+{len(out)} fora{by_co}, {len(saturated)} saturadas, {repeated} repetidas)')
 
 # ---------------- Pipeline ----------------
 # Stages in order; each --job with a new status pushes onto 'history' [{when, status}] so the pipeline has dates per stage.
