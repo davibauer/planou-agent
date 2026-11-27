@@ -65,7 +65,8 @@ integrador, para colar no pedido ao integrador (sem o `--role`, o bloco é o do 
 
 1. `$A --release-queue start` (`start ok` com o OK da pessoa, ver acima): marca as branches da fila como em integração e o gancho fica quieto. Um integrador por
    vez; branch que fica pronta durante a integração entra na fila e vai no próximo lote.
-2. Um worker em background (delegate-to-worker) com o pedido: papel INTEGRADOR, as branches, a worktree de integração em
+2. Um worker em background (delegate-to-worker, pelo canal da linha `CANAL` do `--brief`: `Agent(worker)` ou o
+   comando do claude-api com a cota semanal em 90% ou mais) com o pedido: papel INTEGRADOR, as branches, a worktree de integração em
    `<worktrees>/release-<AAAAMMDD-HHMM>`, o bloco do `$A --brief <repo> --role batch-release`, a linha `regras (...)` do
    `$A --release-queue` e esta lista, que ele cumpre:
    - junta as branches numa branch de integração, com rebase na principal;

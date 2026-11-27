@@ -14,7 +14,8 @@ Usage:
                                         previous session left) when it is recent (handoff_file)
   agent.py <instance> --status          the instance at a glance (JSON)
   agent.py <instance> --brief [repo] [--role <behavior>] [--model sonnet|default] [--files "<files>"]
-                                        the worker brief of a repo in "repos", with what the role allows (dev_brief.py)
+                                        the worker brief of a repo in "repos", with what the role allows (dev_brief.py);
+                                        on top, the CANAL line: Agent(worker) or claude-api (watch_core/api_channel.py)
   agent.py <instance> --docs            the manifest of the Papel tab in Planou (files the session reads, instructions.md
                                         and CONTEXT.md editable with their content, the catalog of behaviors and the
                                         reference cases of each behavior), as the heartbeat sends it
@@ -671,6 +672,8 @@ def main(argv=None):
     if '--dry' not in rest and cfg.get('live') is True:   # PLN0982: the live tick makes a missing workspace too (test
         import workspace                           # mode touches nothing outside); a failure is a quiet AVISO (tick)
         workspace.ensure(tick=True)
+        from watch_core import api_channel     # PLN1032: the weekly quota reading into the shared history (cheap)
+        api_channel.tick()
     import job_scout
     if job_scout.on(cfg): sys.exit(job_scout.run(cfg, rest, lambda: docs_manifest(cfg)))
     import travel_agent

@@ -11,6 +11,34 @@ kind: always
 Quando um pedido exige várias rodadas de leitura, edição ou teste (implementar, corrigir, abrir PR, investigar a
 fundo), a sessão não faz: delega ao subagent `worker` em background e fica livre para o runner e para o usuário.
 
+## O canal: Agent(worker) ou claude-api
+
+A primeira linha do `--brief` é `CANAL:` e diz por onde o worker sai (as linhas `CANAL`, `COMANDO` e `CANAL 99%` são
+da sessão e nunca vão no pedido ao worker, nos dois canais), sem a sessão precisar ler a statusline (regra do
+usuário para todos os agentes; PLN1032). O `--brief` lê a cota semanal da assinatura (a leitura da statusline em
+`~/.cache/claude-rate-limits/<conta>.latest.json`) e o saldo dos créditos de API (`claude-api --saldo`), pelas mesmas
+regras do wrapper `~/.local/bin/claude-api`:
+
+- `CANAL: agent (...)`: abaixo de 90%, sem leitura, com a janela da cota já virada, sem o claude-api neste computador ou
+  com o saldo no teto. O worker sai pelo `Agent(worker)` de sempre.
+- `CANAL: claude-api (...)`: 90% ou mais com saldo. O worker é um processo novo pelos créditos de API: gravar o pedido
+  inteiro (pedido literal, contexto e o bloco do `--brief`, sem as linhas do canal, para o worker não tentar delegar
+  de novo) num arquivo do scratchpad e rodar a linha `COMANDO` em background (Bash com
+  `run_in_background`), trocando `<PID>`, `<o que faz>` e `<scratchpad>`. Ela já traz `--permission-mode
+  bypassPermissions`, o `--model sonnet` quando o `--brief` recebeu `--model sonnet`, os `--add-dir` do workspace da
+  instância e da worktree, o `CLAUDE_API_JSON` (o JSON da volta: tokens, custo, resultado) e o `CLAUDE_API_LABEL`. A
+  volta é o texto do resultado na saída do comando. Exit 4 (cota abaixo de 90%) ou 3 (saldo no teto): o mesmo pedido
+  vai pelo `Agent(worker)`, sem perguntar.
+- `CANAL 99%`: a cota passou de 99%; a própria sessão para de trabalhar com ferramentas e manda tudo para o
+  claude-api, inclusive o que faria sozinha.
+
+A linha diz a porcentagem, desde quando a cota está acima de 90% nesta janela ("pelo menos desde" quando o histórico
+começou já acima de 90%; o histórico que o `--brief` e o tick
+pesado guardam em `~/.config/agent/api-quota-history.jsonl`, uma linha por leitura nova) e, com leitura de mais de
+1 h, `leitura de HH:MM` (a cota só cresce dentro da janela: pode estar maior). Pedido que não passa pelo `--brief` (sem
+repositório) segue a mesma regra: `python3 $S/scripts/watch_core/api_channel.py [pastas do --add-dir]` imprime só as
+linhas `CANAL` e `COMANDO`.
+
 ## O pedido ao worker
 
 Montar com tudo que ele precisa, sem ele ter de perguntar. O que é do projeto sai do config, não deste texto:
@@ -84,12 +112,12 @@ Projeto novo com o mesmo jeito de trabalhar: uma entrada nova em `repos`, sem c�
 
 ## Ao delegar
 
-Logo depois do `Agent(worker)`, registrar o início no Planou: `$PL fila worker-start <PID> --role dev --label '<o que
+Logo depois do `Agent(worker)` (ou do comando do claude-api, linha `CANAL`), registrar o início no Planou: `$PL fila worker-start <PID> --role dev --label '<o que
 ele faz, uma linha>'` (sem tarefa do Planou: abrir antes com `$PL tarefa nova --title '...'`, que devolve o PID, e
 `$PL worker start --task <PID> --role dev|other --label '...'`, com o PID na descrição do `Agent`; só o que não é
 trabalho, como uma consulta, vai sem tarefa: `$PL worker start --role other --label '...'`). A saída é a key: guardar
 na conversa, junto com o `output_file` que o `Agent` devolveu (o registro do worker; nunca ler esse arquivo na sessão).
-Sem o `output_file` à mão, o `agentId` do worker serve. Retrabalho do mesmo worker ainda em andamento (continuado por mensagem) reusa a key; worker novo abre outra.
+Sem o `output_file` à mão, o `agentId` do worker serve; pelo claude-api, o arquivo do `CLAUDE_API_JSON` faz as vezes do `output_file`. Retrabalho do mesmo worker ainda em andamento (continuado por mensagem) reusa a key; worker novo abre outra.
 
 ## Quando ele volta
 

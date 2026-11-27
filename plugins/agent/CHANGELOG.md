@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.126.0 (2026-11-27)
+- `--brief`: a primeira linha agora é `CANAL:` e decide sozinha por onde o worker sai. Com a cota semanal da assinatura em 90% ou mais e saldo nos créditos de API, `CANAL: claude-api` com o comando pronto (`claude-api --permission-mode bypassPermissions`, os `--add-dir` do workspace e da worktree, o pedido pelo stdin, `CLAUDE_API_JSON` e `CLAUDE_API_LABEL`); abaixo de 90%, sem leitura, com a janela virada ou com o saldo no teto, `CANAL: agent`. A 99%, uma linha a mais diz que a sessão também passa a trabalhar só pelo claude-api. A sessão não depende mais de lembrar de ler a statusline antes de delegar.
+- Histórico da cota semanal em `~/.config/agent/api-quota-history.jsonl`, gravado pelo `--brief` e pelo tick pesado (só leitura nova, oito dias): a linha `CANAL` diz desde quando a cota está acima de 90% na janela e, com leitura de mais de 1 h, `leitura de HH:MM`.
+- delegate-to-worker e batch-release: a sessão segue a linha `CANAL` (o integrador também), e exit 4 ou 3 do claude-api volta ao `Agent(worker)`.
+
 ## 0.125.0 (2026-11-27)
 - job-search: nova chave `exclude_company` no config (regex no nome da empresa, sem diferença de maiúsculas; vazia não corta nada). O porteiro agora corta pela empresa antes do juiz na busca do LinkedIn, nas recomendadas (inclusive TOP APPLICANT), nos alertas do Gmail e nas fontes externas, o que resolve intermediárias que republicam vagas em massa com título comum. A lista `companies` não é cortada, porque o usuário a escolhe. A contagem do que ficou fora mostra quando foi pela empresa. Entra em `criteria.py --show` e `--apply` (alias `excluir_empresa`).
 

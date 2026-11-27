@@ -33,6 +33,8 @@ PLN1027: PESADO tells the worker to run builds, test suites and renders through 
 works in another repository) and never two .NET builds or tests at once.
 PLN0054: `--role prototype` is the brief of a worker whose output never enters the repository (SCRATCH_ROLES): no
 worktree (the scratchpad), no release, the PNGs as the done criterion.
+PLN1032: the CANAL line on top (cli only, brief() stays pure): Agent(worker) or claude-api, decided by
+watch_core.api_channel from the weekly quota and the API credit, with the ready command when it is claude-api.
 """
 import os, re, subprocess
 
@@ -297,7 +299,31 @@ def cli(cfg, rest, behavior_file=None):
         raise SystemExit(f'sem repositorio {key!r} em "repos" (tem: {names})' if key else
                          'sem "repos" no config nem descoberto: passe o link da PR (--brief <pr_url>); o repositorio e '
                          'clonado em ~/src/<nome> e lido (repo_discovery.py)')
-    print('\n'.join(lines))
+    print('\n'.join(channel(cfg, pick(cfg, key), model) + lines))
+
+
+def channel(cfg, repo, model=None):
+    """PLN1032: the CANAL line on top of the brief (watch_core.api_channel): Agent(worker) or claude-api, decided from
+    the weekly quota and the API credit, with the ready command; the --add-dir are the instance's workspace and, for a
+    dev repo, its worktrees folder and its path (the ones that exist). Any failure is the agent channel, said so."""
+    from watch_core import api_channel
+    try:
+        d = api_channel.decide()
+    except Exception as e:
+        return [f'CANAL: agent (cota nao conferida: {type(e).__name__}): Agent(worker) pela assinatura']
+    if d['channel'] != 'claude-api': return api_channel.lines(d)
+    import paths
+    dirs = []
+    try: dirs.append(paths.WORKSPACE or paths.workspace_for(cfg, paths.NAME))
+    except (ValueError, TypeError): pass
+    if repo:
+        path = repo['path']
+        dirs += [repo.get('worktrees') or os.path.join(os.path.dirname(os.path.normpath(path)) or '.', 'wt'), path]
+    seen = []
+    for x in dirs:
+        x = os.path.normpath(os.path.expanduser(x)) if x else None
+        if x and os.path.isdir(x) and x not in seen: seen.append(x)
+    return api_channel.lines(d, seen, 'sonnet' if model == 'sonnet' else None)
 
 
 def slug(path):
